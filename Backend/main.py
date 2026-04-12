@@ -17,6 +17,7 @@ from agents import (
     executor_node,
     needs_healing,
     SAMPLE_ORGANIZATION_STORY,
+    SAMPLE_ORGANIZATION_ACS,
 )
 from state import ProjectState
 
@@ -47,6 +48,9 @@ def main() -> ProjectState:
     app = build_graph()
     initial = ProjectState(
         user_story=SAMPLE_ORGANIZATION_STORY,
+        acceptance_criteria=list(SAMPLE_ORGANIZATION_ACS),
+        story_title="Create Organization",
+        story_id="ORG-001",
         module="Organization",
     )
     return app.invoke(initial)

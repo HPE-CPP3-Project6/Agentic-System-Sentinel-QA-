@@ -78,6 +78,9 @@ class ProjectState(BaseModel):
     """Single source of truth threaded through the LangGraph pipeline."""
 
     user_story: str
+    story_title: Optional[str] = None
+    story_id: Optional[str] = None
+    acceptance_criteria: List[str] = Field(default_factory=list)
     module: Optional[str] = None
 
     validated_requirements: List[ValidatedRequirement] = Field(default_factory=list)

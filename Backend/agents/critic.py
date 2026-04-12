@@ -1,13 +1,16 @@
 """Agent A — The Critic / Requirement Analyst.
 
-Validates the incoming User Story for ambiguity and maps it to OWASP Top 10 risks
-before any test generation happens.
+Consumes a User Story together with its author-provided Acceptance Criteria,
+audits each AC for ambiguity and testability, and maps to OWASP Top 10 only
+where the risk is genuine (no force-fitting security tags onto purely
+functional requirements).
 """
 
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+import re
+from typing import Any, Dict, List
 
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -16,34 +19,60 @@ from utils import get_local_llm
 
 
 CRITIC_SYSTEM_PROMPT = """You are Agent A — The Critic, a senior requirements analyst
-for HPE's Sentinel-QA pipeline. You audit User Stories before any test case is written.
+for HPE's Sentinel-QA pipeline. You audit User Stories and their author-provided
+Acceptance Criteria BEFORE any test case is written.
 
-Your responsibilities:
-1. Detect ambiguity: vague quantifiers ("fast", "secure", "some"), missing actors,
-   undefined error paths, or unverifiable acceptance criteria.
-2. Split compound stories into atomic, testable requirements.
-3. Map each requirement to applicable OWASP Top 10 (2021) categories, with emphasis
-   on injection, broken access control, and cryptographic failures for enterprise
-   modules like 'Organization'.
-4. Output ONLY valid JSON matching this schema:
+Ground rules:
+1. Treat each supplied Acceptance Criterion as the primary unit of requirement.
+   Produce exactly one ValidatedRequirement per AC, preserving the original
+   statement in `statement`. If an AC is compound (contains "and"/"or" joining
+   two independently testable behaviours), split it and suffix the id (e.g.
+   REQ-003a, REQ-003b).
+2. Score ambiguity in [0.0, 1.0]:
+     0.0  — fully unambiguous, deterministically testable.
+     0.3  — minor gap (missing edge case, implicit default).
+     0.6  — vague quantifier / undefined term ("fast", "clean", "immediately").
+     0.9+ — unverifiable or contradicts another AC.
+   Put the reason in `ambiguity_notes` whenever score > 0.0, else null.
+3. For every AC emit 1–3 concrete Given/When/Then style acceptance_criteria
+   entries that a test generator can turn into executable steps.
+4. OWASP mapping is CONSERVATIVE. Only tag a requirement when the AC plausibly
+   touches an attack surface:
+     - A01 Broken Access Control — filtering, sorting, or viewing data that
+       could cross tenant / user boundaries.
+     - A03 Injection — any filter value, sort key, or search string that
+       likely flows into a query, ORM filter, or DOM sink.
+     - A04 Insecure Design — client-only filtering that can be bypassed,
+       default views that leak data, reset flows that skip authZ.
+     - A08 Software & Data Integrity — sort/filter state persisted without
+       integrity checks.
+   Pure UI rendering or pure comparison logic with no external input gets an
+   empty `owasp_mapping` — do NOT invent risks.
+5. The top-level `risks` array aggregates distinct OWASP categories that apply
+   to this story. If none apply, return an empty list. Severity must be one of
+   "Low" | "Medium" | "High" | "Critical" and reflect real blast radius
+   (a filter bypass that reveals other tenants' data is High; a sort default
+   regression is Low).
+
+Output ONLY valid JSON — no markdown fences, no commentary — matching:
 
 {{
   "requirements": [
     {{
       "requirement_id": "REQ-001",
-      "statement": "<atomic, testable statement>",
+      "statement": "<original or atomic split of the AC>",
       "ambiguity_score": 0.0,
-      "ambiguity_notes": "<null or explanation>",
-      "owasp_mapping": ["A03:2021-Injection"],
-      "acceptance_criteria": ["<Given/When/Then style>"]
+      "ambiguity_notes": null,
+      "owasp_mapping": [],
+      "acceptance_criteria": ["Given ..., When ..., Then ..."]
     }}
   ],
   "risks": [
     {{
       "owasp_id": "A03:2021",
       "title": "Injection",
-      "severity": "High",
-      "rationale": "<why this story exposes this risk>",
+      "severity": "Medium",
+      "rationale": "<why THIS story exposes this risk>",
       "affected_requirements": ["REQ-001"]
     }}
   ]
@@ -52,10 +81,16 @@ Your responsibilities:
 
 
 CRITIC_USER_PROMPT = """Module: {module}
+Story ID: {story_id}
+Story Title: {story_title}
+
 User Story:
 \"\"\"{user_story}\"\"\"
 
-Analyse the story. Return JSON only — no prose, no markdown fences."""
+Author-provided Acceptance Criteria:
+{acceptance_block}
+
+Audit the story. Return JSON only."""
 
 
 SAMPLE_ORGANIZATION_STORY = (
@@ -64,19 +99,54 @@ SAMPLE_ORGANIZATION_STORY = (
     "so that downstream services can provision isolated resources for that tenant."
 )
 
+SAMPLE_ORGANIZATION_ACS: List[str] = [
+    "The legal name field must reject empty strings and strings longer than 255 characters.",
+    "Submitting a duplicate legal name must return a 409 Conflict without creating a record.",
+    "On success the API must return the new organization_id and persist the contact email.",
+]
+
+
+# Example from the task-manager spec — used for smoke-testing the Critic on
+# functional stories where OWASP mapping should remain mostly empty.
+SAMPLE_FILTER_STORY = (
+    "As a user, I want to filter my tasks by priority so that I can focus on "
+    "high-priority items first."
+)
+SAMPLE_FILTER_ACS: List[str] = [
+    "The filter dropdown must contain: All, Low, Medium, High.",
+    "Selecting 'High' must hide all Low and Medium priority tasks immediately.",
+    "Selecting 'All' must reset the view to show all tasks regardless of priority.",
+]
+
+
+_JSON_OBJ_RE = re.compile(r"\{.*\}", re.DOTALL)
+
 
 def _parse_response(raw: str) -> Dict[str, Any]:
+    """Tolerant JSON extraction — handles stray prose or ```json fences."""
     text = raw.strip()
     if text.startswith("```"):
         text = text.strip("`")
         if text.lower().startswith("json"):
             text = text[4:]
         text = text.strip()
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        match = _JSON_OBJ_RE.search(text)
+        if not match:
+            raise
+        return json.loads(match.group(0))
+
+
+def _format_acceptance_block(acs: List[str]) -> str:
+    if not acs:
+        return "(none provided — infer reasonable ACs from the story)"
+    return "\n".join(f"  AC{i+1}: {ac}" for i, ac in enumerate(acs))
 
 
 def critic_node(state: ProjectState) -> ProjectState:
-    """LangGraph node: analyse state.user_story → populate validated_requirements + security_risks."""
+    """LangGraph node: audit user_story + acceptance_criteria → validated_requirements + security_risks."""
 
     llm = get_local_llm(temperature=0.0)
     prompt = ChatPromptTemplate.from_messages(
@@ -84,7 +154,13 @@ def critic_node(state: ProjectState) -> ProjectState:
     )
     chain = prompt | llm
     response = chain.invoke(
-        {"module": state.module or "Unknown", "user_story": state.user_story}
+        {
+            "module": state.module or "Unknown",
+            "story_id": state.story_id or "N/A",
+            "story_title": state.story_title or "N/A",
+            "user_story": state.user_story,
+            "acceptance_block": _format_acceptance_block(state.acceptance_criteria),
+        }
     )
 
     payload = _parse_response(response.content)
