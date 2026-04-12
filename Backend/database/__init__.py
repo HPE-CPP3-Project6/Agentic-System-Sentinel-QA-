@@ -1,3 +1,17 @@
-from .vector_store import get_chroma_client, get_or_create_collection, query_source_context
+from .vector_store import (
+    SourceSnippet,
+    get_chroma_client,
+    get_or_create_collection,
+    ingest_source_tree,
+    query_source_context,
+    query_source_snippets,
+)
 
-__all__ = ["get_chroma_client", "get_or_create_collection", "query_source_context"]
+__all__ = [
+    "SourceSnippet",
+    "get_chroma_client",
+    "get_or_create_collection",
+    "ingest_source_tree",
+    "query_source_context",
+    "query_source_snippets",
+]
