@@ -25,7 +25,10 @@ Ground rules:
    Produce exactly one ValidatedRequirement per AC, preserving the original
    statement in `statement`. If an AC is compound (contains "and"/"or" joining
    two independently testable behaviours), split it and suffix the id (e.g.
-   REQ-003a, REQ-003b).
+   REQ-003a, REQ-003b). When you split, REWRITE each half as a complete
+   standalone sentence — never emit a grammatical fragment that begins with
+   "and", "or", or a dangling clause. Bad: "and persist the contact email."
+   Good: "The API must persist the contact email on success."
 2. Score ambiguity in [0.0, 1.0]:
      0.0  — fully unambiguous, deterministically testable.
      0.3  — minor gap (missing edge case, implicit default).
@@ -34,18 +37,28 @@ Ground rules:
    Put the reason in `ambiguity_notes` whenever score > 0.0, else null.
 3. For every AC emit 1–3 concrete Given/When/Then style acceptance_criteria
    entries that a test generator can turn into executable steps.
-4. OWASP mapping is CONSERVATIVE. Only tag a requirement when the AC plausibly
-   touches an attack surface:
-     - A01 Broken Access Control — filtering, sorting, or viewing data that
-       could cross tenant / user boundaries.
-     - A03 Injection — any filter value, sort key, or search string that
-       likely flows into a query, ORM filter, or DOM sink.
-     - A04 Insecure Design — client-only filtering that can be bypassed,
-       default views that leak data, reset flows that skip authZ.
-     - A08 Software & Data Integrity — sort/filter state persisted without
-       integrity checks.
-   Pure UI rendering or pure comparison logic with no external input gets an
-   empty `owasp_mapping` — do NOT invent risks.
+4. OWASP mapping is STRICT. Tag a requirement only when the AC itself names
+   a concrete attack surface — evidence must be visible IN the AC text, not
+   inferred from "this input might one day reach a database":
+     - A01 Broken Access Control — the AC explicitly concerns cross-tenant
+       or cross-user data visibility, privilege elevation, or authZ checks.
+     - A03 Injection — the AC describes a value flowing into a query,
+       command, template, or other interpreter (e.g., a search string that
+       filters DB rows, a filter value templated into SQL, user HTML that
+       renders in the DOM). Bare input validation, length limits, format
+       checks, and plain persistence DO NOT qualify.
+     - A04 Insecure Design — a required SECURITY CONTROL is missing by
+       design: rate limiting, MFA, step-up auth, session binding, etc.
+       Data-constraint violations (duplicate checks, length bounds,
+       uniqueness) are FUNCTIONAL requirements, not A04.
+     - A08 Software & Data Integrity — integrity verification of signed or
+       serialised data, software updates, or CI/CD artifacts. Plain uniqueness
+       constraints or business-rule enforcement DO NOT qualify.
+
+   Hard filter: if the only justification you can write contains the word
+   "could", "might", or "may be", you are speculating — DROP the mapping.
+   Prefer `"owasp_mapping": []` with empty `risks` over a weak tag. Forcing
+   a tag pollutes the downstream Red-Teamer with irrelevant payloads.
 5. The top-level `risks` array aggregates distinct OWASP categories that apply
    to this story. If none apply, return an empty list. Severity must be one of
    "Low" | "Medium" | "High" | "Critical" and reflect real blast radius

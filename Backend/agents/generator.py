@@ -28,7 +28,7 @@ from state import (
     TestCase,
     ValidatedRequirement,
 )
-from utils import get_local_llm, parse_llm_json
+from utils import get_local_llm, inflate_placeholders, parse_llm_json
 
 
 GENERATOR_SYSTEM_PROMPT = """You are Agent B — The Generator, a senior SDET for HPE's
@@ -55,7 +55,17 @@ Rules:
 5. If an AC is UNVERIFIABLE — vague ("fast", "intuitive", "secure") with no
    measurable threshold, or missing an observable outcome — DO NOT invent a
    test. Emit a `coverage_gaps` entry explaining why.
-6. Output STRICT JSON. No prose, no markdown fences, no trailing commentary.
+6. When a string of a SPECIFIC character length is required (boundary tests
+   like "max 255", "min 1", "exactly N"), DO NOT write the string out yourself
+   — you will miscount. Emit the placeholder `<STRING:len=N>` as the value
+   and the runtime will expand it to exactly N alphanumeric characters.
+   Examples:
+     - pass case for "<= 255 chars":  `"legal_name": "<STRING:len=255>"`
+     - fail case for "> 255 chars":   `"legal_name": "<STRING:len=256>"`
+     - min-length pass:               `"legal_name": "<STRING:len=1>"`
+   Use literal strings only when the EXACT content matters (a specific email,
+   a named duplicate value, etc.), not when only the length matters.
+7. Output STRICT JSON. No prose, no markdown fences, no trailing commentary.
 
 Schema:
 {{
@@ -176,6 +186,9 @@ def generator_node(state: ProjectState) -> ProjectState:
             tc["test_id"] = f"TC-{req.requirement_id}-{idx:02d}"
             if not tc.get("source_refs") and retrieved_refs:
                 tc["source_refs"] = retrieved_refs[:2]
+            tc["input_data"] = inflate_placeholders(tc.get("input_data", {}))
+            if "expected_result" in tc:
+                tc["expected_result"] = inflate_placeholders(tc["expected_result"])
             new_tests.append(TestCase(**tc))
 
         for gap in payload.get("coverage_gaps", []):
