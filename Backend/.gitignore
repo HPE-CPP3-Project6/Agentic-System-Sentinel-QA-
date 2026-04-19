@@ -3,3 +3,4 @@ __pycache__/
 .env
 database/chroma_store/
 .venv/
+.claude

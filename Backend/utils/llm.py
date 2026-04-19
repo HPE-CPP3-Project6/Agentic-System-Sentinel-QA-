@@ -43,8 +43,8 @@ def get_local_llm(
         "google_api_key": api_key,
     }
     if json_mode:
-        # Gemini's structured-output switch. Supported in langchain-google-genai
-        # 2.x via model_kwargs forwarded into generation_config.
-        kwargs["model_kwargs"] = {"response_mime_type": "application/json"}
+        # Gemini structured-output switch. Pass as a direct kwarg — recent
+        # langchain-google-genai versions warn if it's nested under model_kwargs.
+        kwargs["response_mime_type"] = "application/json"
 
     return ChatGoogleGenerativeAI(**kwargs)
