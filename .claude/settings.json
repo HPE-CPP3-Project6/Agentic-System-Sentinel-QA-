@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(p, encoding='utf-8'\\).read\\(\\)\\) for p in ['utils/llm.py','state/project_state.py','agents/critic.py','agents/generator.py','database/vector_store.py','database/ingest.py','run_critic_generator.py']]; print\\('all ok'\\)\")",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(p, encoding='utf-8'\\).read\\(\\)\\) for p in ['utils/llm.py','utils/json_parse.py','utils/__init__.py','agents/critic.py','agents/generator.py']]; print\\('ok'\\)\")"
+    ]
+  }
+}

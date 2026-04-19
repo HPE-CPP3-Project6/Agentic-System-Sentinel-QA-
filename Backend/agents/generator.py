@@ -17,7 +17,6 @@ Design points:
 from __future__ import annotations
 
 import json
-import re
 from typing import Any, Dict, List
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -29,7 +28,7 @@ from state import (
     TestCase,
     ValidatedRequirement,
 )
-from utils import get_local_llm
+from utils import get_local_llm, parse_llm_json
 
 
 GENERATOR_SYSTEM_PROMPT = """You are Agent B — The Generator, a senior SDET for HPE's
@@ -97,9 +96,6 @@ Relevant source context (React + FastAPI):
 Emit JSON only, following the schema exactly."""
 
 
-_JSON_OBJ_RE = re.compile(r"\{.*\}", re.DOTALL)
-
-
 def _format_acceptance_criteria(criteria: List[str]) -> str:
     if not criteria:
         return "  (none supplied — treat entire statement as the implicit AC)"
@@ -109,22 +105,6 @@ def _format_acceptance_criteria(criteria: List[str]) -> str:
 def _build_retrieval_query(req: ValidatedRequirement) -> str:
     ac_text = " ".join(req.acceptance_criteria)
     return f"{req.statement}\n{ac_text}".strip()
-
-
-def _parse_response(raw: str) -> Dict[str, Any]:
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.lower().startswith("json"):
-            text = text[4:]
-        text = text.strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        match = _JSON_OBJ_RE.search(text)
-        if not match:
-            raise
-        return json.loads(match.group(0))
 
 
 def _snippet_header(s: SourceSnippet) -> str:
@@ -157,7 +137,7 @@ def _generate_for_requirement(
             "source_context": source_context,
         }
     )
-    payload = _parse_response(response.content)
+    payload = parse_llm_json(response.content)
     payload["_raw"] = response.content
     return payload, snippets
 
@@ -169,7 +149,7 @@ def generator_node(state: ProjectState) -> ProjectState:
         state.metadata["generator_skipped"] = "no validated_requirements in state"
         return state
 
-    llm = get_local_llm(temperature=0.1)
+    llm = get_local_llm(temperature=0.1, json_mode=True)
 
     new_tests: List[TestCase] = []
     new_gaps: List[CoverageGap] = []

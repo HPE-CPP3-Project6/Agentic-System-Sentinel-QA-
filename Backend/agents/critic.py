@@ -8,14 +8,12 @@ functional requirements).
 
 from __future__ import annotations
 
-import json
-import re
-from typing import Any, Dict, List
+from typing import List
 
 from langchain_core.prompts import ChatPromptTemplate
 
 from state import ProjectState, ValidatedRequirement, SecurityRisk
-from utils import get_local_llm
+from utils import get_local_llm, parse_llm_json
 
 
 CRITIC_SYSTEM_PROMPT = """You are Agent A — The Critic, a senior requirements analyst
@@ -119,26 +117,6 @@ SAMPLE_FILTER_ACS: List[str] = [
 ]
 
 
-_JSON_OBJ_RE = re.compile(r"\{.*\}", re.DOTALL)
-
-
-def _parse_response(raw: str) -> Dict[str, Any]:
-    """Tolerant JSON extraction — handles stray prose or ```json fences."""
-    text = raw.strip()
-    if text.startswith("```"):
-        text = text.strip("`")
-        if text.lower().startswith("json"):
-            text = text[4:]
-        text = text.strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        match = _JSON_OBJ_RE.search(text)
-        if not match:
-            raise
-        return json.loads(match.group(0))
-
-
 def _format_acceptance_block(acs: List[str]) -> str:
     if not acs:
         return "(none provided — infer reasonable ACs from the story)"
@@ -148,7 +126,7 @@ def _format_acceptance_block(acs: List[str]) -> str:
 def critic_node(state: ProjectState) -> ProjectState:
     """LangGraph node: audit user_story + acceptance_criteria → validated_requirements + security_risks."""
 
-    llm = get_local_llm(temperature=0.0)
+    llm = get_local_llm(temperature=0.0, json_mode=True)
     prompt = ChatPromptTemplate.from_messages(
         [("system", CRITIC_SYSTEM_PROMPT), ("user", CRITIC_USER_PROMPT)]
     )
@@ -163,7 +141,7 @@ def critic_node(state: ProjectState) -> ProjectState:
         }
     )
 
-    payload = _parse_response(response.content)
+    payload = parse_llm_json(response.content)
 
     state.validated_requirements = [
         ValidatedRequirement(**r) for r in payload.get("requirements", [])

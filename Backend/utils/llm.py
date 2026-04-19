@@ -9,22 +9,42 @@ HPE re-imposes air-gapped execution.
 from __future__ import annotations
 
 import os
+
+from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+load_dotenv()
 
-def get_local_llm(temperature: float = 0.1, model: str | None = None) -> ChatGoogleGenerativeAI:
+
+def get_local_llm(
+    temperature: float = 0.1,
+    model: str | None = None,
+    json_mode: bool = False,
+) -> ChatGoogleGenerativeAI:
     """Return a ChatGoogleGenerativeAI instance configured for Gemini 2.5 Flash.
 
-    The function name is kept for backward compatibility with existing agents;
-    despite the name, the model is hosted by Google.
+    Args:
+        temperature: sampling temperature.
+        model: override the model id (defaults to SENTINEL_LLM_MODEL or
+            "gemini-2.5-flash").
+        json_mode: if True, force Gemini to emit `application/json` so every
+            response is parseable without regex scraping. Every agent that
+            returns structured output should set this.
     """
     api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError(
             "GOOGLE_API_KEY (or GEMINI_API_KEY) is not set — required for Gemini 2.5 Flash."
         )
-    return ChatGoogleGenerativeAI(
-        model=model or os.getenv("SENTINEL_LLM_MODEL", "gemini-2.5-flash"),
-        temperature=temperature,
-        google_api_key=api_key,
-    )
+
+    kwargs = {
+        "model": model or os.getenv("SENTINEL_LLM_MODEL", "gemini-2.5-flash"),
+        "temperature": temperature,
+        "google_api_key": api_key,
+    }
+    if json_mode:
+        # Gemini's structured-output switch. Supported in langchain-google-genai
+        # 2.x via model_kwargs forwarded into generation_config.
+        kwargs["model_kwargs"] = {"response_mime_type": "application/json"}
+
+    return ChatGoogleGenerativeAI(**kwargs)
