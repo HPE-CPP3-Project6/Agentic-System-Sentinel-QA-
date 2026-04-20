@@ -21,8 +21,9 @@ def get_local_llm(
     temperature: float = 0.1,
     model: str | None = None,
     json_mode: bool = False,
+    location: str | None = None,
 ) -> ChatVertexAI:
-    """Return a ChatVertexAI instance configured for Gemini 2.5 Flash.
+    """Return a ChatVertexAI instance configured for Gemini models.
 
     Args:
         temperature: sampling temperature.
@@ -31,9 +32,11 @@ def get_local_llm(
         json_mode: if True, force Vertex AI to emit `application/json` so every
             response is parseable without regex scraping. Every agent that
             returns structured output should set this.
+        location: override the location (defaults to VERTEX_AI_LOCATION or
+            "us-central1"). Use "global" for Gemini 1.5/3.1 models.
     """
     project_id = os.getenv("VERTEX_AI_PROJECT_ID", "chessworld-test")
-    location = os.getenv("VERTEX_AI_LOCATION", "us-central1")
+    location = location or os.getenv("VERTEX_AI_LOCATION", "us-central1")
     
     # Initialize Vertex AI
     vertexai.init(project=project_id, location=location)

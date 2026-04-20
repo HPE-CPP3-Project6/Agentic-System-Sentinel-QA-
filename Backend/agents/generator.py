@@ -28,7 +28,7 @@ from state import (
     TestCase,
     ValidatedRequirement,
 )
-from utils import get_local_llm, inflate_placeholders, parse_llm_json
+from utils import get_local_llm, inflate_placeholders, parse_llm_json, stringify_response
 
 
 GENERATOR_SYSTEM_PROMPT = """You are Agent B — The Generator, a senior SDET for HPE's
@@ -185,7 +185,7 @@ def _generate_for_requirement(
         }
     )
     payload = parse_llm_json(response.content)
-    payload["_raw"] = response.content
+    payload["_raw"] = stringify_response(response.content)
     return payload, snippets
 
 

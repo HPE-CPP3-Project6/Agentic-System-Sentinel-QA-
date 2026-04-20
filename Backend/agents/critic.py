@@ -8,12 +8,14 @@ functional requirements).
 
 from __future__ import annotations
 
+import json
+import os
 from typing import List
 
 from langchain_core.prompts import ChatPromptTemplate
 
 from state import ProjectState, ValidatedRequirement, SecurityRisk
-from utils import get_local_llm, parse_llm_json
+from utils import get_local_llm, parse_llm_json, stringify_response
 
 
 CRITIC_SYSTEM_PROMPT = """You are Agent A — The Critic, a senior requirements analyst
@@ -255,9 +257,19 @@ def _format_acceptance_block(acs: List[str]) -> str:
 
 
 def critic_node(state: ProjectState) -> ProjectState:
-    """LangGraph node: audit user_story + acceptance_criteria → validated_requirements + security_risks."""
+    """LangGraph node: audit user_story + acceptance_criteria → validated_requirements + security_risks.
+    
+    Can be customized via environment variables:
+    - SENTINEL_LLM_MODEL: model name (e.g., "gemini-3.1-pro-preview")
+    - VERTEX_AI_LOCATION: location (e.g., "global" for Gemini 3.1)
+    """
 
-    llm = get_local_llm(temperature=0.0, json_mode=True)
+    llm = get_local_llm(
+        temperature=0.0,
+        json_mode=True,
+        model=os.getenv("SENTINEL_LLM_MODEL"),  # Allow override
+        location=os.getenv("VERTEX_AI_LOCATION"),  # Allow override
+    )
     prompt = ChatPromptTemplate.from_messages(
         [("system", CRITIC_SYSTEM_PROMPT), ("user", CRITIC_USER_PROMPT)]
     )
@@ -272,11 +284,18 @@ def critic_node(state: ProjectState) -> ProjectState:
         }
     )
 
-    payload = parse_llm_json(response.content)
+    try:
+        payload = parse_llm_json(response.content)
+    except (ValueError, json.JSONDecodeError) as exc:
+        print(f"\n[ERROR] Failed to parse Critic JSON: {exc}")
+        # Return with empty requirements and risks if parsing fails
+        state.metadata["critic_error"] = str(exc)
+        state.metadata["critic_raw"] = stringify_response(response.content)
+        return state
 
     state.validated_requirements = [
         ValidatedRequirement(**r) for r in payload.get("requirements", [])
     ]
     state.security_risks = [SecurityRisk(**r) for r in payload.get("risks", [])]
-    state.metadata["critic_raw"] = response.content
+    state.metadata["critic_raw"] = stringify_response(response.content)
     return state
