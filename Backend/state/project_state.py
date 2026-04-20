@@ -11,6 +11,10 @@ class ValidatedRequirement(BaseModel):
     statement: str
     ambiguity_score: float = Field(ge=0.0, le=1.0)
     ambiguity_notes: Optional[str] = None
+    # NEW: Severity scoring (1-10) and dependency tracking
+    severity_score: int = Field(ge=1, le=10, default=5)  # 1=low, 10=critical
+    severity_rationale: Optional[str] = None  # Why this severity level
+    dependencies: List[str] = Field(default_factory=list)  # Other requirement IDs this depends on
     owasp_mapping: List[str] = Field(default_factory=list)
     acceptance_criteria: List[str] = Field(default_factory=list)
 
