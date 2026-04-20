@@ -26,6 +26,16 @@ from agents import (
     SAMPLE_FILTER_STORY,
     SAMPLE_ORGANIZATION_ACS,
     SAMPLE_ORGANIZATION_STORY,
+    SAMPLE_LOGIN_ACS,
+    SAMPLE_LOGIN_STORY,
+    SAMPLE_SEARCH_ACS,
+    SAMPLE_SEARCH_STORY,
+    SAMPLE_PERMISSIONS_ACS,
+    SAMPLE_PERMISSIONS_STORY,
+    SAMPLE_RATELIMIT_ACS,
+    SAMPLE_RATELIMIT_STORY,
+    SAMPLE_DATAEXPOSURE_ACS,
+    SAMPLE_DATAEXPOSURE_STORY,
 )
 from state import ProjectState
 
@@ -44,6 +54,41 @@ SAMPLES = {
         "title": "Create Organization",
         "story_id": "ORG-001",
         "module": "Organization",
+    },
+    "login": {
+        "story": SAMPLE_LOGIN_STORY,
+        "acs": SAMPLE_LOGIN_ACS,
+        "title": "User Login",
+        "story_id": "AUTH-001",
+        "module": "Authentication",
+    },
+    "search": {
+        "story": SAMPLE_SEARCH_STORY,
+        "acs": SAMPLE_SEARCH_ACS,
+        "title": "Task Search",
+        "story_id": "SEARCH-001",
+        "module": "Search",
+    },
+    "perms": {
+        "story": SAMPLE_PERMISSIONS_STORY,
+        "acs": SAMPLE_PERMISSIONS_ACS,
+        "title": "Team Permissions",
+        "story_id": "AUTHZ-001",
+        "module": "Authorization",
+    },
+    "ratelimit": {
+        "story": SAMPLE_RATELIMIT_STORY,
+        "acs": SAMPLE_RATELIMIT_ACS,
+        "title": "Rate Limiting",
+        "story_id": "RATELIMIT-001",
+        "module": "Security",
+    },
+    "dataexport": {
+        "story": SAMPLE_DATAEXPOSURE_STORY,
+        "acs": SAMPLE_DATAEXPOSURE_ACS,
+        "title": "Data Export",
+        "story_id": "DATAEXP-001",
+        "module": "DataHandling",
     },
 }
 

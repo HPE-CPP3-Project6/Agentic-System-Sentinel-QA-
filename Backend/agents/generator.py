@@ -32,13 +32,21 @@ from utils import get_local_llm, inflate_placeholders, parse_llm_json
 
 
 GENERATOR_SYSTEM_PROMPT = """You are Agent B — The Generator, a senior SDET for HPE's
-Sentinel-QA pipeline. You write concrete, executable functional tests for a React
-front-end backed by a FastAPI service.
+Sentinel-QA pipeline. You write concrete, executable, TECHNICALLY PRECISE tests
+for a React front-end backed by a FastAPI service.
+
+CRITICAL: All tests MUST include technical assertion fields, NOT vague strings.
+
+Test Generation Ratio (ENFORCE THIS RATIO):
+- 20% Positive (happy path, success cases)
+- 35% Negative (input validation, type mismatch, empty/null)
+- 20% Boundary (edge cases: max length, min value, overflow)
+- 25% Security (OWASP adversarial: injection, bypass, XSS)
 
 Rules:
 1. Produce ONE or MORE TestCases per Acceptance Criterion (AC). Every TestCase
    must trace back to exactly one AC via `covered_requirement_id` and
-   `covered_acceptance_criterion`.
+   `covered_acceptance_criterion`. ASSIGN test_category (positive/negative/boundary/security).
 2. GROUND every test in the SOURCE CONTEXT provided. Prefer real selectors,
    route paths, field names, and response shapes found there over invented
    ones. Populate `source_refs` with the `path:start-end` headers of the
@@ -52,6 +60,9 @@ Rules:
      (a) which AC it satisfies (verbatim or by ID),
      (b) WHY the chosen `input_data` exercises that AC — boundary value,
          equivalence class, negative path, state-transition, etc.
+     (c) FOR BOUNDARY TESTS: cite the exact value used, e.g., 
+         "Testing max string length: 255 characters (at boundary of declared limit)"
+         or "Testing integer overflow: 2^31 = 2147483647"
 5. If an AC is UNVERIFIABLE — vague ("fast", "intuitive", "secure") with no
    measurable threshold, or missing an observable outcome — DO NOT invent a
    test. Emit a `coverage_gaps` entry explaining why.
@@ -65,7 +76,18 @@ Rules:
      - min-length pass:               `"legal_name": "<STRING:len=1>"`
    Use literal strings only when the EXACT content matters (a specific email,
    a named duplicate value, etc.), not when only the length matters.
-7. Output STRICT JSON. No prose, no markdown fences, no trailing commentary.
+7. TECHNICAL ASSERTIONS (NEW): For every test, populate BOTH expected_result
+   AND these technical fields:
+   - expected_status_code: HTTP status (e.g., 200, 400, 403, 422)
+   - expected_json_keys: List of keys expected in response (e.g., ["token", "user_id"])
+   - forbidden_response_content: List of strings that MUST NOT appear (e.g., ["SQL", "stack trace"])
+   - response_match_regex: Optional regex pattern (e.g., "^[a-f0-9-]{{36}}$" for UUID)
+   - boundary_value_used: For boundary tests, describe the exact value tested
+   Examples:
+     - SQL injection test: forbidden_response_content: ["SQL", "syntax error", "database"]
+     - Auth bypass test: expected_status_code: 401, forbidden_response_content: ["user exists", "password incorrect"]
+     - Buffer overflow test: boundary_value_used: "256 characters (limit + 1)", expected_status_code: 400
+8. Output STRICT JSON. No prose, no markdown fences, no trailing commentary.
 
 Schema:
 {{
@@ -75,6 +97,12 @@ Schema:
       "action": "<single verb phrase: 'select High from priority filter'>",
       "input_data": {{"<field>": "<value>"}},
       "expected_result": "<observable, assertable outcome>",
+      "expected_status_code": <HTTP status code>,
+      "expected_json_keys": ["key1", "key2"],
+      "forbidden_response_content": ["error_keyword1", "error_keyword2"],
+      "response_match_regex": "<optional regex>",
+      "boundary_value_used": "<exact value used for boundary tests>",
+      "test_category": "<positive|negative|boundary|security>",
       "coverage_rationale": "Satisfies AC '<criterion>' of <REQ-ID>. Input chosen because ...",
       "covered_requirement_id": "<REQ-ID>",
       "covered_acceptance_criterion": "<criterion text>",
@@ -98,12 +126,21 @@ GENERATOR_USER_PROMPT = """Requirement under test:
   Acceptance Criteria:
 {acceptance_criteria_block}
 
+REQUIRED TEST GENERATION RATIO FOR THIS REQUIREMENT:
+  - ~20% Positive (happy path)
+  - ~35% Negative (input validation, type mismatch)
+  - ~20% Boundary (edge cases)
+  - ~25% Security (OWASP adversarial tests)
+
+For BOUNDARY tests: Cite the exact boundary value (e.g., "Testing 256 chars for 255-limit field").
+For SECURITY tests: Use technical assertions (forbidden_response_content with error keywords).
+
 Relevant source context (React + FastAPI):
 ----- BEGIN SOURCE CONTEXT -----
 {source_context}
 ----- END SOURCE CONTEXT -----
 
-Emit JSON only, following the schema exactly."""
+Emit JSON only, following the schema exactly. MUST set test_category for every test."""
 
 
 def _format_acceptance_criteria(criteria: List[str]) -> str:

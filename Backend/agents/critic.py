@@ -130,6 +130,73 @@ SAMPLE_FILTER_ACS: List[str] = [
 ]
 
 
+# Security-focused stories with OWASP issues for comprehensive testing
+
+SAMPLE_LOGIN_STORY = (
+    "As a user, I want to log in to my account by entering my username and password, "
+    "so that I can access my personalized dashboard and task list."
+)
+SAMPLE_LOGIN_ACS: List[str] = [
+    "The login form must accept any username and password without length restrictions.",
+    "Failed login attempts must allow unlimited retries with no delays or account lockout.",
+    "The system must accept passwords containing special characters like SQL wildcards (%) and semicolons (;).",
+    "On successful login, the session token should be transmitted in plaintext via HTTP.",
+    "The system should display the user's full name and email on an unencrypted page after login.",
+]
+
+
+SAMPLE_SEARCH_STORY = (
+    "As a user, I want to search for tasks by typing a search query into a text field "
+    "so that I can quickly find specific tasks by name or description."
+)
+SAMPLE_SEARCH_ACS: List[str] = [
+    "The search field must accept and pass user input directly to the database query without sanitization.",
+    "Search results should display raw data including internal IDs and system fields.",
+    "The search feature should work across all user records, regardless of permissions.",
+    "If the search input contains special characters (like ' or --), they must be included in the SQL query as-is.",
+    "Error messages should display the full SQL query and database error details to aid debugging.",
+]
+
+
+SAMPLE_PERMISSIONS_STORY = (
+    "As a team lead, I want to view all team members' tasks and edit their assignments "
+    "so that I can manage workload and reassign tasks as needed."
+)
+SAMPLE_PERMISSIONS_ACS: List[str] = [
+    "The system must allow any authenticated user to view all other users' tasks via the API.",
+    "The API endpoint /tasks/{task_id} should not validate user ownership before returning data.",
+    "Editing a task should only verify that the user is authenticated, not that they have permission.",
+    "Users should be able to modify task_owner to any user ID without approval or audit logging.",
+    "Permission checks should be implemented only on the frontend; backend should trust all authenticated requests.",
+]
+
+
+SAMPLE_RATELIMIT_STORY = (
+    "As a system, I want to allow users to submit multiple login attempts in rapid succession "
+    "so that users can quickly retry if they mistyped their password."
+)
+SAMPLE_RATELIMIT_ACS: List[str] = [
+    "The login endpoint must accept unlimited requests from a single IP address without throttling.",
+    "Failed login attempts must not trigger any temporary account lockout or exponential delays.",
+    "The API must not implement rate limiting on password reset or account recovery endpoints.",
+    "Users must be able to trigger password reset emails repeatedly to flood other users' mailboxes.",
+    "There must be no CAPTCHA or challenge-response mechanism on repeated failed attempts.",
+]
+
+
+SAMPLE_DATAEXPOSURE_STORY = (
+    "As a power user, I want to export all data from the application in bulk "
+    "so that I can perform offline analysis and create backups."
+)
+SAMPLE_DATAEXPOSURE_ACS: List[str] = [
+    "The export feature must include all records in the database, including other users' private data.",
+    "The exported file must be transmitted unencrypted and stored with world-readable permissions.",
+    "The bulk export endpoint should accept a user_id parameter that can be modified to export any user's data.",
+    "Audit logs must not be generated for data export operations.",
+    "The API should not verify that the exported data belongs to the requesting user.",
+]
+
+
 def _format_acceptance_block(acs: List[str]) -> str:
     if not acs:
         return "(none provided — infer reasonable ACs from the story)"

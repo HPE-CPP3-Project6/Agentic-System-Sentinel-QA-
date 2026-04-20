@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field
 
 
@@ -19,9 +19,21 @@ class TestCase(BaseModel):
     test_id: str
     title: str
     action: str
-    input_data: Dict[str, Any] = Field(default_factory=dict)
+    input_data: Union[Dict[str, Any], List[Any]] = Field(default_factory=dict)
+    # Traditional field (kept for backward compatibility)
     expected_result: str
+    # NEW: Technical Schema for Assertions
+    expected_status_code: Optional[int] = None  # e.g., 200, 400, 403
+    expected_json_keys: List[str] = Field(default_factory=list)  # Keys expected in JSON response
+    forbidden_response_content: List[str] = Field(default_factory=list)  # Content that should NOT appear
+    response_match_regex: Optional[str] = None  # Regex pattern to match response
+    # Resilience & Vulnerability Signatures
+    resilience_signature: Optional[str] = None  # What a "safe/blocked" response looks like
+    vulnerability_signature: Optional[str] = None  # What an "exploited" response looks like
+    # Coverage & Test Metadata
     coverage_rationale: Optional[str] = None
+    boundary_value_used: Optional[str] = None  # Exact boundary tested (e.g., "256 chars for 255-limit")
+    test_category: Optional[str] = None  # "positive", "negative", "boundary", "security"
     covered_requirement_id: Optional[str] = None
     covered_acceptance_criterion: Optional[str] = None
     source_refs: List[str] = Field(default_factory=list)

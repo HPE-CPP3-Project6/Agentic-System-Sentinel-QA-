@@ -21,6 +21,7 @@ from typing import Dict, List, Optional
 
 from state import ProjectState, SecurityRisk, TestCase
 from utils import Payload, get_payloads
+from utils.boundaries import RESILIENCE_SIGNATURES, VULNERABILITY_SIGNATURES
 
 
 def _functional_tests_for_requirement(
@@ -42,7 +43,10 @@ def _mutate(
     risk: SecurityRisk,
     counter: int,
 ) -> TestCase:
-    """Return an adversarial clone of `base` with string inputs replaced by the payload."""
+    """Return an adversarial clone of `base` with string inputs replaced by the payload.
+    
+    CRITICAL: Include resilience signatures to define what "safe" looks like technically.
+    """
 
     mutated_input: Dict[str, object] = copy.deepcopy(base.input_data)
     mutated_fields = _string_input_fields(base)
@@ -56,6 +60,16 @@ def _mutate(
         mutated_input["__adversarial_probe__"] = payload.value
         mutated_fields = ["__adversarial_probe__"]
 
+    # Look up resilience signature for this OWASP category
+    owasp_short = risk.owasp_id.split(':')[0]  # Extract "A03", "A01", etc.
+    resilience_key = f"{owasp_short}_INJECTION" if owasp_short == "A03" else \
+                     f"{owasp_short}_ACCESS_CONTROL" if owasp_short == "A01" else \
+                     f"{owasp_short}_AUTH_FAILURE" if owasp_short == "A07" else \
+                     f"{owasp_short}_INSECURE_DESIGN"
+    
+    resilience_sig = RESILIENCE_SIGNATURES.get(resilience_key, {})
+    vuln_sig = VULNERABILITY_SIGNATURES.get(resilience_key, {})
+
     return TestCase(
         test_id=f"SEC-{risk.owasp_id.split(':')[0]}-{base.test_id}-{counter}",
         title=f"[{payload.technique}] {base.title}",
@@ -65,6 +79,22 @@ def _mutate(
             f"Attack is neutralised: {payload.expected_signal}. "
             f"Original success path ('{base.expected_result}') must NOT occur "
             f"with an attacker-controlled value."
+        ),
+        # TECHNICAL ASSERTIONS: Expected for SAFE/RESILIENT response
+        expected_status_code=resilience_sig.get("http_status", [200])[0],
+        expected_json_keys=[],  # Attacker should NOT get data
+        forbidden_response_content=resilience_sig.get("forbidden_keywords", []),
+        # RESILIENCE SIGNATURE: What technically counts as "blocked" or "safe"
+        resilience_signature=(
+            f"Status code in {resilience_sig.get('http_status', [200])}. "
+            f"Forbidden keywords: {', '.join(resilience_sig.get('forbidden_keywords', []))}. "
+            f"Behavior: {resilience_sig.get('expected_behavior', 'N/A')}"
+        ),
+        # VULNERABILITY SIGNATURE: What technically counts as "exploited"
+        vulnerability_signature=(
+            f"Status code {vuln_sig.get('http_status', [200])[0]} with leaked data. "
+            f"Contains keywords: {', '.join(vuln_sig.get('expected_keywords', []))}. "
+            f"Behavior: {vuln_sig.get('expected_behavior', 'N/A')}"
         ),
         coverage_rationale=(
             f"Adversarial mutation of {base.test_id} targeting {payload.exploit_target}. "
