@@ -1,0 +1,25 @@
+2026-04-20 13:07:09,027 [SYNC] INFO: Initializing Sovereign Sync Service
+2026-04-20 13:07:09,027 [SYNC] INFO:   Repo URL: https://github.com/example/sentinel-qa-app.git
+2026-04-20 13:07:09,027 [SYNC] INFO:   Cache Dir: repo_cache
+2026-04-20 13:07:09,027 [SYNC] INFO:   Chroma Dir: chroma_data
+2026-04-20 13:07:09,174 [SYNC] INFO: Chroma collection 'code_sources' ready
+2026-04-20 13:07:09,174 [SYNC] INFO: Cloning repository from https://github.com/example/sentinel-qa-app.git...
+2026-04-20 13:07:10,661 [SYNC] ERROR: Failed to clone repository: Cmd('git') failed due to: exit code(128)
+  cmdline: git clone -v -- https://github.com/example/sentinel-qa-app.git repo_cache
+  stderr: 'Cloning into 'repo_cache'...
+remote: Repository not found.
+fatal: repository 'https://github.com/example/sentinel-qa-app.git/' not found
+'
+2026-04-20 13:07:51,728 [SYNC] INFO: Initializing Sovereign Sync Service
+2026-04-20 13:07:51,728 [SYNC] INFO:   Repo URL: https://github.com/HPE-CPP3-Project6/smart-task-manager
+2026-04-20 13:07:51,728 [SYNC] INFO:   Cache Dir: repo_cache
+2026-04-20 13:07:51,728 [SYNC] INFO:   Chroma Dir: chroma_data
+2026-04-20 13:07:51,833 [SYNC] INFO: Chroma collection 'code_sources' ready
+2026-04-20 13:07:51,833 [SYNC] INFO: Cloning repository from https://github.com/HPE-CPP3-Project6/smart-task-manager...
+2026-04-20 13:07:54,695 [SYNC] INFO: Repository cloned successfully
+2026-04-20 13:07:54,695 [SYNC] INFO: Sovereign Sync Service started (interval: 300s)
+2026-04-20 13:07:54,695 [SYNC] INFO: ======================================================================
+2026-04-20 13:07:54,695 [SYNC] INFO: Starting sync cycle...
+2026-04-20 13:07:57,132 [SYNC] INFO: No new commits found
+2026-04-20 13:07:57,132 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 13:07:57,132 [SYNC] INFO: Waiting 300s until next sync...
