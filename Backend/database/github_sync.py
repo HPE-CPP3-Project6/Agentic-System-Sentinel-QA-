@@ -16,13 +16,26 @@ import logging
 import subprocess
 import argparse
 from pathlib import Path
-from typing import Optional, List, Dict, Set
+from typing import Optional, List, Dict, Set, Tuple
 from datetime import datetime
 
+# Set Chroma home to project-local cache BEFORE importing chromadb
+_CHROMA_HOME = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "chroma_models_cache")
+)
+os.environ.setdefault("CHROMA_HOME", _CHROMA_HOME)
+os.environ.setdefault("HF_HOME", _CHROMA_HOME)  # Hugging Face models cache
+os.environ.setdefault("ONNXRUNTIME_CACHE_DIR", _CHROMA_HOME)  # ONNX runtime cache
+os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", _CHROMA_HOME)
+os.makedirs(_CHROMA_HOME, exist_ok=True)
+
 import chromadb
+from chromadb import Documents, EmbeddingFunction, Embeddings
+from chromadb.config import Settings
 from git import Repo, GitCommandError
 from langchain_community.document_loaders import DirectoryLoader
 from langchain_text_splitters import Language, RecursiveCharacterTextSplitter
+from sentence_transformers import SentenceTransformer
 
 # Configure logging
 logging.basicConfig(
@@ -44,15 +57,163 @@ REPO_CACHE_DIR = Path(os.getenv("REPO_CACHE_DIR", "./repo_cache"))
 CHROMA_PERSIST_DIR = Path(os.getenv("CHROMA_PERSIST_DIR", "./chroma_data"))
 SYNC_INTERVAL_SECONDS = int(os.getenv("SYNC_INTERVAL_SECONDS", "300"))  # 5 minutes
 
-# File extensions to track
-TRACKED_EXTENSIONS = {".py", ".tsx", ".jsx", ".ts"}
+# File-type gating — what gets indexed into Chroma.
+# The broader set grounds Rule 1 protocol/deployment assertions (vite.config,
+# nginx.conf, FastAPI middleware, .env.example) that application source
+# code alone cannot back.
+
+TRACKED_SUFFIXES: Set[str] = {
+    # Source code
+    ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue",
+    # Markup / templates
+    ".html",
+    # Config & deployment
+    ".json", ".yml", ".yaml", ".toml",
+    ".conf", ".cfg", ".ini",
+    # Database / migrations
+    ".sql",
+    # Env schemas (shape only — real .env is in SKIP_BASENAMES)
+    ".env.example", ".env.sample", ".env.template",
+}
+
+TRACKED_BASENAMES: Set[str] = {
+    "Dockerfile", "dockerfile",
+    "Makefile", "makefile",
+    "Caddyfile", "caddyfile",
+    "nginx.conf",
+}
+
+SKIP_BASENAMES: Set[str] = {
+    # Real env files with secrets — never index
+    ".env", ".env.local", ".env.production", ".env.development", ".env.prod",
+    # Lockfiles — bulk noise, zero API-contract signal
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+    "poetry.lock", "Pipfile.lock",
+}
 
 # Chroma collection name
-COLLECTION_NAME = "code_sources"
+COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "code_sources")
+EMBEDDING_MODEL = os.getenv(
+    "SENTINEL_EMBEDDING_MODEL", "jinaai/jina-embeddings-v2-base-code"
+)
+
+
+class JinaCodeEmbeddingFunction(EmbeddingFunction):
+    """Chroma-compatible wrapper for `jinaai/jina-embeddings-v2-base-code`.
+
+    Code-native embedding model (768-dim) that outperforms generic MiniLM on
+    retrieval of Python / TS / JSX source chunks. Requires `trust_remote_code=True`
+    which Chroma's default `SentenceTransformerEmbeddingFunction` does not
+    forward cleanly — hence the custom class.
+
+    The underlying SentenceTransformer is cached at the class level so repeated
+    instantiations do NOT reload the model.
+    """
+
+    _model: "SentenceTransformer | None" = None
+
+    def __init__(self) -> None:
+        os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", _CHROMA_HOME)
+        os.environ.setdefault("HF_HOME", _CHROMA_HOME)
+        if JinaCodeEmbeddingFunction._model is None:
+            logger.info("Loading SentenceTransformer: %s", EMBEDDING_MODEL)
+            JinaCodeEmbeddingFunction._model = SentenceTransformer(
+                EMBEDDING_MODEL,
+                trust_remote_code=True,
+                cache_folder=_CHROMA_HOME,
+            )
+        self.model = JinaCodeEmbeddingFunction._model
+
+    def __call__(self, input: Documents) -> Embeddings:
+        return self.model.encode(input, convert_to_numpy=True).tolist()
 
 # Chunk size for code splitting
 CHUNK_SIZE = 1024
 CHUNK_OVERLAP = 128
+
+
+def _is_tracked(file_path: str) -> bool:
+    """Return True if `file_path` should be indexed into Chroma."""
+    basename = os.path.basename(file_path)
+    if basename in SKIP_BASENAMES:
+        return False
+    if basename in TRACKED_BASENAMES:
+        return True
+    return any(basename.endswith(suffix) for suffix in TRACKED_SUFFIXES)
+
+
+def _detect_language(file_path: str) -> Optional[Language]:
+    """langchain `Language` for language-aware splitting; None for generic."""
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == ".py":
+        return Language.PYTHON
+    if ext in {".ts", ".tsx"}:
+        return Language.TS
+    if ext in {".js", ".jsx", ".mjs", ".cjs"}:
+        return Language.JS
+    if ext == ".html":
+        return Language.HTML
+    return None
+
+
+def _lang_label(file_path: str) -> str:
+    """Human-readable language label stored in Chroma metadata."""
+    name = os.path.basename(file_path).lower()
+    # Specific basenames first so nginx.conf -> "nginx", not "config".
+    if name == "dockerfile":
+        return "dockerfile"
+    if name == "makefile":
+        return "makefile"
+    if name == "caddyfile":
+        return "caddy"
+    if name == "nginx.conf":
+        return "nginx"
+    if name.endswith((".env.example", ".env.sample", ".env.template")):
+        return "env"
+    ext = os.path.splitext(name)[1]
+    simple = {
+        ".py": "python", ".ts": "typescript", ".tsx": "tsx",
+        ".js": "javascript", ".jsx": "jsx",
+        ".mjs": "javascript", ".cjs": "javascript",
+        ".vue": "vue", ".html": "html",
+        ".json": "json", ".yml": "yaml", ".yaml": "yaml",
+        ".toml": "toml", ".conf": "config", ".cfg": "config", ".ini": "config",
+        ".sql": "sql",
+    }
+    return simple.get(ext, "text")
+
+
+def _locate_chunks(
+    content: str,
+    chunks: List[str],
+    overlap: int = CHUNK_OVERLAP,
+) -> List[Tuple[int, int, int]]:
+    """Map each chunk back to (start_line, end_line, char_offset) in `content`.
+
+    Lines are 1-based, inclusive. `RecursiveCharacterTextSplitter` preserves
+    the original text character-for-character, so `str.find` from a moving
+    cursor locates each chunk precisely. This replaces the previous
+    `chunk_index + 1` placeholder that made `source_refs` misleading.
+    """
+    results: List[Tuple[int, int, int]] = []
+    cursor = 0
+    for chunk in chunks:
+        if not chunk:
+            results.append((1, 1, 0))
+            continue
+        pos = content.find(chunk, cursor)
+        if pos == -1:
+            # Rare whitespace-normalization edge case — retry from start.
+            pos = content.find(chunk)
+        if pos == -1:
+            # Truly unlocatable — degrade gracefully rather than crash.
+            pos = min(cursor, max(0, len(content) - len(chunk)))
+        start_line = content.count("\n", 0, pos) + 1
+        end_line = content.count("\n", 0, pos + len(chunk)) + 1
+        end_line = max(end_line, start_line)
+        results.append((start_line, end_line, pos))
+        cursor = pos + max(1, len(chunk) - overlap)
+    return results
 
 
 class SovereignSyncService:
@@ -91,10 +252,25 @@ class SovereignSyncService:
         logger.info(f"  Cache Dir: {self.cache_dir}")
         logger.info(f"  Chroma Dir: {self.chroma_dir}")
 
-        # Initialize Chroma client
-        self.client = chromadb.PersistentClient(path=str(self.chroma_dir))
+        # Keep all model artifacts inside the project workspace cache.
+        os.environ["SENTENCE_TRANSFORMERS_HOME"] = _CHROMA_HOME
+        os.environ["HF_HOME"] = _CHROMA_HOME
+
+        # Explicitly load the embedding function (code-native, 768-dim).
+        emb_fn = JinaCodeEmbeddingFunction()
+
+        # Initialize Chroma client.
+        settings = Settings(
+            chroma_home=_CHROMA_HOME,
+            anonymized_telemetry=False,
+            is_persistent=True
+        )
+        self.client = chromadb.PersistentClient(path=str(self.chroma_dir), settings=settings)
+
+        # Pass the embedding function to the collection.
         self.collection = self.client.get_or_create_collection(
             name=COLLECTION_NAME,
+            embedding_function=emb_fn,
             metadata={"hnsw:space": "cosine"}
         )
         logger.info(f"Chroma collection '{COLLECTION_NAME}' ready")
@@ -107,13 +283,15 @@ class SovereignSyncService:
         if self.cache_dir.exists() and (self.cache_dir / ".git").exists():
             logger.info(f"Repository exists at {self.cache_dir}. Opening...")
             self.repo = Repo(str(self.cache_dir))
-            self.previous_commit = self.repo.head.commit.hexsha
+            # Set to None for first sync to index all files
+            self.previous_commit = None
         else:
             logger.info(f"Cloning repository from {self.repo_url}...")
             self.cache_dir.parent.mkdir(parents=True, exist_ok=True)
             try:
                 self.repo = Repo.clone_from(self.repo_url, str(self.cache_dir))
-                self.previous_commit = self.repo.head.commit.hexsha
+                # Set to None for first sync to index all files
+                self.previous_commit = None
                 logger.info(f"Repository cloned successfully")
             except GitCommandError as e:
                 logger.error(f"Failed to clone repository: {e}")
@@ -148,41 +326,37 @@ class SovereignSyncService:
             Dict with keys 'added', 'modified', 'deleted' containing file paths.
         """
         try:
-            # Get diff between previous and current HEAD
+            changed = {
+                "added": set(),
+                "modified": set(),
+                "deleted": set(),
+            }
+
+            # First sync: get all files from HEAD
             if self.previous_commit is None:
-                # First sync: treat all files as added
-                diff_index = self.repo.head.commit.parents[0].diff(self.repo.head.commit) if self.repo.head.commit.parents else self.repo.index.diff(None)
-                changed = {
-                    "added": set(),
-                    "modified": set(),
-                    "deleted": set(),
-                }
+                for item in self.repo.index.entries.keys():
+                    file_path = item[0]
+                    if _is_tracked(file_path):
+                        changed["added"].add(file_path)
             else:
                 # Subsequent syncs: use git diff
                 diff_index = self.repo.commit(self.previous_commit).diff(
                     self.repo.head.commit
                 )
-                changed = {
-                    "added": set(),
-                    "modified": set(),
-                    "deleted": set(),
-                }
 
-            # Categorize changes
-            for item in diff_index:
-                # Get the file path (use new_path if available, otherwise old_path)
-                file_path = item.b_path or item.a_path
+                for item in diff_index:
+                    # Get the file path (use new_path if available, otherwise old_path)
+                    file_path = item.b_path or item.a_path
 
-                # Filter by extension
-                if not any(file_path.endswith(ext) for ext in TRACKED_EXTENSIONS):
-                    continue
+                    if not _is_tracked(file_path):
+                        continue
 
-                if item.change_type == "A":  # Added
-                    changed["added"].add(file_path)
-                elif item.change_type == "M":  # Modified
-                    changed["modified"].add(file_path)
-                elif item.change_type == "D":  # Deleted
-                    changed["deleted"].add(item.a_path)
+                    if item.change_type == "A":  # Added
+                        changed["added"].add(file_path)
+                    elif item.change_type == "M":  # Modified
+                        changed["modified"].add(file_path)
+                    elif item.change_type == "D":  # Deleted
+                        changed["deleted"].add(item.a_path)
 
             self.previous_commit = self.repo.head.commit.hexsha
             return changed
@@ -207,22 +381,15 @@ class SovereignSyncService:
             return []
 
         try:
-            # Determine language based on extension
-            ext = full_path.suffix
-            if ext == ".py":
-                language = Language.PYTHON
-            elif ext in {".tsx", ".jsx"}:
-                language = Language.TYPESCRIPT
-            elif ext == ".ts":
-                language = Language.TYPESCRIPT
-            else:
-                language = None
+            language = _detect_language(file_path)
+            lang_label = _lang_label(file_path)
 
-            # Read file content
             with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
                 content = f.read()
 
-            # Create splitter
+            if not content.strip():
+                return []
+
             if language:
                 splitter = RecursiveCharacterTextSplitter.from_language(
                     language=language,
@@ -235,25 +402,42 @@ class SovereignSyncService:
                     chunk_overlap=CHUNK_OVERLAP,
                 )
 
-            # Split content
             chunks = splitter.split_text(content)
+            line_map = _locate_chunks(content, chunks, overlap=CHUNK_OVERLAP)
 
-            # Create documents with metadata
-            documents = []
-            for idx, chunk in enumerate(chunks):
-                doc = {
-                    "id": f"{file_path}#{idx}",
-                    "content": chunk,
-                    "metadata": {
-                        "file_path": file_path,
-                        "chunk_index": idx,
-                        "language": language.value if language else "text",
-                        "file_size": len(content),
-                        "chunk_count": len(chunks),
-                        "synced_at": datetime.now().isoformat(),
-                    },
-                }
-                documents.append(doc)
+            # Synthetic header injected BEFORE the chunk text so the embedding
+            # encodes file identity and language into the dense vector.
+            # This is the single largest precision win for cross-file retrieval:
+            # a query like "axios baseURL" now matches the axios.js chunk by
+            # file name too, not just by body tokens.
+            lang_str = language.value if language else "text"
+
+            documents: List[Dict] = []
+            for idx, (chunk, (start_line, end_line, char_offset)) in enumerate(
+                zip(chunks, line_map)
+            ):
+                synthetic_header = (
+                    f"### FILE: {file_path} | LANG: {lang_str} ###\n\n"
+                )
+                enriched_content = synthetic_header + chunk
+                documents.append(
+                    {
+                        "id": f"{file_path}#{idx}",
+                        "content": enriched_content,
+                        "metadata": {
+                            "path": file_path,
+                            "file_path": file_path,
+                            "chunk_index": idx,
+                            "start_line": start_line,
+                            "end_line": end_line,
+                            "char_offset": char_offset,
+                            "language": lang_label,
+                            "file_size": len(content),
+                            "chunk_count": len(chunks),
+                            "synced_at": datetime.now().isoformat(),
+                        },
+                    }
+                )
 
             logger.debug(f"Chunked {file_path} into {len(chunks)} pieces")
             return documents
@@ -331,10 +515,14 @@ class SovereignSyncService:
         logger.info("Starting sync cycle...")
 
         try:
+            # Check if this is the first sync (no previous commit)
+            is_first_sync = self.previous_commit is None
+            
             # Pull latest changes
             has_changes = self._pull_latest_changes()
 
-            if not has_changes:
+            # Force sync on first run even if no new commits
+            if not has_changes and not is_first_sync:
                 logger.info("Sync cycle complete. No updates needed.")
                 return
 
@@ -347,6 +535,10 @@ class SovereignSyncService:
             total_added = len(added)
             total_modified = len(modified)
             total_deleted = len(deleted)
+
+            if total_added + total_modified + total_deleted == 0:
+                logger.info("Sync cycle complete. No updates needed.")
+                return
 
             logger.info(
                 f"Detected {total_added + total_modified + total_deleted} "

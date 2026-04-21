@@ -19,11 +19,13 @@ failure — replace it with a Playwright-backed runner in production.
 
 from __future__ import annotations
 
+import copy
 import json
+import os
 import time
 import traceback
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -70,10 +72,105 @@ def _default_runner(tc: TestCase) -> RunnerResult:
 # --------------------------------------------------------------------------- #
 
 
+# Upper bound on loop iterations regardless of what the generator asked for.
+# REQ-002 style tests sometimes ask for 10_000 — that's fine for telemetry but
+# we clamp to keep runs bounded. Override via SENTINEL_REPEAT_CAP.
+_DEFAULT_REPEAT_CAP = 2000
+
+
+def _repeat_cap() -> int:
+    raw = os.getenv("SENTINEL_REPEAT_CAP")
+    if not raw:
+        return _DEFAULT_REPEAT_CAP
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return _DEFAULT_REPEAT_CAP
+
+
+def _resolve_repeat(tc: TestCase) -> Tuple[int, TestCase]:
+    """Extract `_repeat` sentinel from `input_data` and return (count, clean_tc).
+
+    The clean TestCase has `_repeat` stripped so the runner never sees it.
+    Returns count=1 for tests without a valid `_repeat` sentinel.
+    """
+    data: Any = tc.input_data
+    if not isinstance(data, dict):
+        return 1, tc
+    raw = data.get("_repeat")
+    if raw is None:
+        return 1, tc
+    try:
+        count = int(raw)
+    except (TypeError, ValueError):
+        return 1, tc
+    if count < 2:
+        return 1, tc
+    count = min(count, _repeat_cap())
+    clean_data = {k: v for k, v in data.items() if k != "_repeat"}
+    clean_tc = tc.model_copy(update={"input_data": clean_data})
+    return count, clean_tc
+
+
+def _aggregate_results(results: List[RunnerResult], is_adversarial: bool) -> RunnerResult:
+    """Fold N per-request RunnerResults into one.
+
+    Functional test aggregation: `ok` iff EVERY iteration was ok.
+    Adversarial test aggregation: `ok` iff ANY iteration was blocked — a single
+      blocked attempt proves the control fired at least once. If every iteration
+      went through unchecked, `ok=False` → `is_vulnerable=True` downstream.
+    Telemetry: stdout/stderr/console_logs concatenated with iteration markers;
+      total duration summed; last non-None exception surfaced.
+    """
+    if is_adversarial:
+        agg_ok = any(r.ok for r in results)
+    else:
+        agg_ok = all(r.ok for r in results)
+
+    total_duration = sum(r.duration_ms for r in results)
+    last_exc = next((r.exception for r in reversed(results) if r.exception), None)
+    last_html = next((r.html_snapshot for r in reversed(results) if r.html_snapshot), None)
+
+    stdout_parts: List[str] = []
+    stderr_parts: List[str] = []
+    console_all: List[str] = []
+    for i, r in enumerate(results, start=1):
+        if r.stdout:
+            stdout_parts.append(f"[iter {i}/{len(results)}] {r.stdout}")
+        if r.stderr:
+            stderr_parts.append(f"[iter {i}/{len(results)}] {r.stderr}")
+        if r.console_logs:
+            console_all.extend(f"[iter {i}] {line}" for line in r.console_logs)
+
+    summary = (
+        f"_repeat={len(results)} ok={sum(1 for r in results if r.ok)}/"
+        f"{len(results)} aggregated_ok={agg_ok}"
+    )
+    stdout_parts.insert(0, summary)
+
+    return RunnerResult(
+        ok=agg_ok,
+        duration_ms=total_duration,
+        stdout="\n".join(stdout_parts),
+        stderr="\n".join(stderr_parts),
+        console_logs=console_all,
+        html_snapshot=last_html,
+        exception=last_exc,
+    )
+
+
+def _run_with_repeat(tc: TestCase, runner: Runner) -> RunnerResult:
+    count, clean_tc = _resolve_repeat(tc)
+    if count == 1:
+        return runner(clean_tc)
+    results = [runner(clean_tc) for _ in range(count)]
+    return _aggregate_results(results, is_adversarial=clean_tc.is_adversarial)
+
+
 def _execute_single(tc: TestCase, runner: Runner) -> ExecutionLog:
     started = time.perf_counter()
     try:
-        result = runner(tc)
+        result = _run_with_repeat(tc, runner)
     except Exception as exc:  # runner itself crashed — capture everything
         return ExecutionLog(
             test_id=tc.test_id,

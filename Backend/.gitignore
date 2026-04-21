@@ -3,7 +3,9 @@ __pycache__/
 .env
 database/chroma_store/
 .venv/
-.claude
+venv/
+.claude/
 repo_cache/
 chroma_data/
+chroma_models_cache/
 sync.log

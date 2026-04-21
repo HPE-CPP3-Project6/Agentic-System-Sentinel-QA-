@@ -23,3 +23,892 @@ fatal: repository 'https://github.com/example/sentinel-qa-app.git/' not found
 2026-04-20 13:07:57,132 [SYNC] INFO: No new commits found
 2026-04-20 13:07:57,132 [SYNC] INFO: Sync cycle complete. No updates needed.
 2026-04-20 13:07:57,132 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 15:32:18,348 [SYNC] INFO: Initializing Sovereign Sync Service
+2026-04-20 15:32:18,348 [SYNC] INFO:   Repo URL: https://github.com/HPE-CPP3-Project6/smart-task-manager
+2026-04-20 15:32:18,348 [SYNC] INFO:   Cache Dir: repo_cache
+2026-04-20 15:32:18,348 [SYNC] INFO:   Chroma Dir: chroma_data
+2026-04-20 15:32:18,541 [SYNC] INFO: Chroma collection 'code_sources' ready
+2026-04-20 15:32:18,542 [SYNC] INFO: Repository exists at repo_cache. Opening...
+2026-04-20 15:32:18,634 [SYNC] INFO: Sovereign Sync Service started (interval: 300s)
+2026-04-20 15:32:18,634 [SYNC] INFO: ======================================================================
+2026-04-20 15:32:18,634 [SYNC] INFO: Starting sync cycle...
+2026-04-20 15:32:21,321 [SYNC] INFO: No new commits found
+2026-04-20 15:32:21,321 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 15:32:21,321 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 15:34:22,907 [SYNC] INFO: Sync service interrupted by user
+2026-04-20 15:34:22,907 [SYNC] INFO: Sovereign Sync Service stopped
+2026-04-20 15:34:28,140 [SYNC] INFO: Initializing Sovereign Sync Service
+2026-04-20 15:34:28,140 [SYNC] INFO:   Repo URL: https://github.com/HPE-CPP3-Project6/smart-task-manager
+2026-04-20 15:34:28,141 [SYNC] INFO:   Cache Dir: repo_cache
+2026-04-20 15:34:28,141 [SYNC] INFO:   Chroma Dir: chroma_data
+2026-04-20 15:34:28,269 [SYNC] INFO: Chroma collection 'code_sources' ready
+2026-04-20 15:34:28,269 [SYNC] INFO: Repository exists at repo_cache. Opening...
+2026-04-20 15:34:28,270 [SYNC] INFO: Sovereign Sync Service started (interval: 300s)
+2026-04-20 15:34:28,270 [SYNC] INFO: ======================================================================
+2026-04-20 15:34:28,270 [SYNC] INFO: Starting sync cycle...
+2026-04-20 15:34:32,161 [SYNC] INFO: No new commits found
+2026-04-20 15:34:32,162 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 15:34:32,162 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 15:35:05,478 [SYNC] INFO: Sync service interrupted by user
+2026-04-20 15:35:05,478 [SYNC] INFO: Sovereign Sync Service stopped
+2026-04-20 15:35:21,802 [SYNC] INFO: Initializing Sovereign Sync Service
+2026-04-20 15:35:21,802 [SYNC] INFO:   Repo URL: https://github.com/HPE-CPP3-Project6/smart-task-manager
+2026-04-20 15:35:21,802 [SYNC] INFO:   Cache Dir: repo_cache
+2026-04-20 15:35:21,803 [SYNC] INFO:   Chroma Dir: chroma_data
+2026-04-20 15:35:21,920 [SYNC] INFO: Chroma collection 'code_sources' ready
+2026-04-20 15:35:21,920 [SYNC] INFO: Repository exists at repo_cache. Opening...
+2026-04-20 15:35:21,921 [SYNC] INFO: Sovereign Sync Service started (interval: 300s)
+2026-04-20 15:35:21,921 [SYNC] INFO: ======================================================================
+2026-04-20 15:35:21,921 [SYNC] INFO: Starting sync cycle...
+2026-04-20 15:35:24,737 [SYNC] INFO: No new commits found
+2026-04-20 15:35:24,739 [SYNC] INFO: Detected 23 changed files (23 added, 0 modified, 0 deleted)
+2026-04-20 15:35:24,739 [SYNC] INFO: Processing 23 added/modified files...
+2026-04-20 15:35:26,848 [SYNC] INFO: HTTP Request: GET https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz "HTTP/1.1 200 OK"
+2026-04-20 15:36:20,108 [SYNC] INFO: Sync service interrupted by user
+2026-04-20 15:36:20,108 [SYNC] INFO: Sovereign Sync Service stopped
+2026-04-20 15:36:42,050 [SYNC] INFO: Initializing Sovereign Sync Service
+2026-04-20 15:36:42,051 [SYNC] INFO:   Repo URL: https://github.com/HPE-CPP3-Project6/smart-task-manager
+2026-04-20 15:36:42,051 [SYNC] INFO:   Cache Dir: repo_cache
+2026-04-20 15:36:42,051 [SYNC] INFO:   Chroma Dir: chroma_data
+2026-04-20 15:36:42,168 [SYNC] INFO: Chroma collection 'code_sources' ready
+2026-04-20 15:36:42,168 [SYNC] INFO: Repository exists at repo_cache. Opening...
+2026-04-20 15:36:42,169 [SYNC] INFO: Sovereign Sync Service started (interval: 300s)
+2026-04-20 15:36:42,169 [SYNC] INFO: ======================================================================
+2026-04-20 15:36:42,169 [SYNC] INFO: Starting sync cycle...
+2026-04-20 15:36:45,255 [SYNC] INFO: No new commits found
+2026-04-20 15:36:45,256 [SYNC] INFO: Detected 23 changed files (23 added, 0 modified, 0 deleted)
+2026-04-20 15:36:45,256 [SYNC] INFO: Processing 23 added/modified files...
+2026-04-20 15:36:46,874 [SYNC] INFO: HTTP Request: GET https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz "HTTP/1.1 200 OK"
+2026-04-20 15:37:08,472 [SYNC] INFO: Sync service interrupted by user
+2026-04-20 15:37:08,472 [SYNC] INFO: Sovereign Sync Service stopped
+2026-04-20 15:37:46,279 [SYNC] INFO: Initializing Sovereign Sync Service
+2026-04-20 15:37:46,279 [SYNC] INFO:   Repo URL: https://github.com/HPE-CPP3-Project6/smart-task-manager
+2026-04-20 15:37:46,279 [SYNC] INFO:   Cache Dir: repo_cache
+2026-04-20 15:37:46,279 [SYNC] INFO:   Chroma Dir: chroma_data
+2026-04-20 15:37:46,394 [SYNC] INFO: Chroma collection 'code_sources' ready
+2026-04-20 15:37:46,394 [SYNC] INFO: Repository exists at repo_cache. Opening...
+2026-04-20 15:37:46,395 [SYNC] INFO: Sovereign Sync Service started (interval: 300s)
+2026-04-20 15:37:46,395 [SYNC] INFO: ======================================================================
+2026-04-20 15:37:46,395 [SYNC] INFO: Starting sync cycle...
+2026-04-20 15:37:49,558 [SYNC] INFO: No new commits found
+2026-04-20 15:37:49,558 [SYNC] INFO: Detected 23 changed files (23 added, 0 modified, 0 deleted)
+2026-04-20 15:37:49,558 [SYNC] INFO: Processing 23 added/modified files...
+2026-04-20 15:37:50,884 [SYNC] INFO: HTTP Request: GET https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz "HTTP/1.1 200 OK"
+2026-04-20 15:40:33,676 [SYNC] INFO: Sync service interrupted by user
+2026-04-20 15:40:33,676 [SYNC] INFO: Sovereign Sync Service stopped
+2026-04-20 15:40:41,826 [SYNC] INFO: Initializing Sovereign Sync Service
+2026-04-20 15:40:41,826 [SYNC] INFO:   Repo URL: https://github.com/HPE-CPP3-Project6/smart-task-manager
+2026-04-20 15:40:41,826 [SYNC] INFO:   Cache Dir: repo_cache
+2026-04-20 15:40:41,826 [SYNC] INFO:   Chroma Dir: chroma_data
+2026-04-20 15:40:41,939 [SYNC] INFO: Chroma collection 'code_sources' ready
+2026-04-20 15:40:41,939 [SYNC] INFO: Repository exists at repo_cache. Opening...
+2026-04-20 15:40:41,940 [SYNC] INFO: Sovereign Sync Service started (interval: 300s)
+2026-04-20 15:40:41,940 [SYNC] INFO: ======================================================================
+2026-04-20 15:40:41,940 [SYNC] INFO: Starting sync cycle...
+2026-04-20 15:40:44,916 [SYNC] INFO: No new commits found
+2026-04-20 15:40:44,917 [SYNC] INFO: Detected 23 changed files (23 added, 0 modified, 0 deleted)
+2026-04-20 15:40:44,917 [SYNC] INFO: Processing 23 added/modified files...
+2026-04-20 15:40:48,441 [SYNC] INFO: HTTP Request: GET https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz "HTTP/1.1 200 OK"
+2026-04-20 15:40:57,443 [SYNC] INFO: Sync service interrupted by user
+2026-04-20 15:40:57,444 [SYNC] INFO: Sovereign Sync Service stopped
+2026-04-20 15:41:42,285 [SYNC] INFO: Initializing Sovereign Sync Service
+2026-04-20 15:41:42,285 [SYNC] INFO:   Repo URL: https://github.com/HPE-CPP3-Project6/smart-task-manager
+2026-04-20 15:41:42,285 [SYNC] INFO:   Cache Dir: repo_cache
+2026-04-20 15:41:42,285 [SYNC] INFO:   Chroma Dir: chroma_data
+2026-04-20 15:41:42,392 [SYNC] INFO: Chroma collection 'code_sources' ready
+2026-04-20 15:41:42,392 [SYNC] INFO: Repository exists at repo_cache. Opening...
+2026-04-20 15:41:42,393 [SYNC] INFO: Sovereign Sync Service started (interval: 300s)
+2026-04-20 15:41:42,393 [SYNC] INFO: ======================================================================
+2026-04-20 15:41:42,393 [SYNC] INFO: Starting sync cycle...
+2026-04-20 15:41:45,550 [SYNC] INFO: No new commits found
+2026-04-20 15:41:45,550 [SYNC] INFO: Detected 23 changed files (23 added, 0 modified, 0 deleted)
+2026-04-20 15:41:45,551 [SYNC] INFO: Processing 23 added/modified files...
+2026-04-20 15:41:48,758 [SYNC] INFO: HTTP Request: GET https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz "HTTP/1.1 200 OK"
+2026-04-20 15:41:57,569 [SYNC] INFO: Sync service interrupted by user
+2026-04-20 15:41:57,569 [SYNC] INFO: Sovereign Sync Service stopped
+2026-04-20 15:42:51,686 [SYNC] INFO: Initializing Sovereign Sync Service
+2026-04-20 15:42:51,686 [SYNC] INFO:   Repo URL: https://github.com/HPE-CPP3-Project6/smart-task-manager
+2026-04-20 15:42:51,686 [SYNC] INFO:   Cache Dir: repo_cache
+2026-04-20 15:42:51,686 [SYNC] INFO:   Chroma Dir: chroma_data
+2026-04-20 15:42:51,805 [SYNC] INFO: Chroma collection 'code_sources' ready
+2026-04-20 15:42:51,806 [SYNC] INFO: Repository exists at repo_cache. Opening...
+2026-04-20 15:42:51,806 [SYNC] INFO: Sovereign Sync Service started (interval: 300s)
+2026-04-20 15:42:51,807 [SYNC] INFO: ======================================================================
+2026-04-20 15:42:51,807 [SYNC] INFO: Starting sync cycle...
+2026-04-20 15:42:54,943 [SYNC] INFO: No new commits found
+2026-04-20 15:42:54,944 [SYNC] INFO: Detected 23 changed files (23 added, 0 modified, 0 deleted)
+2026-04-20 15:42:54,944 [SYNC] INFO: Processing 23 added/modified files...
+2026-04-20 15:42:56,229 [SYNC] INFO: HTTP Request: GET https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz "HTTP/1.1 200 OK"
+2026-04-20 15:43:03,651 [SYNC] INFO: Sync service interrupted by user
+2026-04-20 15:43:03,651 [SYNC] INFO: Sovereign Sync Service stopped
+2026-04-20 15:57:02,159 [SYNC] INFO: Initializing Sovereign Sync Service
+2026-04-20 15:57:02,159 [SYNC] INFO:   Repo URL: https://github.com/HPE-CPP3-Project6/smart-task-manager
+2026-04-20 15:57:02,159 [SYNC] INFO:   Cache Dir: repo_cache
+2026-04-20 15:57:02,159 [SYNC] INFO:   Chroma Dir: chroma_data
+2026-04-20 15:57:02,719 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 15:57:02,731 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/modules.json "HTTP/1.1 200 OK"
+2026-04-20 15:57:02,782 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/modules.json "HTTP/1.1 200 OK"
+2026-04-20 15:57:03,414 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 15:57:03,462 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-04-20 15:57:03,547 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-04-20 15:57:03,550 [SYNC] INFO: Loading SentenceTransformer model from sentence-transformers/all-MiniLM-L6-v2.
+2026-04-20 15:57:03,874 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 15:57:03,874 [SYNC] WARNING: Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+2026-04-20 15:57:04,000 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-04-20 15:57:04,385 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/README.md "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 15:57:04,641 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/README.md "HTTP/1.1 200 OK"
+2026-04-20 15:57:04,830 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/README.md "HTTP/1.1 200 OK"
+2026-04-20 15:57:05,280 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 15:57:05,469 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/modules.json "HTTP/1.1 200 OK"
+2026-04-20 15:57:05,978 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/sentence_bert_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 15:57:06,115 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/sentence_bert_config.json "HTTP/1.1 200 OK"
+2026-04-20 15:57:06,178 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/sentence_bert_config.json "HTTP/1.1 200 OK"
+2026-04-20 15:57:06,616 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/adapter_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 15:57:07,253 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 15:57:07,317 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
+2026-04-20 15:57:07,569 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
+2026-04-20 15:57:08,026 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/model.safetensors "HTTP/1.1 302 Found"
+2026-04-20 15:57:09,490 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/xet-read-token/c9745ed1d9f207416be6d2e6f8de32d1f16199bf "HTTP/1.1 200 OK"
+2026-04-20 15:58:46,730 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 15:58:47,014 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/preprocessor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 15:58:47,331 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/video_preprocessor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 15:58:47,635 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/preprocessor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 15:58:47,954 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 15:58:47,970 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-04-20 15:58:47,986 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-04-20 15:58:48,277 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 15:58:48,290 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
+2026-04-20 15:58:48,587 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 15:58:48,663 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
+2026-04-20 15:58:48,984 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 15:58:48,996 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-04-20 15:58:49,320 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+2026-04-20 15:58:49,692 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+2026-04-20 15:58:50,000 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/vocab.txt "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 15:58:50,014 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/vocab.txt "HTTP/1.1 200 OK"
+2026-04-20 15:58:50,110 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/vocab.txt "HTTP/1.1 200 OK"
+2026-04-20 15:58:50,510 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 15:58:50,556 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/tokenizer.json "HTTP/1.1 200 OK"
+2026-04-20 15:58:50,630 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/tokenizer.json "HTTP/1.1 200 OK"
+2026-04-20 15:58:51,029 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/added_tokens.json "HTTP/1.1 404 Not Found"
+2026-04-20 15:58:51,343 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/special_tokens_map.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 15:58:51,358 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/special_tokens_map.json "HTTP/1.1 200 OK"
+2026-04-20 15:58:51,458 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/special_tokens_map.json "HTTP/1.1 200 OK"
+2026-04-20 15:58:51,767 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/chat_template.jinja "HTTP/1.1 404 Not Found"
+2026-04-20 15:58:52,178 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/1_Pooling/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 15:58:52,194 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/1_Pooling%2Fconfig.json "HTTP/1.1 200 OK"
+2026-04-20 15:58:52,279 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/1_Pooling%2Fconfig.json "HTTP/1.1 200 OK"
+2026-04-20 15:58:52,669 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2 "HTTP/1.1 200 OK"
+2026-04-20 16:00:58,578 [SYNC] INFO: Initializing Sovereign Sync Service
+2026-04-20 16:00:58,578 [SYNC] INFO:   Repo URL: https://github.com/HPE-CPP3-Project6/smart-task-manager
+2026-04-20 16:00:58,578 [SYNC] INFO:   Cache Dir: repo_cache
+2026-04-20 16:00:58,578 [SYNC] INFO:   Chroma Dir: chroma_data
+2026-04-20 16:01:01,239 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:01:01,266 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/modules.json "HTTP/1.1 200 OK"
+2026-04-20 16:01:01,544 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:01:01,573 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-04-20 16:01:01,574 [SYNC] INFO: Loading SentenceTransformer model from sentence-transformers/all-MiniLM-L6-v2.
+2026-04-20 16:01:01,850 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:01:01,864 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-04-20 16:01:02,125 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/README.md "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:01:02,139 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/README.md "HTTP/1.1 200 OK"
+2026-04-20 16:01:02,414 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:01:02,416 [SYNC] WARNING: Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+2026-04-20 16:01:02,439 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/modules.json "HTTP/1.1 200 OK"
+2026-04-20 16:01:02,729 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/sentence_bert_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:01:02,744 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/sentence_bert_config.json "HTTP/1.1 200 OK"
+2026-04-20 16:01:03,014 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/adapter_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 16:01:03,292 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:01:03,322 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
+2026-04-20 16:01:03,687 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 16:01:03,960 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/preprocessor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 16:01:04,242 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/video_preprocessor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 16:01:04,518 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/preprocessor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 16:01:04,787 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:01:04,820 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-04-20 16:01:05,096 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:01:05,110 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
+2026-04-20 16:01:05,377 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:01:05,401 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
+2026-04-20 16:01:05,717 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:01:05,762 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-04-20 16:01:06,048 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+2026-04-20 16:01:06,331 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+2026-04-20 16:01:06,657 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/1_Pooling/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:01:06,699 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/1_Pooling%2Fconfig.json "HTTP/1.1 200 OK"
+2026-04-20 16:01:06,973 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2 "HTTP/1.1 200 OK"
+2026-04-20 16:01:07,087 [SYNC] INFO: Chroma collection 'code_sources' ready
+2026-04-20 16:01:07,088 [SYNC] INFO: Repository exists at repo_cache. Opening...
+2026-04-20 16:01:07,088 [SYNC] INFO: Sovereign Sync Service started (interval: 300s)
+2026-04-20 16:01:07,088 [SYNC] INFO: ======================================================================
+2026-04-20 16:01:07,089 [SYNC] INFO: Starting sync cycle...
+2026-04-20 16:01:09,864 [SYNC] INFO: No new commits found
+2026-04-20 16:01:09,865 [SYNC] INFO: Detected 23 changed files (23 added, 0 modified, 0 deleted)
+2026-04-20 16:01:09,865 [SYNC] INFO: Processing 23 added/modified files...
+2026-04-20 16:01:10,192 [SYNC] INFO:   Upserted auth.py (9 chunks)
+2026-04-20 16:01:10,303 [SYNC] INFO:   Upserted config.py (3 chunks)
+2026-04-20 16:01:10,443 [SYNC] INFO:   Upserted database.py (4 chunks)
+2026-04-20 16:01:10,444 [SYNC] ERROR: Failed to parse file frontend/src/App.jsx: type object 'Language' has no attribute 'TYPESCRIPT'
+2026-04-20 16:01:10,444 [SYNC] ERROR: Failed to parse file frontend/src/components/Dashboard.jsx: type object 'Language' has no attribute 'TYPESCRIPT'
+2026-04-20 16:01:10,444 [SYNC] ERROR: Failed to parse file frontend/src/components/FilterBar.jsx: type object 'Language' has no attribute 'TYPESCRIPT'
+2026-04-20 16:01:10,444 [SYNC] ERROR: Failed to parse file frontend/src/components/Login.jsx: type object 'Language' has no attribute 'TYPESCRIPT'
+2026-04-20 16:01:10,445 [SYNC] ERROR: Failed to parse file frontend/src/components/Pagination.jsx: type object 'Language' has no attribute 'TYPESCRIPT'
+2026-04-20 16:01:10,445 [SYNC] ERROR: Failed to parse file frontend/src/components/ProtectedRoute.jsx: type object 'Language' has no attribute 'TYPESCRIPT'
+2026-04-20 16:01:10,445 [SYNC] ERROR: Failed to parse file frontend/src/components/Register.jsx: type object 'Language' has no attribute 'TYPESCRIPT'
+2026-04-20 16:01:10,445 [SYNC] ERROR: Failed to parse file frontend/src/components/TaskCard.jsx: type object 'Language' has no attribute 'TYPESCRIPT'
+2026-04-20 16:01:10,445 [SYNC] ERROR: Failed to parse file frontend/src/components/TaskForm.jsx: type object 'Language' has no attribute 'TYPESCRIPT'
+2026-04-20 16:01:10,445 [SYNC] ERROR: Failed to parse file frontend/src/context/AuthContext.jsx: type object 'Language' has no attribute 'TYPESCRIPT'
+2026-04-20 16:01:10,446 [SYNC] ERROR: Failed to parse file frontend/src/counter.ts: type object 'Language' has no attribute 'TYPESCRIPT'
+2026-04-20 16:01:10,446 [SYNC] ERROR: Failed to parse file frontend/src/main.jsx: type object 'Language' has no attribute 'TYPESCRIPT'
+2026-04-20 16:01:10,446 [SYNC] ERROR: Failed to parse file frontend/src/main.ts: type object 'Language' has no attribute 'TYPESCRIPT'
+2026-04-20 16:01:10,637 [SYNC] INFO:   Upserted main.py (6 chunks)
+2026-04-20 16:01:10,971 [SYNC] INFO:   Upserted models.py (11 chunks)
+2026-04-20 16:01:11,054 [SYNC] INFO:   Upserted purge_deleted_tasks.py (3 chunks)
+2026-04-20 16:01:11,086 [SYNC] INFO:   Upserted routers/__init__.py (1 chunks)
+2026-04-20 16:01:11,306 [SYNC] INFO:   Upserted routers/auth_router.py (7 chunks)
+2026-04-20 16:01:11,953 [SYNC] INFO:   Upserted routers/task_router.py (23 chunks)
+2026-04-20 16:01:12,569 [SYNC] INFO:   Upserted schemas.py (20 chunks)
+2026-04-20 16:01:12,570 [SYNC] INFO: Upserted 87 code chunks into Chroma
+2026-04-20 16:01:12,570 [SYNC] INFO: Sync cycle complete.
+2026-04-20 16:01:12,570 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 16:06:12,570 [SYNC] INFO: ======================================================================
+2026-04-20 16:06:12,571 [SYNC] INFO: Starting sync cycle...
+2026-04-20 16:06:15,774 [SYNC] INFO: No new commits found
+2026-04-20 16:06:15,774 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 16:06:15,774 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 16:11:15,774 [SYNC] INFO: ======================================================================
+2026-04-20 16:11:15,775 [SYNC] INFO: Starting sync cycle...
+2026-04-20 16:11:18,652 [SYNC] INFO: No new commits found
+2026-04-20 16:11:18,653 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 16:11:18,653 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 16:13:31,178 [SYNC] INFO: Initializing Sovereign Sync Service
+2026-04-20 16:13:31,178 [SYNC] INFO:   Repo URL: https://github.com/HPE-CPP3-Project6/smart-task-manager
+2026-04-20 16:13:31,178 [SYNC] INFO:   Cache Dir: repo_cache
+2026-04-20 16:13:31,179 [SYNC] INFO:   Chroma Dir: chroma_data
+2026-04-20 16:13:31,838 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:13:31,850 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/modules.json "HTTP/1.1 200 OK"
+2026-04-20 16:13:32,297 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:13:32,393 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-04-20 16:13:32,394 [SYNC] INFO: Loading SentenceTransformer model from sentence-transformers/all-MiniLM-L6-v2.
+2026-04-20 16:13:32,702 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:13:32,870 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-04-20 16:13:33,477 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/README.md "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:13:33,478 [SYNC] WARNING: Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+2026-04-20 16:13:33,495 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/README.md "HTTP/1.1 200 OK"
+2026-04-20 16:13:33,883 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:13:33,982 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/modules.json "HTTP/1.1 200 OK"
+2026-04-20 16:13:34,404 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/sentence_bert_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:13:34,501 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/sentence_bert_config.json "HTTP/1.1 200 OK"
+2026-04-20 16:13:34,817 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/adapter_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 16:13:35,128 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:13:35,221 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
+2026-04-20 16:13:35,642 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 16:13:35,946 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/preprocessor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 16:13:36,243 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/video_preprocessor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 16:13:36,554 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/preprocessor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 16:13:36,865 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:13:36,880 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-04-20 16:13:37,169 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:13:37,182 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
+2026-04-20 16:13:37,580 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:13:37,612 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
+2026-04-20 16:13:37,909 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:13:37,994 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-04-20 16:13:38,304 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+2026-04-20 16:13:38,607 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+2026-04-20 16:13:38,943 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/1_Pooling/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:13:39,020 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/1_Pooling%2Fconfig.json "HTTP/1.1 200 OK"
+2026-04-20 16:13:39,426 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2 "HTTP/1.1 200 OK"
+2026-04-20 16:13:39,499 [SYNC] INFO: Chroma collection 'code_sources' ready
+2026-04-20 16:13:39,499 [SYNC] INFO: Repository exists at repo_cache. Opening...
+2026-04-20 16:13:39,500 [SYNC] INFO: Sovereign Sync Service started (interval: 300s)
+2026-04-20 16:13:39,500 [SYNC] INFO: ======================================================================
+2026-04-20 16:13:39,501 [SYNC] INFO: Starting sync cycle...
+2026-04-20 16:13:42,312 [SYNC] INFO: No new commits found
+2026-04-20 16:13:42,313 [SYNC] INFO: Detected 26 changed files (26 added, 0 modified, 0 deleted)
+2026-04-20 16:13:42,314 [SYNC] INFO: Processing 26 added/modified files...
+2026-04-20 16:13:42,600 [SYNC] INFO:   Upserted auth.py (9 chunks)
+2026-04-20 16:13:42,708 [SYNC] INFO:   Upserted config.py (3 chunks)
+2026-04-20 16:13:42,842 [SYNC] INFO:   Upserted database.py (4 chunks)
+2026-04-20 16:13:42,921 [SYNC] INFO:   Upserted frontend/src/App.jsx (2 chunks)
+2026-04-20 16:13:43,022 [SYNC] INFO:   Upserted frontend/src/api/axios.js (2 chunks)
+2026-04-20 16:13:43,188 [SYNC] INFO:   Upserted frontend/src/api/tasks.js (4 chunks)
+2026-04-20 16:13:44,076 [SYNC] INFO:   Upserted frontend/src/components/Dashboard.jsx (33 chunks)
+2026-04-20 16:13:44,514 [SYNC] INFO:   Upserted frontend/src/components/FilterBar.jsx (14 chunks)
+2026-04-20 16:13:44,823 [SYNC] INFO:   Upserted frontend/src/components/Login.jsx (10 chunks)
+2026-04-20 16:13:45,060 [SYNC] INFO:   Upserted frontend/src/components/Pagination.jsx (7 chunks)
+2026-04-20 16:13:45,216 [SYNC] INFO:   Upserted frontend/src/components/ProtectedRoute.jsx (2 chunks)
+2026-04-20 16:13:45,750 [SYNC] INFO:   Upserted frontend/src/components/Register.jsx (14 chunks)
+2026-04-20 16:13:46,101 [SYNC] INFO:   Upserted frontend/src/components/TaskCard.jsx (11 chunks)
+2026-04-20 16:13:46,601 [SYNC] INFO:   Upserted frontend/src/components/TaskForm.jsx (10 chunks)
+2026-04-20 16:13:46,818 [SYNC] INFO:   Upserted frontend/src/context/AuthContext.jsx (6 chunks)
+2026-04-20 16:13:46,870 [SYNC] INFO:   Upserted frontend/src/counter.ts (1 chunks)
+2026-04-20 16:13:46,918 [SYNC] INFO:   Upserted frontend/src/main.jsx (1 chunks)
+2026-04-20 16:13:47,071 [SYNC] INFO:   Upserted frontend/src/main.ts (4 chunks)
+2026-04-20 16:13:47,128 [SYNC] INFO:   Upserted frontend/vite.config.js (1 chunks)
+2026-04-20 16:13:47,322 [SYNC] INFO:   Upserted main.py (6 chunks)
+2026-04-20 16:13:47,641 [SYNC] INFO:   Upserted models.py (11 chunks)
+2026-04-20 16:13:47,740 [SYNC] INFO:   Upserted purge_deleted_tasks.py (3 chunks)
+2026-04-20 16:13:47,782 [SYNC] INFO:   Upserted routers/__init__.py (1 chunks)
+2026-04-20 16:13:47,995 [SYNC] INFO:   Upserted routers/auth_router.py (7 chunks)
+2026-04-20 16:13:48,607 [SYNC] INFO:   Upserted routers/task_router.py (23 chunks)
+2026-04-20 16:13:49,168 [SYNC] INFO:   Upserted schemas.py (20 chunks)
+2026-04-20 16:13:49,168 [SYNC] INFO: Upserted 209 code chunks into Chroma
+2026-04-20 16:13:49,168 [SYNC] INFO: Sync cycle complete.
+2026-04-20 16:13:49,168 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 16:14:23,158 [SYNC] INFO: Sync service interrupted by user
+2026-04-20 16:14:23,159 [SYNC] INFO: Sovereign Sync Service stopped
+2026-04-20 16:17:46,885 [SYNC] INFO: Initializing Sovereign Sync Service
+2026-04-20 16:17:46,885 [SYNC] INFO:   Repo URL: https://github.com/HPE-CPP3-Project6/smart-task-manager
+2026-04-20 16:17:46,885 [SYNC] INFO:   Cache Dir: repo_cache
+2026-04-20 16:17:46,885 [SYNC] INFO:   Chroma Dir: chroma_data
+2026-04-20 16:17:47,559 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:17:47,597 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/modules.json "HTTP/1.1 200 OK"
+2026-04-20 16:17:47,948 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:17:48,106 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-04-20 16:17:48,107 [SYNC] INFO: Loading SentenceTransformer model from sentence-transformers/all-MiniLM-L6-v2.
+2026-04-20 16:17:48,388 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config_sentence_transformers.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:17:48,399 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config_sentence_transformers.json "HTTP/1.1 200 OK"
+2026-04-20 16:17:48,756 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/README.md "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:17:48,779 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/README.md "HTTP/1.1 200 OK"
+2026-04-20 16:17:49,289 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/modules.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:17:49,387 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/modules.json "HTTP/1.1 200 OK"
+2026-04-20 16:17:49,718 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/sentence_bert_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:17:49,718 [SYNC] WARNING: Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+2026-04-20 16:17:49,732 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/sentence_bert_config.json "HTTP/1.1 200 OK"
+2026-04-20 16:17:50,029 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/adapter_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 16:17:50,302 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:17:50,342 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
+2026-04-20 16:17:50,751 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 16:17:51,122 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/preprocessor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 16:17:51,443 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/video_preprocessor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 16:17:51,762 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/preprocessor_config.json "HTTP/1.1 404 Not Found"
+2026-04-20 16:17:52,071 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:17:52,086 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-04-20 16:17:52,369 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:17:52,464 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
+2026-04-20 16:17:52,784 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:17:52,797 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/config.json "HTTP/1.1 200 OK"
+2026-04-20 16:17:53,322 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:17:53,396 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/tokenizer_config.json "HTTP/1.1 200 OK"
+2026-04-20 16:17:53,710 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+2026-04-20 16:17:54,024 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+2026-04-20 16:17:54,430 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/1_Pooling/config.json "HTTP/1.1 307 Temporary Redirect"
+2026-04-20 16:17:54,449 [SYNC] INFO: HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/sentence-transformers/all-MiniLM-L6-v2/c9745ed1d9f207416be6d2e6f8de32d1f16199bf/1_Pooling%2Fconfig.json "HTTP/1.1 200 OK"
+2026-04-20 16:17:54,959 [SYNC] INFO: HTTP Request: GET https://huggingface.co/api/models/sentence-transformers/all-MiniLM-L6-v2 "HTTP/1.1 200 OK"
+2026-04-20 16:17:55,046 [SYNC] INFO: Chroma collection 'code_sources' ready
+2026-04-20 16:17:55,046 [SYNC] INFO: Repository exists at repo_cache. Opening...
+2026-04-20 16:17:55,047 [SYNC] INFO: Sovereign Sync Service started (interval: 300s)
+2026-04-20 16:17:55,047 [SYNC] INFO: ======================================================================
+2026-04-20 16:17:55,047 [SYNC] INFO: Starting sync cycle...
+2026-04-20 16:17:58,667 [SYNC] INFO: No new commits found
+2026-04-20 16:17:58,669 [SYNC] INFO: Detected 26 changed files (26 added, 0 modified, 0 deleted)
+2026-04-20 16:17:58,670 [SYNC] INFO: Processing 26 added/modified files...
+2026-04-20 16:17:59,138 [SYNC] INFO:   Upserted auth.py (9 chunks)
+2026-04-20 16:17:59,315 [SYNC] INFO:   Upserted config.py (3 chunks)
+2026-04-20 16:17:59,534 [SYNC] INFO:   Upserted database.py (4 chunks)
+2026-04-20 16:17:59,690 [SYNC] INFO:   Upserted frontend/src/App.jsx (2 chunks)
+2026-04-20 16:17:59,839 [SYNC] INFO:   Upserted frontend/src/api/axios.js (2 chunks)
+2026-04-20 16:18:00,053 [SYNC] INFO:   Upserted frontend/src/api/tasks.js (4 chunks)
+2026-04-20 16:18:01,356 [SYNC] INFO:   Upserted frontend/src/components/Dashboard.jsx (33 chunks)
+2026-04-20 16:18:01,915 [SYNC] INFO:   Upserted frontend/src/components/FilterBar.jsx (14 chunks)
+2026-04-20 16:18:02,235 [SYNC] INFO:   Upserted frontend/src/components/Login.jsx (10 chunks)
+2026-04-20 16:18:02,624 [SYNC] INFO:   Upserted frontend/src/components/Pagination.jsx (7 chunks)
+2026-04-20 16:18:02,777 [SYNC] INFO:   Upserted frontend/src/components/ProtectedRoute.jsx (2 chunks)
+2026-04-20 16:18:03,377 [SYNC] INFO:   Upserted frontend/src/components/Register.jsx (14 chunks)
+2026-04-20 16:18:03,847 [SYNC] INFO:   Upserted frontend/src/components/TaskCard.jsx (11 chunks)
+2026-04-20 16:18:04,171 [SYNC] INFO:   Upserted frontend/src/components/TaskForm.jsx (10 chunks)
+2026-04-20 16:18:04,401 [SYNC] INFO:   Upserted frontend/src/context/AuthContext.jsx (6 chunks)
+2026-04-20 16:18:04,466 [SYNC] INFO:   Upserted frontend/src/counter.ts (1 chunks)
+2026-04-20 16:18:04,529 [SYNC] INFO:   Upserted frontend/src/main.jsx (1 chunks)
+2026-04-20 16:18:04,713 [SYNC] INFO:   Upserted frontend/src/main.ts (4 chunks)
+2026-04-20 16:18:04,796 [SYNC] INFO:   Upserted frontend/vite.config.js (1 chunks)
+2026-04-20 16:18:05,016 [SYNC] INFO:   Upserted main.py (6 chunks)
+2026-04-20 16:18:05,372 [SYNC] INFO:   Upserted models.py (11 chunks)
+2026-04-20 16:18:05,487 [SYNC] INFO:   Upserted purge_deleted_tasks.py (3 chunks)
+2026-04-20 16:18:05,546 [SYNC] INFO:   Upserted routers/__init__.py (1 chunks)
+2026-04-20 16:18:05,867 [SYNC] INFO:   Upserted routers/auth_router.py (7 chunks)
+2026-04-20 16:18:06,620 [SYNC] INFO:   Upserted routers/task_router.py (23 chunks)
+2026-04-20 16:18:07,196 [SYNC] INFO:   Upserted schemas.py (20 chunks)
+2026-04-20 16:18:07,196 [SYNC] INFO: Upserted 209 code chunks into Chroma
+2026-04-20 16:18:07,197 [SYNC] INFO: Sync cycle complete.
+2026-04-20 16:18:07,197 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 16:18:49,169 [SYNC] INFO: ======================================================================
+2026-04-20 16:18:49,169 [SYNC] INFO: Starting sync cycle...
+2026-04-20 16:18:51,789 [SYNC] INFO: Sync service interrupted by user
+2026-04-20 16:18:51,789 [SYNC] INFO: Sovereign Sync Service stopped
+2026-04-20 16:23:07,197 [SYNC] INFO: ======================================================================
+2026-04-20 16:23:07,197 [SYNC] INFO: Starting sync cycle...
+2026-04-20 16:23:09,779 [SYNC] INFO: No new commits found
+2026-04-20 16:23:09,779 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 16:23:09,779 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 16:28:09,780 [SYNC] INFO: ======================================================================
+2026-04-20 16:28:09,780 [SYNC] INFO: Starting sync cycle...
+2026-04-20 16:28:12,930 [SYNC] INFO: No new commits found
+2026-04-20 16:28:12,930 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 16:28:12,930 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 16:33:12,930 [SYNC] INFO: ======================================================================
+2026-04-20 16:33:12,931 [SYNC] INFO: Starting sync cycle...
+2026-04-20 16:33:15,738 [SYNC] INFO: No new commits found
+2026-04-20 16:33:15,738 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 16:33:15,738 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 16:38:15,739 [SYNC] INFO: ======================================================================
+2026-04-20 16:38:15,739 [SYNC] INFO: Starting sync cycle...
+2026-04-20 16:38:18,396 [SYNC] INFO: No new commits found
+2026-04-20 16:38:18,396 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 16:38:18,396 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 16:43:18,396 [SYNC] INFO: ======================================================================
+2026-04-20 16:43:18,397 [SYNC] INFO: Starting sync cycle...
+2026-04-20 16:43:20,833 [SYNC] INFO: No new commits found
+2026-04-20 16:43:20,833 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 16:43:20,833 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 16:48:20,833 [SYNC] INFO: ======================================================================
+2026-04-20 16:48:20,834 [SYNC] INFO: Starting sync cycle...
+2026-04-20 16:48:23,409 [SYNC] INFO: No new commits found
+2026-04-20 16:48:23,409 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 16:48:23,409 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 16:53:23,410 [SYNC] INFO: ======================================================================
+2026-04-20 16:53:23,410 [SYNC] INFO: Starting sync cycle...
+2026-04-20 16:53:26,154 [SYNC] INFO: No new commits found
+2026-04-20 16:53:26,154 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 16:53:26,154 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 16:58:26,155 [SYNC] INFO: ======================================================================
+2026-04-20 16:58:26,155 [SYNC] INFO: Starting sync cycle...
+2026-04-20 16:58:28,724 [SYNC] INFO: No new commits found
+2026-04-20 16:58:28,724 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 16:58:28,724 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 17:03:28,725 [SYNC] INFO: ======================================================================
+2026-04-20 17:03:28,725 [SYNC] INFO: Starting sync cycle...
+2026-04-20 17:03:31,240 [SYNC] INFO: No new commits found
+2026-04-20 17:03:31,240 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 17:03:31,241 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 20:01:45,167 [SYNC] INFO: ======================================================================
+2026-04-20 20:01:45,168 [SYNC] INFO: Starting sync cycle...
+2026-04-20 20:01:50,758 [SYNC] INFO: No new commits found
+2026-04-20 20:01:50,760 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 20:01:50,761 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 20:06:50,761 [SYNC] INFO: ======================================================================
+2026-04-20 20:06:50,762 [SYNC] INFO: Starting sync cycle...
+2026-04-20 20:06:54,401 [SYNC] INFO: No new commits found
+2026-04-20 20:06:54,401 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 20:06:54,402 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 20:11:54,402 [SYNC] INFO: ======================================================================
+2026-04-20 20:11:54,403 [SYNC] INFO: Starting sync cycle...
+2026-04-20 20:11:58,132 [SYNC] INFO: No new commits found
+2026-04-20 20:11:58,132 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 20:11:58,132 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 20:16:58,133 [SYNC] INFO: ======================================================================
+2026-04-20 20:16:58,134 [SYNC] INFO: Starting sync cycle...
+2026-04-20 20:17:01,881 [SYNC] INFO: No new commits found
+2026-04-20 20:17:01,881 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 20:17:01,882 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 20:22:01,882 [SYNC] INFO: ======================================================================
+2026-04-20 20:22:01,883 [SYNC] INFO: Starting sync cycle...
+2026-04-20 20:22:06,228 [SYNC] INFO: No new commits found
+2026-04-20 20:22:06,228 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 20:22:06,228 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 20:27:06,229 [SYNC] INFO: ======================================================================
+2026-04-20 20:27:06,230 [SYNC] INFO: Starting sync cycle...
+2026-04-20 20:27:09,776 [SYNC] INFO: No new commits found
+2026-04-20 20:27:09,777 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 20:27:09,777 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 20:32:09,777 [SYNC] INFO: ======================================================================
+2026-04-20 20:32:09,778 [SYNC] INFO: Starting sync cycle...
+2026-04-20 20:32:13,328 [SYNC] INFO: No new commits found
+2026-04-20 20:32:13,328 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 20:32:13,328 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 20:37:13,329 [SYNC] INFO: ======================================================================
+2026-04-20 20:37:13,330 [SYNC] INFO: Starting sync cycle...
+2026-04-20 20:37:16,773 [SYNC] INFO: No new commits found
+2026-04-20 20:37:16,773 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 20:37:16,773 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 20:42:16,774 [SYNC] INFO: ======================================================================
+2026-04-20 20:42:16,774 [SYNC] INFO: Starting sync cycle...
+2026-04-20 20:42:20,187 [SYNC] INFO: No new commits found
+2026-04-20 20:42:20,187 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 20:42:20,188 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 20:47:20,189 [SYNC] INFO: ======================================================================
+2026-04-20 20:47:20,189 [SYNC] INFO: Starting sync cycle...
+2026-04-20 20:47:24,127 [SYNC] INFO: No new commits found
+2026-04-20 20:47:24,127 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 20:47:24,127 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 20:52:24,128 [SYNC] INFO: ======================================================================
+2026-04-20 20:52:24,129 [SYNC] INFO: Starting sync cycle...
+2026-04-20 20:52:27,514 [SYNC] INFO: No new commits found
+2026-04-20 20:52:27,515 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 20:52:27,515 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 20:57:27,515 [SYNC] INFO: ======================================================================
+2026-04-20 20:57:27,516 [SYNC] INFO: Starting sync cycle...
+2026-04-20 20:57:31,346 [SYNC] INFO: No new commits found
+2026-04-20 20:57:31,346 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 20:57:31,346 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 21:02:31,346 [SYNC] INFO: ======================================================================
+2026-04-20 21:02:31,347 [SYNC] INFO: Starting sync cycle...
+2026-04-20 21:02:34,960 [SYNC] INFO: No new commits found
+2026-04-20 21:02:34,960 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 21:02:34,961 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 21:07:34,961 [SYNC] INFO: ======================================================================
+2026-04-20 21:07:34,962 [SYNC] INFO: Starting sync cycle...
+2026-04-20 21:07:38,674 [SYNC] INFO: No new commits found
+2026-04-20 21:07:38,675 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 21:07:38,675 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 21:12:38,675 [SYNC] INFO: ======================================================================
+2026-04-20 21:12:38,675 [SYNC] INFO: Starting sync cycle...
+2026-04-20 21:12:42,386 [SYNC] INFO: No new commits found
+2026-04-20 21:12:42,386 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 21:12:42,386 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 21:17:42,387 [SYNC] INFO: ======================================================================
+2026-04-20 21:17:42,388 [SYNC] INFO: Starting sync cycle...
+2026-04-20 21:17:45,997 [SYNC] INFO: No new commits found
+2026-04-20 21:17:45,997 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 21:17:45,997 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 21:22:45,998 [SYNC] INFO: ======================================================================
+2026-04-20 21:22:45,999 [SYNC] INFO: Starting sync cycle...
+2026-04-20 21:22:50,105 [SYNC] INFO: No new commits found
+2026-04-20 21:22:50,106 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 21:22:50,106 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 21:27:50,106 [SYNC] INFO: ======================================================================
+2026-04-20 21:27:50,107 [SYNC] INFO: Starting sync cycle...
+2026-04-20 21:27:53,071 [SYNC] INFO: No new commits found
+2026-04-20 21:27:53,071 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 21:27:53,071 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 21:32:53,072 [SYNC] INFO: ======================================================================
+2026-04-20 21:32:53,072 [SYNC] INFO: Starting sync cycle...
+2026-04-20 21:32:55,820 [SYNC] INFO: No new commits found
+2026-04-20 21:32:55,820 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 21:32:55,821 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 21:37:55,821 [SYNC] INFO: ======================================================================
+2026-04-20 21:37:55,821 [SYNC] INFO: Starting sync cycle...
+2026-04-20 21:37:58,540 [SYNC] INFO: No new commits found
+2026-04-20 21:37:58,540 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 21:37:58,540 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 21:42:58,541 [SYNC] INFO: ======================================================================
+2026-04-20 21:42:58,541 [SYNC] INFO: Starting sync cycle...
+2026-04-20 21:43:01,191 [SYNC] INFO: No new commits found
+2026-04-20 21:43:01,191 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 21:43:01,192 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 21:48:01,192 [SYNC] INFO: ======================================================================
+2026-04-20 21:48:01,193 [SYNC] INFO: Starting sync cycle...
+2026-04-20 21:48:03,961 [SYNC] INFO: No new commits found
+2026-04-20 21:48:03,962 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 21:48:03,962 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 21:53:03,962 [SYNC] INFO: ======================================================================
+2026-04-20 21:53:03,963 [SYNC] INFO: Starting sync cycle...
+2026-04-20 21:53:06,774 [SYNC] INFO: No new commits found
+2026-04-20 21:53:06,774 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 21:53:06,774 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 21:58:06,775 [SYNC] INFO: ======================================================================
+2026-04-20 21:58:06,776 [SYNC] INFO: Starting sync cycle...
+2026-04-20 21:58:11,164 [SYNC] INFO: No new commits found
+2026-04-20 21:58:11,165 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 21:58:11,165 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 22:03:11,165 [SYNC] INFO: ======================================================================
+2026-04-20 22:03:11,166 [SYNC] INFO: Starting sync cycle...
+2026-04-20 22:03:15,350 [SYNC] INFO: No new commits found
+2026-04-20 22:03:15,350 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 22:03:15,350 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 22:08:15,351 [SYNC] INFO: ======================================================================
+2026-04-20 22:08:15,351 [SYNC] INFO: Starting sync cycle...
+2026-04-20 22:08:18,838 [SYNC] INFO: No new commits found
+2026-04-20 22:08:18,838 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 22:08:18,838 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 22:13:18,839 [SYNC] INFO: ======================================================================
+2026-04-20 22:13:18,840 [SYNC] INFO: Starting sync cycle...
+2026-04-20 22:13:22,467 [SYNC] INFO: No new commits found
+2026-04-20 22:13:22,468 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 22:13:22,468 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 22:18:22,469 [SYNC] INFO: ======================================================================
+2026-04-20 22:18:22,469 [SYNC] INFO: Starting sync cycle...
+2026-04-20 22:18:25,854 [SYNC] INFO: No new commits found
+2026-04-20 22:18:25,855 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 22:18:25,855 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 22:23:25,855 [SYNC] INFO: ======================================================================
+2026-04-20 22:23:25,856 [SYNC] INFO: Starting sync cycle...
+2026-04-20 22:23:29,358 [SYNC] INFO: No new commits found
+2026-04-20 22:23:29,359 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 22:23:29,359 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 22:28:29,360 [SYNC] INFO: ======================================================================
+2026-04-20 22:28:29,360 [SYNC] INFO: Starting sync cycle...
+2026-04-20 22:28:32,918 [SYNC] INFO: No new commits found
+2026-04-20 22:28:32,920 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 22:28:32,920 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 22:33:32,921 [SYNC] INFO: ======================================================================
+2026-04-20 22:33:32,921 [SYNC] INFO: Starting sync cycle...
+2026-04-20 22:33:36,507 [SYNC] INFO: No new commits found
+2026-04-20 22:33:36,508 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 22:33:36,508 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 22:38:36,508 [SYNC] INFO: ======================================================================
+2026-04-20 22:38:36,509 [SYNC] INFO: Starting sync cycle...
+2026-04-20 22:38:40,270 [SYNC] INFO: No new commits found
+2026-04-20 22:38:40,270 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 22:38:40,270 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 22:43:40,270 [SYNC] INFO: ======================================================================
+2026-04-20 22:43:40,271 [SYNC] INFO: Starting sync cycle...
+2026-04-20 22:43:43,480 [SYNC] INFO: No new commits found
+2026-04-20 22:43:43,480 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 22:43:43,480 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 22:48:43,481 [SYNC] INFO: ======================================================================
+2026-04-20 22:48:43,481 [SYNC] INFO: Starting sync cycle...
+2026-04-20 22:48:47,444 [SYNC] INFO: No new commits found
+2026-04-20 22:48:47,444 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 22:48:47,444 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 22:53:47,445 [SYNC] INFO: ======================================================================
+2026-04-20 22:53:47,445 [SYNC] INFO: Starting sync cycle...
+2026-04-20 22:53:51,247 [SYNC] INFO: No new commits found
+2026-04-20 22:53:51,247 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 22:53:51,247 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 22:58:51,248 [SYNC] INFO: ======================================================================
+2026-04-20 22:58:51,248 [SYNC] INFO: Starting sync cycle...
+2026-04-20 22:58:54,900 [SYNC] INFO: No new commits found
+2026-04-20 22:58:54,901 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 22:58:54,901 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 23:03:54,902 [SYNC] INFO: ======================================================================
+2026-04-20 23:03:54,902 [SYNC] INFO: Starting sync cycle...
+2026-04-20 23:03:58,661 [SYNC] INFO: No new commits found
+2026-04-20 23:03:58,661 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 23:03:58,662 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 23:08:58,663 [SYNC] INFO: ======================================================================
+2026-04-20 23:08:58,663 [SYNC] INFO: Starting sync cycle...
+2026-04-20 23:09:02,746 [SYNC] INFO: No new commits found
+2026-04-20 23:09:02,746 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 23:09:02,746 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 23:14:02,746 [SYNC] INFO: ======================================================================
+2026-04-20 23:14:02,747 [SYNC] INFO: Starting sync cycle...
+2026-04-20 23:14:06,423 [SYNC] INFO: No new commits found
+2026-04-20 23:14:06,424 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 23:14:06,424 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 23:19:06,424 [SYNC] INFO: ======================================================================
+2026-04-20 23:19:06,425 [SYNC] INFO: Starting sync cycle...
+2026-04-20 23:19:10,093 [SYNC] INFO: No new commits found
+2026-04-20 23:19:10,094 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 23:19:10,094 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 23:24:10,095 [SYNC] INFO: ======================================================================
+2026-04-20 23:24:10,095 [SYNC] INFO: Starting sync cycle...
+2026-04-20 23:24:13,735 [SYNC] INFO: No new commits found
+2026-04-20 23:24:13,736 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 23:24:13,736 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 23:29:13,737 [SYNC] INFO: ======================================================================
+2026-04-20 23:29:13,737 [SYNC] INFO: Starting sync cycle...
+2026-04-20 23:29:17,172 [SYNC] INFO: No new commits found
+2026-04-20 23:29:17,173 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 23:29:17,173 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 23:34:17,173 [SYNC] INFO: ======================================================================
+2026-04-20 23:34:17,174 [SYNC] INFO: Starting sync cycle...
+2026-04-20 23:34:21,030 [SYNC] INFO: No new commits found
+2026-04-20 23:34:21,030 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 23:34:21,030 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 23:39:21,031 [SYNC] INFO: ======================================================================
+2026-04-20 23:39:21,031 [SYNC] INFO: Starting sync cycle...
+2026-04-20 23:39:24,999 [SYNC] INFO: No new commits found
+2026-04-20 23:39:25,000 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 23:39:25,000 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 23:44:25,001 [SYNC] INFO: ======================================================================
+2026-04-20 23:44:25,001 [SYNC] INFO: Starting sync cycle...
+2026-04-20 23:44:28,887 [SYNC] INFO: No new commits found
+2026-04-20 23:44:28,887 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 23:44:28,887 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 23:49:28,888 [SYNC] INFO: ======================================================================
+2026-04-20 23:49:28,888 [SYNC] INFO: Starting sync cycle...
+2026-04-20 23:49:32,523 [SYNC] INFO: No new commits found
+2026-04-20 23:49:32,523 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 23:49:32,523 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 23:54:32,524 [SYNC] INFO: ======================================================================
+2026-04-20 23:54:32,524 [SYNC] INFO: Starting sync cycle...
+2026-04-20 23:54:36,123 [SYNC] INFO: No new commits found
+2026-04-20 23:54:36,123 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 23:54:36,123 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-20 23:59:36,124 [SYNC] INFO: ======================================================================
+2026-04-20 23:59:36,124 [SYNC] INFO: Starting sync cycle...
+2026-04-20 23:59:39,876 [SYNC] INFO: No new commits found
+2026-04-20 23:59:39,876 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-20 23:59:39,876 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 00:04:39,877 [SYNC] INFO: ======================================================================
+2026-04-21 00:04:39,877 [SYNC] INFO: Starting sync cycle...
+2026-04-21 00:04:43,005 [SYNC] INFO: No new commits found
+2026-04-21 00:04:43,005 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 00:04:43,005 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 00:09:43,006 [SYNC] INFO: ======================================================================
+2026-04-21 00:09:43,006 [SYNC] INFO: Starting sync cycle...
+2026-04-21 00:09:46,068 [SYNC] INFO: No new commits found
+2026-04-21 00:09:46,068 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 00:09:46,068 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 00:14:46,069 [SYNC] INFO: ======================================================================
+2026-04-21 00:14:46,069 [SYNC] INFO: Starting sync cycle...
+2026-04-21 00:14:49,859 [SYNC] INFO: No new commits found
+2026-04-21 00:14:49,859 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 00:14:49,859 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 00:19:49,859 [SYNC] INFO: ======================================================================
+2026-04-21 00:19:49,860 [SYNC] INFO: Starting sync cycle...
+2026-04-21 00:19:53,584 [SYNC] INFO: No new commits found
+2026-04-21 00:19:53,584 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 00:19:53,585 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 00:24:53,585 [SYNC] INFO: ======================================================================
+2026-04-21 00:24:53,585 [SYNC] INFO: Starting sync cycle...
+2026-04-21 00:24:57,195 [SYNC] INFO: No new commits found
+2026-04-21 00:24:57,196 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 00:24:57,196 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 00:29:57,197 [SYNC] INFO: ======================================================================
+2026-04-21 00:29:57,197 [SYNC] INFO: Starting sync cycle...
+2026-04-21 00:30:00,959 [SYNC] INFO: No new commits found
+2026-04-21 00:30:00,959 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 00:30:00,959 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 00:35:00,959 [SYNC] INFO: ======================================================================
+2026-04-21 00:35:00,960 [SYNC] INFO: Starting sync cycle...
+2026-04-21 00:35:04,444 [SYNC] INFO: No new commits found
+2026-04-21 00:35:04,444 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 00:35:04,444 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 00:40:04,445 [SYNC] INFO: ======================================================================
+2026-04-21 00:40:04,446 [SYNC] INFO: Starting sync cycle...
+2026-04-21 00:40:07,935 [SYNC] INFO: No new commits found
+2026-04-21 00:40:07,935 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 00:40:07,935 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 00:45:07,935 [SYNC] INFO: ======================================================================
+2026-04-21 00:45:07,936 [SYNC] INFO: Starting sync cycle...
+2026-04-21 00:45:11,409 [SYNC] INFO: No new commits found
+2026-04-21 00:45:11,410 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 00:45:11,410 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 00:50:11,411 [SYNC] INFO: ======================================================================
+2026-04-21 00:50:11,411 [SYNC] INFO: Starting sync cycle...
+2026-04-21 00:50:14,983 [SYNC] INFO: No new commits found
+2026-04-21 00:50:14,983 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 00:50:14,984 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 00:55:14,984 [SYNC] INFO: ======================================================================
+2026-04-21 00:55:14,985 [SYNC] INFO: Starting sync cycle...
+2026-04-21 00:55:18,768 [SYNC] INFO: No new commits found
+2026-04-21 00:55:18,770 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 00:55:18,770 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 01:00:18,770 [SYNC] INFO: ======================================================================
+2026-04-21 01:00:18,771 [SYNC] INFO: Starting sync cycle...
+2026-04-21 01:00:22,450 [SYNC] INFO: No new commits found
+2026-04-21 01:00:22,450 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 01:00:22,450 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 01:05:22,451 [SYNC] INFO: ======================================================================
+2026-04-21 01:05:22,451 [SYNC] INFO: Starting sync cycle...
+2026-04-21 01:05:26,046 [SYNC] INFO: No new commits found
+2026-04-21 01:05:26,046 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 01:05:26,046 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 01:10:26,048 [SYNC] INFO: ======================================================================
+2026-04-21 01:10:26,048 [SYNC] INFO: Starting sync cycle...
+2026-04-21 01:10:29,671 [SYNC] INFO: No new commits found
+2026-04-21 01:10:29,672 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 01:10:29,672 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 01:15:29,672 [SYNC] INFO: ======================================================================
+2026-04-21 01:15:29,673 [SYNC] INFO: Starting sync cycle...
+2026-04-21 01:15:32,867 [SYNC] INFO: No new commits found
+2026-04-21 01:15:32,868 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 01:15:32,868 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 01:20:32,868 [SYNC] INFO: ======================================================================
+2026-04-21 01:20:32,869 [SYNC] INFO: Starting sync cycle...
+2026-04-21 01:20:36,220 [SYNC] INFO: No new commits found
+2026-04-21 01:20:36,220 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 01:20:36,220 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 01:25:36,221 [SYNC] INFO: ======================================================================
+2026-04-21 01:25:36,221 [SYNC] INFO: Starting sync cycle...
+2026-04-21 01:25:39,344 [SYNC] INFO: No new commits found
+2026-04-21 01:25:39,344 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 01:25:39,344 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 01:30:39,344 [SYNC] INFO: ======================================================================
+2026-04-21 01:30:39,345 [SYNC] INFO: Starting sync cycle...
+2026-04-21 01:30:42,240 [SYNC] INFO: No new commits found
+2026-04-21 01:30:42,240 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 01:30:42,240 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 01:35:42,241 [SYNC] INFO: ======================================================================
+2026-04-21 01:35:42,244 [SYNC] INFO: Starting sync cycle...
+2026-04-21 01:35:45,271 [SYNC] INFO: No new commits found
+2026-04-21 01:35:45,271 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 01:35:45,272 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 01:40:45,272 [SYNC] INFO: ======================================================================
+2026-04-21 01:40:45,273 [SYNC] INFO: Starting sync cycle...
+2026-04-21 01:40:48,891 [SYNC] INFO: No new commits found
+2026-04-21 01:40:48,892 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 01:40:48,892 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 01:45:48,892 [SYNC] INFO: ======================================================================
+2026-04-21 01:45:48,893 [SYNC] INFO: Starting sync cycle...
+2026-04-21 01:45:51,862 [SYNC] INFO: No new commits found
+2026-04-21 01:45:51,862 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 01:45:51,862 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 01:50:51,863 [SYNC] INFO: ======================================================================
+2026-04-21 01:50:51,864 [SYNC] INFO: Starting sync cycle...
+2026-04-21 01:50:57,156 [SYNC] INFO: No new commits found
+2026-04-21 01:50:57,157 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 01:50:57,158 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 01:55:57,158 [SYNC] INFO: ======================================================================
+2026-04-21 01:55:57,159 [SYNC] INFO: Starting sync cycle...
+2026-04-21 01:56:00,823 [SYNC] INFO: No new commits found
+2026-04-21 01:56:00,824 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 01:56:00,824 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 02:01:00,825 [SYNC] INFO: ======================================================================
+2026-04-21 02:01:00,825 [SYNC] INFO: Starting sync cycle...
+2026-04-21 02:01:03,909 [SYNC] INFO: No new commits found
+2026-04-21 02:01:03,909 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 02:01:03,909 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 02:06:03,910 [SYNC] INFO: ======================================================================
+2026-04-21 02:06:03,910 [SYNC] INFO: Starting sync cycle...
+2026-04-21 02:06:07,208 [SYNC] INFO: No new commits found
+2026-04-21 02:06:07,208 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 02:06:07,209 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 02:11:07,209 [SYNC] INFO: ======================================================================
+2026-04-21 02:11:07,210 [SYNC] INFO: Starting sync cycle...
+2026-04-21 02:11:10,075 [SYNC] INFO: No new commits found
+2026-04-21 02:11:10,075 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 02:11:10,075 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 02:16:10,076 [SYNC] INFO: ======================================================================
+2026-04-21 02:16:10,076 [SYNC] INFO: Starting sync cycle...
+2026-04-21 02:16:12,907 [SYNC] INFO: No new commits found
+2026-04-21 02:16:12,907 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 02:16:12,908 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 02:21:12,908 [SYNC] INFO: ======================================================================
+2026-04-21 02:21:12,909 [SYNC] INFO: Starting sync cycle...
+2026-04-21 02:21:15,827 [SYNC] INFO: No new commits found
+2026-04-21 02:21:15,827 [SYNC] INFO: Sync cycle complete. No updates needed.
+2026-04-21 02:21:15,827 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 15:06:58,090 [SYNC] INFO: Initializing Sovereign Sync Service
+2026-04-21 15:06:58,093 [SYNC] INFO:   Repo URL: https://github.com/example/sentinel-qa-app.git
+2026-04-21 15:06:58,093 [SYNC] INFO:   Cache Dir: repo_cache
+2026-04-21 15:06:58,093 [SYNC] INFO:   Chroma Dir: chroma_data
+2026-04-21 15:06:58,093 [SYNC] INFO: Loading SentenceTransformer: jinaai/jina-embeddings-v2-base-code
+2026-04-21 15:06:58,094 [SYNC] INFO: Use pytorch device_name: cpu
+2026-04-21 15:06:58,094 [SYNC] INFO: Load pretrained SentenceTransformer: jinaai/jina-embeddings-v2-base-code
+2026-04-21 15:07:03,167 [SYNC] INFO: Chroma collection 'code_sources' ready
+2026-04-21 15:07:03,167 [SYNC] INFO: Repository exists at repo_cache. Opening...
+2026-04-21 15:07:03,168 [SYNC] INFO: Sovereign Sync Service started (interval: 300s)
+2026-04-21 15:07:03,168 [SYNC] INFO: ======================================================================
+2026-04-21 15:07:03,168 [SYNC] INFO: Starting sync cycle...
+2026-04-21 15:07:05,900 [SYNC] INFO: No new commits found
+2026-04-21 15:07:05,901 [SYNC] INFO: Detected 30 changed files (30 added, 0 modified, 0 deleted)
+2026-04-21 15:07:05,902 [SYNC] INFO: Processing 30 added/modified files...
+2026-04-21 15:07:06,181 [SYNC] INFO:   Upserted .env.example (1 chunks)
+2026-04-21 15:07:08,365 [SYNC] INFO:   Upserted auth.py (9 chunks)
+2026-04-21 15:07:08,946 [SYNC] INFO:   Upserted config.py (3 chunks)
+2026-04-21 15:07:09,522 [SYNC] INFO:   Upserted database.py (4 chunks)
+2026-04-21 15:07:09,804 [SYNC] INFO:   Upserted frontend/index.html (1 chunks)
+2026-04-21 15:07:10,030 [SYNC] INFO:   Upserted frontend/package.json (1 chunks)
+2026-04-21 15:07:10,492 [SYNC] INFO:   Upserted frontend/src/App.jsx (2 chunks)
+2026-04-21 15:07:10,970 [SYNC] INFO:   Upserted frontend/src/api/axios.js (2 chunks)
+2026-04-21 15:07:12,171 [SYNC] INFO:   Upserted frontend/src/api/tasks.js (4 chunks)
+2026-04-21 15:07:25,350 [SYNC] INFO:   Upserted frontend/src/components/Dashboard.jsx (33 chunks)
+2026-04-21 15:07:29,518 [SYNC] INFO:   Upserted frontend/src/components/FilterBar.jsx (14 chunks)
+2026-04-21 15:07:32,961 [SYNC] INFO:   Upserted frontend/src/components/Login.jsx (10 chunks)
+2026-04-21 15:07:34,630 [SYNC] INFO:   Upserted frontend/src/components/Pagination.jsx (7 chunks)
+2026-04-21 15:07:35,118 [SYNC] INFO:   Upserted frontend/src/components/ProtectedRoute.jsx (2 chunks)
+2026-04-21 15:07:39,791 [SYNC] INFO:   Upserted frontend/src/components/Register.jsx (14 chunks)
+2026-04-21 15:07:44,168 [SYNC] INFO:   Upserted frontend/src/components/TaskCard.jsx (11 chunks)
+2026-04-21 15:07:46,517 [SYNC] INFO:   Upserted frontend/src/components/TaskForm.jsx (10 chunks)
+2026-04-21 15:07:47,932 [SYNC] INFO:   Upserted frontend/src/context/AuthContext.jsx (6 chunks)
+2026-04-21 15:07:48,093 [SYNC] INFO:   Upserted frontend/src/counter.ts (1 chunks)
+2026-04-21 15:07:48,235 [SYNC] INFO:   Upserted frontend/src/main.jsx (1 chunks)
+2026-04-21 15:07:49,559 [SYNC] INFO:   Upserted frontend/src/main.ts (4 chunks)
+2026-04-21 15:07:49,799 [SYNC] INFO:   Upserted frontend/tsconfig.json (1 chunks)
+2026-04-21 15:07:50,003 [SYNC] INFO:   Upserted frontend/vite.config.js (1 chunks)
+2026-04-21 15:07:51,183 [SYNC] INFO:   Upserted main.py (6 chunks)
+2026-04-21 15:07:53,561 [SYNC] INFO:   Upserted models.py (11 chunks)
+2026-04-21 15:07:54,193 [SYNC] INFO:   Upserted purge_deleted_tasks.py (3 chunks)
+2026-04-21 15:07:54,314 [SYNC] INFO:   Upserted routers/__init__.py (1 chunks)
+2026-04-21 15:07:56,163 [SYNC] INFO:   Upserted routers/auth_router.py (7 chunks)
+2026-04-21 15:08:01,630 [SYNC] INFO:   Upserted routers/task_router.py (23 chunks)
+2026-04-21 15:08:05,988 [SYNC] INFO:   Upserted schemas.py (20 chunks)
+2026-04-21 15:08:05,988 [SYNC] INFO: Upserted 213 code chunks into Chroma
+2026-04-21 15:08:05,989 [SYNC] INFO: Sync cycle complete.
+2026-04-21 15:08:05,989 [SYNC] INFO: Waiting 300s until next sync...
+2026-04-21 15:09:26,741 [SYNC] INFO: Sync service interrupted by user
+2026-04-21 15:09:26,742 [SYNC] INFO: Sovereign Sync Service stopped

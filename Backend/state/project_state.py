@@ -24,6 +24,11 @@ class TestCase(BaseModel):
     title: str
     action: str
     input_data: Union[Dict[str, Any], List[Any]] = Field(default_factory=dict)
+    # Declared pre-state the runner must seed before executing the test.
+    # Each entry is a single imperative sentence (e.g. "Seed DB with user
+    # test@example.com"). Empty list is treated as undeclared state — the
+    # Generator must emit ["none"] for truly stateless tests.
+    setup_fixtures: List[str] = Field(default_factory=list)
     # Traditional field (kept for backward compatibility)
     expected_result: str
     # NEW: Technical Schema for Assertions

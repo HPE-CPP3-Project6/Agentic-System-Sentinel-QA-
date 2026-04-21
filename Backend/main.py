@@ -8,6 +8,17 @@ Pipeline:
 
 from __future__ import annotations
 
+import os
+
+# Set Chroma home to project-local cache BEFORE importing anything that uses chromadb
+_CHROMA_HOME = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), ".", "chroma_models_cache")
+)
+os.environ["CHROMA_HOME"] = _CHROMA_HOME
+os.environ["HF_HOME"] = _CHROMA_HOME  # Hugging Face models cache
+os.environ["ONNXRUNTIME_CACHE_DIR"] = _CHROMA_HOME  # ONNX runtime cache
+os.makedirs(_CHROMA_HOME, exist_ok=True)
+
 from langgraph.graph import StateGraph, END
 
 from agents import (

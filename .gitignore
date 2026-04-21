@@ -1,1 +1,4 @@
 .claude/
+.chroma_models_cache/
+outputs/
+*.resolved
