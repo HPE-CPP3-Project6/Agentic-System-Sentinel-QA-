@@ -18,6 +18,13 @@ import json
 import sys
 from typing import List
 
+# Windows cp1252 cannot encode unicode arrows/bullets when stdout is redirected
+# to a file. Force utf-8 so `python run_*.py > out.txt` does not crash.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 # Set Chroma home to project-local cache BEFORE importing anything that uses chromadb
 _CHROMA_HOME = os.path.abspath(
     os.path.join(os.path.dirname(__file__), ".", "chroma_models_cache")

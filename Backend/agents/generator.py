@@ -197,6 +197,46 @@ about:
   - network-level packet inspection / Wireshark visibility
 Those remain deployment/infra concerns and stay in `coverage_gaps`.
 
+### DOM SELECTOR GROUNDING — NO INVENTED ATTRIBUTES
+Whenever a TestCase targets the UI (any `ui_action`, `element_selector`,
+Playwright / Cypress-style locator, or assertion about rendered DOM),
+EVERY selector string you emit MUST appear VERBATIM in a retrieved JSX /
+TSX / HTML snippet in section (D). No exceptions.
+
+This applies to, and is NOT limited to:
+  - `data-testid="..."` / `data-cy="..."` / `data-qa="..."` / any `data-*` hook
+  - CSS class selectors (`.overdue-btn`)
+  - id selectors (`#filter-date`)
+  - `role="..."` / `aria-label="..."` values
+  - visible text used in `getByText(...)` / `:has-text(...)` matchers
+
+Rules:
+  - If the retrieved JSX renders `<select id="filter-date">` with
+    `<option value="Overdue">`, the correct test targets `#filter-date`
+    and sets its value to `"Overdue"`. Do NOT invent
+    `[data-testid='filter-date-overdue']` just because it matches industry
+    convention — if the attribute is not in the snippet, it does not exist.
+  - If the AC requires interacting with a control and section (D) does
+    NOT expose a stable selector (id, role, or accessible text), emit a
+    `coverage_gaps` entry naming the missing hook, e.g. "FilterBar.jsx
+    renders an `<option>` for 'Overdue' inside an unnamed `<select>` —
+    a data-testid or id on the option would be needed to target it
+    reliably in E2E; no stable selector retrieved."
+  - `coverage_rationale` for any UI test MUST quote the exact JSX line
+    that grounds the selector, e.g. "grounded in FilterBar.jsx:138 which
+    renders `<select id='filter-date'>` — test sets its value to
+    'Overdue' (FilterBar.jsx:146) and fires a change event."
+  - The SAME rule applies to `expected_result` text assertions: if the
+    test asserts "page shows 'Task deleted successfully'", that literal
+    string MUST appear in the retrieved JSX or in a response schema
+    (section B). If it appears NOWHERE, that is a hallucinated assertion.
+
+Breaching this rule — citing any DOM attribute, selector, or visible
+string that does not appear verbatim in the retrieved context — is
+treated as hallucinated grounding and the test will be rejected
+downstream. Prefer rejecting the test (coverage_gap) over inventing
+a selector.
+
 ## RULE 2 — FASTAPI AUTHENTICATION CONTRACT (Form vs JSON)
 FastAPI's `OAuth2PasswordRequestForm` is a FORM dependency, not a JSON body.
 It consumes `application/x-www-form-urlencoded` with the EXACT keys `username`
@@ -484,6 +524,63 @@ not hit a backend database query, you MUST NOT abandon security testing.
 Instead of Backend SQLi, you MUST pivot to generating Client-Side Security
 tests (e.g., DOM-based XSS, Prototype Pollution) using Playwright assertions
 against the rendered JSX.
+
+## RULE 12 — OWASP A03 DEFENSE-PATH COVERAGE (authenticated payload test)
+This rule applies ONLY when the requirement's `OWASP mapping` (supplied in
+the user prompt) contains `A03:2021`, or when the Critic flagged an
+injection-class SecurityRisk on this REQ. For all other REQs, ignore this
+rule entirely.
+
+Common failure mode: emitting only a PREVENTION-layer test (e.g. an
+unauthenticated request that returns 401) and calling the injection risk
+covered. That test proves the gate works; it does NOT prove the payload
+would be neutralized if a legitimate user sent it. The Critic's flagged
+risk lives on the defense layer, not the gate.
+
+When A03:2021 is present, the test_suite MUST contain AT LEAST ONE test
+that exercises the DEFENSE layer with all of:
+
+  - `setup_fixtures` includes an entry that issues a valid JWT / session
+    for a seeded user and attaches it as a Bearer token (or the
+    session-cookie equivalent if the retrieved auth layer uses cookies).
+  - `input_data` places the injection payload in the EXACT field the
+    Critic flagged (read `OWASP mapping` context or the AC — typical
+    targets: `date_filter`, `search`, `sort_by`, `id`, `q`, `order`).
+  - `expected_status_code` is the status the endpoint returns when the
+    payload is treated as a harmless LITERAL string — usually `200`
+    (query ran, zero or normal rows returned) or `400`/`422` if the
+    field has enum / regex validation that the payload fails. It is
+    NOT `401` (that is the prevention gate, not the defense).
+  - `forbidden_response_content` includes strings that would indicate
+    the payload was INTERPRETED rather than neutralized, for example:
+    ["syntax error", "SQLSTATE", "ProgrammingError", "OperationalError",
+     "unterminated", "near \"--\"", "Traceback", "psycopg2", "sqlite3.",
+     "column does not exist"].
+  - `coverage_rationale` MUST quote the router / ORM line where the
+    flagged field flows into the parameterized call, demonstrating the
+    field is compared as a value — never concatenated into SQL. Example:
+    "grounded in task_router.py:277-280 — `Task.due_date < today_start`
+    and `Task.status != 'Completed'` are SQLAlchemy expressions;
+    `date_filter` at task_router.py:257 is `.strip().lower()`-compared
+    against string literals ('today' / 'upcoming' / 'overdue') and never
+    concatenated into SQL, so a payload falls through the if/elif ladder
+    without reaching the query."
+  - `title` frames the test as verifying the defense, e.g.
+    "Authenticated SQLi payload in date_filter is neutralized (200, no
+    DB error, no rows)".
+  - `test_category = "security"`, `is_adversarial = true`.
+
+An auth-gate-only test (unauthenticated + 401) remains acceptable as a
+SUPPLEMENTARY test. It does NOT on its own satisfy RULE 12. If you emit
+only the prevention-layer test when A03:2021 is flagged, the suite is
+incomplete and the Critic's risk is unmet.
+
+Grounding fallback: if the retrieved context does NOT include the router
+/ ORM line where the flagged field flows into a query, do NOT guess the
+defense path. Emit a `coverage_gaps` entry naming the specific router
+or handler file that would be required (e.g. "requires the handler for
+GET /tasks where `date_filter` is consumed; retrieved snippets do not
+include the query-construction line").
 
 ============================================================
 TEST GENERATION DISCIPLINE
