@@ -1,0 +1,52 @@
+[project]
+name = "sentinel-qa"
+version = "0.1.0"
+description = "Sentinel-QA — agentic test-generation pipeline (Critic, Generator, Red-Teamer, Executor)."
+requires-python = ">=3.10"
+readme = "../README.md"
+
+# Runtime deps still live in requirements.txt for now. This file exists so
+# ruff / pytest can be run without a separate config and so `python -m build`
+# works if we ever publish.
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["."]
+extend-exclude = [
+    "venv",
+    ".venv",
+    "chroma_data",
+    "chroma_models_cache",
+    "repo_cache",
+    "state",
+]
+
+[tool.ruff.lint]
+# Conservative starter set; expand after the codebase is clean.
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501", # line-too-long — prompts are intentionally long strings
+    "B008", # function call in default argument (common in LangChain)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"agents/generator.py" = ["E501"]   # GENERATOR_SYSTEM_PROMPT is one long string
+"agents/critic.py"    = ["E501"]
+"agents/executor.py"  = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agents", "database", "samples", "state", "utils", "bootstrap"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q --strict-markers"

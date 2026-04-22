@@ -22,19 +22,14 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, Iterator, List, Optional, Tuple
 
-# Set Chroma home to project-local cache before importing chromadb
-_CHROMA_HOME = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "chroma_models_cache")
-)
-os.environ["CHROMA_HOME"] = _CHROMA_HOME
-os.environ["HF_HOME"] = _CHROMA_HOME  # Hugging Face models cache
-os.environ["ONNXRUNTIME_CACHE_DIR"] = _CHROMA_HOME  # ONNX runtime cache
-os.makedirs(_CHROMA_HOME, exist_ok=True)
+from bootstrap import configure_caches
 
-import chromadb
-from chromadb import Documents, EmbeddingFunction, Embeddings
-from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
+_CHROMA_HOME = configure_caches()
+
+import chromadb  # noqa: E402
+from chromadb import Documents, EmbeddingFunction, Embeddings  # noqa: E402
+from chromadb.config import Settings  # noqa: E402
+from sentence_transformers import SentenceTransformer  # noqa: E402
 
 
 logger = logging.getLogger(__name__)

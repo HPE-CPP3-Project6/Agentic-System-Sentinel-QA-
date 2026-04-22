@@ -1,9 +1,14 @@
-"""LLM client factory — Gemini 2.5 Flash via Vertex AI.
+"""LLM client factory — Gemini via Vertex AI.
 
-Note: using a hosted model (Vertex AI) means prompts, requirement text, and any
-retrieved source-code context leave the local environment. This is a
-deliberate departure from the original data-sovereignty brief; revisit if
-HPE re-imposes air-gapped execution.
+Authentication uses Application Default Credentials (ADC). The caller is
+responsible for configuring ADC before the first `get_local_llm()` call,
+either via `gcloud auth application-default login` or by exporting
+`GOOGLE_APPLICATION_CREDENTIALS` to a service-account JSON path.
+
+Requires two env vars: `VERTEX_AI_PROJECT_ID` and (optionally)
+`VERTEX_AI_LOCATION` (defaults to `us-central1`). The project id has NO
+fallback value — missing / empty configuration raises immediately so a
+misconfigured environment cannot silently bill a stranger's GCP project.
 """
 
 from __future__ import annotations
@@ -117,7 +122,14 @@ def get_local_llm(
         seed: fixed decoding seed. Combined with temperature=0.0 this pins
             outputs run-to-run on the same prompt. Pass None to disable.
     """
-    project_id = os.getenv("VERTEX_AI_PROJECT_ID", "chessworld-test")
+    project_id = os.getenv("VERTEX_AI_PROJECT_ID", "").strip()
+    if not project_id:
+        raise RuntimeError(
+            "VERTEX_AI_PROJECT_ID is not set. Configure it in the environment "
+            "(see Backend/.env.example). There is no default project — this "
+            "check exists so a misconfigured run cannot bill an unrelated GCP "
+            "project."
+        )
     location = location or os.getenv("VERTEX_AI_LOCATION", "us-central1")
 
     vertexai.init(project=project_id, location=location)

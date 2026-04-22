@@ -19,23 +19,20 @@ from pathlib import Path
 from typing import Optional, List, Dict, Set, Tuple
 from datetime import datetime
 
-# Set Chroma home to project-local cache BEFORE importing chromadb
-_CHROMA_HOME = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "chroma_models_cache")
-)
-os.environ.setdefault("CHROMA_HOME", _CHROMA_HOME)
-os.environ.setdefault("HF_HOME", _CHROMA_HOME)  # Hugging Face models cache
-os.environ.setdefault("ONNXRUNTIME_CACHE_DIR", _CHROMA_HOME)  # ONNX runtime cache
-os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", _CHROMA_HOME)
-os.makedirs(_CHROMA_HOME, exist_ok=True)
+from bootstrap import configure_caches
 
-import chromadb
-from chromadb import Documents, EmbeddingFunction, Embeddings
-from chromadb.config import Settings
-from git import Repo, GitCommandError
-from langchain_community.document_loaders import DirectoryLoader
-from langchain_text_splitters import Language, RecursiveCharacterTextSplitter
-from sentence_transformers import SentenceTransformer
+_CHROMA_HOME = configure_caches()
+
+import chromadb  # noqa: E402
+from chromadb.config import Settings  # noqa: E402
+from git import Repo, GitCommandError  # noqa: E402
+from langchain_community.document_loaders import DirectoryLoader  # noqa: E402
+from langchain_text_splitters import Language, RecursiveCharacterTextSplitter  # noqa: E402
+
+from database.vector_store import (  # noqa: E402
+    EMBEDDING_MODEL,
+    JinaCodeEmbeddingFunction,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -93,39 +90,6 @@ SKIP_BASENAMES: Set[str] = {
 
 # Chroma collection name
 COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "code_sources")
-EMBEDDING_MODEL = os.getenv(
-    "SENTINEL_EMBEDDING_MODEL", "jinaai/jina-embeddings-v2-base-code"
-)
-
-
-class JinaCodeEmbeddingFunction(EmbeddingFunction):
-    """Chroma-compatible wrapper for `jinaai/jina-embeddings-v2-base-code`.
-
-    Code-native embedding model (768-dim) that outperforms generic MiniLM on
-    retrieval of Python / TS / JSX source chunks. Requires `trust_remote_code=True`
-    which Chroma's default `SentenceTransformerEmbeddingFunction` does not
-    forward cleanly — hence the custom class.
-
-    The underlying SentenceTransformer is cached at the class level so repeated
-    instantiations do NOT reload the model.
-    """
-
-    _model: "SentenceTransformer | None" = None
-
-    def __init__(self) -> None:
-        os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", _CHROMA_HOME)
-        os.environ.setdefault("HF_HOME", _CHROMA_HOME)
-        if JinaCodeEmbeddingFunction._model is None:
-            logger.info("Loading SentenceTransformer: %s", EMBEDDING_MODEL)
-            JinaCodeEmbeddingFunction._model = SentenceTransformer(
-                EMBEDDING_MODEL,
-                trust_remote_code=True,
-                cache_folder=_CHROMA_HOME,
-            )
-        self.model = JinaCodeEmbeddingFunction._model
-
-    def __call__(self, input: Documents) -> Embeddings:
-        return self.model.encode(input, convert_to_numpy=True).tolist()
 
 # Chunk size for code splitting
 CHUNK_SIZE = 1024

@@ -12,7 +12,6 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import argparse
 import json
 import sys
@@ -25,89 +24,15 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
-# Set Chroma home to project-local cache BEFORE importing anything that uses chromadb
-_CHROMA_HOME = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), ".", "chroma_models_cache")
-)
-os.environ["CHROMA_HOME"] = _CHROMA_HOME
-os.environ["HF_HOME"] = _CHROMA_HOME  # Hugging Face models cache
-os.environ["ONNXRUNTIME_CACHE_DIR"] = _CHROMA_HOME  # ONNX runtime cache
-os.makedirs(_CHROMA_HOME, exist_ok=True)
+from bootstrap import configure_caches  # noqa: E402
 
-from langgraph.graph import StateGraph, END
+configure_caches()
 
-from agents import (
-    critic_node,
-    generator_node,
-    SAMPLE_FILTER_ACS,
-    SAMPLE_FILTER_STORY,
-    SAMPLE_ORGANIZATION_ACS,
-    SAMPLE_ORGANIZATION_STORY,
-    SAMPLE_LOGIN_ACS,
-    SAMPLE_LOGIN_STORY,
-    SAMPLE_SEARCH_ACS,
-    SAMPLE_SEARCH_STORY,
-    SAMPLE_PERMISSIONS_ACS,
-    SAMPLE_PERMISSIONS_STORY,
-    SAMPLE_RATELIMIT_ACS,
-    SAMPLE_RATELIMIT_STORY,
-    SAMPLE_DATAEXPOSURE_ACS,
-    SAMPLE_DATAEXPOSURE_STORY,
-)
-from state import ProjectState
+from langgraph.graph import StateGraph, END  # noqa: E402
 
-
-SAMPLES = {
-    "filter": {
-        "story": SAMPLE_FILTER_STORY,
-        "acs": SAMPLE_FILTER_ACS,
-        "title": "Filter by Priority",
-        "story_id": "US-001",
-        "module": "TaskManager",
-    },
-    "org": {
-        "story": SAMPLE_ORGANIZATION_STORY,
-        "acs": SAMPLE_ORGANIZATION_ACS,
-        "title": "Create Organization",
-        "story_id": "ORG-001",
-        "module": "Organization",
-    },
-    "login": {
-        "story": SAMPLE_LOGIN_STORY,
-        "acs": SAMPLE_LOGIN_ACS,
-        "title": "User Login",
-        "story_id": "AUTH-001",
-        "module": "Authentication",
-    },
-    "search": {
-        "story": SAMPLE_SEARCH_STORY,
-        "acs": SAMPLE_SEARCH_ACS,
-        "title": "Task Search",
-        "story_id": "SEARCH-001",
-        "module": "Search",
-    },
-    "perms": {
-        "story": SAMPLE_PERMISSIONS_STORY,
-        "acs": SAMPLE_PERMISSIONS_ACS,
-        "title": "Team Permissions",
-        "story_id": "AUTHZ-001",
-        "module": "Authorization",
-    },
-    "ratelimit": {
-        "story": SAMPLE_RATELIMIT_STORY,
-        "acs": SAMPLE_RATELIMIT_ACS,
-        "title": "Rate Limiting",
-        "story_id": "RATELIMIT-001",
-        "module": "Security",
-    },
-    "dataexport": {
-        "story": SAMPLE_DATAEXPOSURE_STORY,
-        "acs": SAMPLE_DATAEXPOSURE_ACS,
-        "title": "Data Export",
-        "story_id": "DATAEXP-001",
-        "module": "DataHandling",
-    },
-}
+from agents import critic_node, generator_node  # noqa: E402
+from samples import SAMPLE_STORIES  # noqa: E402
+from state import ProjectState  # noqa: E402
 
 
 def build_two_agent_graph():
@@ -164,12 +89,12 @@ def _print_state(final: ProjectState) -> None:
 
 def main(argv: List[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run Critic → Generator on a sample story.")
-    parser.add_argument("--story", choices=SAMPLES.keys(), default="filter")
+    parser.add_argument("--story", choices=SAMPLE_STORIES.keys(), default="filter")
     parser.add_argument("--n-context", type=int, default=5,
                         help="(reserved) number of RAG snippets to retrieve.")
     args = parser.parse_args(argv)
 
-    sample = SAMPLES[args.story]
+    sample = SAMPLE_STORIES[args.story]
     app = build_two_agent_graph()
 
     initial = ProjectState(

@@ -19,7 +19,6 @@ failure — replace it with a Playwright-backed runner in production.
 
 from __future__ import annotations
 
-import copy
 import json
 import os
 import time

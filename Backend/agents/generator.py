@@ -517,7 +517,7 @@ the dashboard":
   Outputting ONLY the email test and silently dropping full_name is a
   VIOLATION — you must emit the full_name gap explicitly.
 
-## RULE 11 — CLIENT-SIDE VULNERABILITY PIVOT
+## RULE 8 — CLIENT-SIDE VULNERABILITY PIVOT
 If the retrieved context reveals that a feature (like Search or Filtering) is
 handled entirely on the client-side (e.g., local React filtering) and does
 not hit a backend database query, you MUST NOT abandon security testing.
@@ -525,7 +525,7 @@ Instead of Backend SQLi, you MUST pivot to generating Client-Side Security
 tests (e.g., DOM-based XSS, Prototype Pollution) using Playwright assertions
 against the rendered JSX.
 
-## RULE 12 — OWASP A03 DEFENSE-PATH COVERAGE (authenticated payload test)
+## RULE 9 — OWASP A03 DEFENSE-PATH COVERAGE (authenticated payload test)
 This rule applies ONLY when the requirement's `OWASP mapping` (supplied in
 the user prompt) contains `A03:2021`, or when the Critic flagged an
 injection-class SecurityRisk on this REQ. For all other REQs, ignore this
@@ -538,7 +538,7 @@ would be neutralized if a legitimate user sent it. The Critic's flagged
 risk lives on the defense layer, not the gate.
 
 When A03:2021 is present, the test_suite MUST contain AT LEAST ONE test
-that exercises the DEFENSE layer with all of:
+that exercises the DEFENSE layer (not just the auth gate) with all of:
 
   - `setup_fixtures` includes an entry that issues a valid JWT / session
     for a seeded user and attaches it as a Bearer token (or the
@@ -571,7 +571,7 @@ that exercises the DEFENSE layer with all of:
   - `test_category = "security"`, `is_adversarial = true`.
 
 An auth-gate-only test (unauthenticated + 401) remains acceptable as a
-SUPPLEMENTARY test. It does NOT on its own satisfy RULE 12. If you emit
+SUPPLEMENTARY test. It does NOT on its own satisfy RULE 9. If you emit
 only the prevention-layer test when A03:2021 is flagged, the suite is
 incomplete and the Critic's risk is unmet.
 

@@ -8,29 +8,21 @@ Pipeline:
 
 from __future__ import annotations
 
-import os
+from bootstrap import configure_caches
 
-# Set Chroma home to project-local cache BEFORE importing anything that uses chromadb
-_CHROMA_HOME = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), ".", "chroma_models_cache")
-)
-os.environ["CHROMA_HOME"] = _CHROMA_HOME
-os.environ["HF_HOME"] = _CHROMA_HOME  # Hugging Face models cache
-os.environ["ONNXRUNTIME_CACHE_DIR"] = _CHROMA_HOME  # ONNX runtime cache
-os.makedirs(_CHROMA_HOME, exist_ok=True)
+configure_caches()
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, END  # noqa: E402
 
-from agents import (
+from agents import (  # noqa: E402
     critic_node,
     generator_node,
     red_teamer_node,
     executor_node,
     needs_healing,
-    SAMPLE_ORGANIZATION_STORY,
-    SAMPLE_ORGANIZATION_ACS,
 )
-from state import ProjectState
+from samples import SAMPLE_ORGANIZATION_ACS, SAMPLE_ORGANIZATION_STORY  # noqa: E402
+from state import ProjectState  # noqa: E402
 
 
 def build_graph():

@@ -1,11 +1,31 @@
+# Python
 *.pyc
+*.pyo
 __pycache__/
-.env
-database/chroma_store/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
 .venv/
 venv/
+
+# Secrets (real .env never committed; .env.example is tracked)
+.env
+.env.local
+.env.*.local
+
+# Editor / agent caches
 .claude/
+
+# Runtime state (never commit)
 repo_cache/
 chroma_data/
 chroma_models_cache/
+database/chroma_store/
+state/
+
+# Logs and binary artifacts
+*.log
 sync.log
+*.pdf
