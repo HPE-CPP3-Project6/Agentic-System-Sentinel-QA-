@@ -24,7 +24,13 @@ from typing import Any, Dict, List, Tuple
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from database import RouteIntent, VerticalSliceContext, query_source_context
+from database import (
+    RagMode,
+    RouteIntent,
+    VerticalSliceContext,
+    query_source_context,
+    resolve_rag_mode,
+)
 from state import (
     CoverageGap,
     ProjectState,
@@ -1029,7 +1035,16 @@ def generator_node(state: ProjectState) -> ProjectState:
         # the Pydantic schema may still be grounded via JSX (e.g. {user?.email}
         # on the dashboard) or via the api-client config (for HTTP transport
         # assertions), so we do not force-skip on schema-empty alone.
-        if (not vertical_slice.schema_snippets
+        #
+        # This heuristic assumes multi-query retrieval actually ran; in NAIVE
+        # mode we collapse to a single `router_snippets` bucket by design and
+        # the other three are empty-by-contract, not empty-by-miss. Suppress
+        # the false positive in that case — if naive retrieval genuinely got
+        # nothing, `router_snippets` would also be empty and the LLM will
+        # surface real gaps via its own `coverage_gaps` payload.
+        _mode = resolve_rag_mode()
+        if (_mode is not RagMode.NAIVE
+                and not vertical_slice.schema_snippets
                 and not vertical_slice.frontend_snippets
                 and not vertical_slice.api_client_snippets):
             new_gaps.append(

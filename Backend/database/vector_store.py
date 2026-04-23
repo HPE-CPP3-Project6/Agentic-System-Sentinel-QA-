@@ -49,19 +49,22 @@ class RagMode(str, enum.Enum):
     """Retrieval complexity tier — trades precision for wall time.
 
     NAIVE:    one merged ChromaDB query, top_k snippets, no reranker.
-              Fastest path (~0.3 s/call on local Chroma). Good enough
-              at demo scale (<1 k chunks) where the bi-encoder already
-              has near-ceiling precision because the corpus is tiny.
+              Fastest path (~0.3 s/call on local Chroma). Only honest
+              when the corpus is tiny (<1 k chunks) AND the downstream
+              prompt doesn't branch on typed retrieval buckets — which
+              our Generator DOES, so naive is useful as a smoke test
+              but not as a daily driver.
 
     STANDARD: five-bucket multi-query expansion (router / schema /
               model / frontend / api_client). Reranker disabled.
-              ~1–2 s/call. Default when you want labeled sections in
-              the prompt but cannot pay reranker latency.
+              ~1–2 s/call. DEFAULT. Populates every retrieval bucket
+              the Generator's coverage-gap heuristics depend on, at
+              roughly the same wall time as naive on this corpus.
 
     FULL:     multi-query expansion + cross-encoder reranker.
-              ~30–90 s/call on CPU, sub-second on GPU. Use for
-              evaluation, or when corpus > 10 k chunks and bi-encoder
-              precision starts to slip.
+              ~30–90 s/call on CPU, sub-second on GPU. Currently adds
+              ~10 min/requirement in our pipeline — the reranker path
+              is under investigation. Use for evaluation only.
     """
 
     NAIVE = "naive"
@@ -72,21 +75,24 @@ class RagMode(str, enum.Enum):
 def resolve_rag_mode() -> RagMode:
     """Read SENTINEL_RAG_MODE and return a validated RagMode.
 
-    Unknown values fall back to NAIVE with a warning rather than crashing
-    mid-pipeline; retrieval must degrade gracefully.
+    Default is STANDARD: a cold clone should get the tier whose
+    assumptions match the rest of the pipeline (labeled retrieval
+    buckets, honest coverage-gap reporting). Unknown values warn and
+    fall back to STANDARD as well — we'd rather a new dev get a slow
+    but correct first run than a fast but lying one.
     """
     raw = os.getenv("SENTINEL_RAG_MODE", "").strip().lower()
     if not raw:
-        return RagMode.NAIVE
+        return RagMode.STANDARD
     try:
         return RagMode(raw)
     except ValueError:
         logger.warning(
-            "Unknown SENTINEL_RAG_MODE=%r; falling back to 'naive'. "
+            "Unknown SENTINEL_RAG_MODE=%r; falling back to 'standard'. "
             "Valid values: naive | standard | full.",
             raw,
         )
-        return RagMode.NAIVE
+        return RagMode.STANDARD
 
 _LANG_BY_EXT: Dict[str, str] = {
     # Source code
