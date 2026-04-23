@@ -442,6 +442,43 @@ def _chunk_lines(
         i += step
 
 
+def _chunk_source(
+    text: str,
+    lines: List[str],
+    language: str,
+) -> Iterable[Tuple[int, int, str]]:
+    """Unified chunking entry point.
+
+    Tries AST-aware chunking for supported languages (Python, JS, JSX,
+    TS, TSX) and falls back to `_chunk_lines` on any failure. This is
+    the ONE chunker both `ingest_source_tree` (local tree ingest) and
+    `github_sync._parse_and_chunk_file` (repo sync daemon) should use
+    — vectors must be identical for the same source regardless of which
+    path indexed it.
+    """
+    from .ast_chunker import (
+        AstChunkerUnavailable,
+        ast_chunk_source,
+        ast_chunk_supported,
+    )
+
+    if ast_chunk_supported(language):
+        try:
+            yield from ast_chunk_source(text, language)
+            return
+        except AstChunkerUnavailable:
+            pass
+        except Exception as exc:  # noqa: BLE001 — chunker must never break ingestion
+            logger.warning(
+                "AST chunker failed for language=%s (%s: %s); falling back to line chunker.",
+                language,
+                type(exc).__name__,
+                exc,
+            )
+
+    yield from _chunk_lines(lines)
+
+
 def _language_for(filename: str) -> Optional[str]:
     """Return a language label for `filename`, or None if it should be skipped."""
     if filename in _SKIP_BASENAMES:
@@ -518,8 +555,9 @@ def ingest_source_tree(
         rel_path = os.path.relpath(abs_path, root).replace("\\", "/")
         language = _language_for(os.path.basename(abs_path)) or "text"
         files_indexed += 1
+        full_text = "".join(lines)
 
-        for start, end, text in _chunk_lines(lines):
+        for start, end, text in _chunk_source(full_text, lines, language):
             ids.append(_doc_id(rel_path, start, end))
             docs.append(text)
             metas.append(

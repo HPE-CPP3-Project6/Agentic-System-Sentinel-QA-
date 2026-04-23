@@ -1,5 +1,7 @@
 langgraph>=0.2.0
 langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-text-splitters>=0.3.0
 langchain-google-vertexai>=1.0.0
 google-cloud-aiplatform>=1.50.0
 pydantic>=2.6
@@ -9,3 +11,13 @@ python-dotenv>=1.0.0
 json-repair>=0.25.0
 einops
 sentence-transformers>=2.7.0
+
+# Git-sync daemon
+GitPython>=3.1.40
+
+# AST-aware chunking (tree-sitter with pre-built language grammars).
+# Pre-built wheels are available for CPython 3.10–3.12 on win/linux/mac.
+# If install fails on an exotic platform the ingestion path falls back
+# to line-based chunking automatically.
+tree-sitter>=0.23.0
+tree-sitter-language-pack>=0.4.0

@@ -16,7 +16,7 @@ import logging
 import subprocess
 import argparse
 from pathlib import Path
-from typing import Optional, List, Dict, Set, Tuple
+from typing import Optional, List, Dict, Set
 from datetime import datetime
 
 from bootstrap import configure_caches
@@ -26,8 +26,6 @@ _CHROMA_HOME = configure_caches()
 import chromadb  # noqa: E402
 from chromadb.config import Settings  # noqa: E402
 from git import Repo, GitCommandError  # noqa: E402
-from langchain_community.document_loaders import DirectoryLoader  # noqa: E402
-from langchain_text_splitters import Language, RecursiveCharacterTextSplitter  # noqa: E402
 
 from database.vector_store import (  # noqa: E402
     EMBEDDING_MODEL,
@@ -91,10 +89,6 @@ SKIP_BASENAMES: Set[str] = {
 # Chroma collection name
 COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "code_sources")
 
-# Chunk size for code splitting
-CHUNK_SIZE = 1024
-CHUNK_OVERLAP = 128
-
 
 def _is_tracked(file_path: str) -> bool:
     """Return True if `file_path` should be indexed into Chroma."""
@@ -104,20 +98,6 @@ def _is_tracked(file_path: str) -> bool:
     if basename in TRACKED_BASENAMES:
         return True
     return any(basename.endswith(suffix) for suffix in TRACKED_SUFFIXES)
-
-
-def _detect_language(file_path: str) -> Optional[Language]:
-    """langchain `Language` for language-aware splitting; None for generic."""
-    ext = os.path.splitext(file_path)[1].lower()
-    if ext == ".py":
-        return Language.PYTHON
-    if ext in {".ts", ".tsx"}:
-        return Language.TS
-    if ext in {".js", ".jsx", ".mjs", ".cjs"}:
-        return Language.JS
-    if ext == ".html":
-        return Language.HTML
-    return None
 
 
 def _lang_label(file_path: str) -> str:
@@ -145,39 +125,6 @@ def _lang_label(file_path: str) -> str:
         ".sql": "sql",
     }
     return simple.get(ext, "text")
-
-
-def _locate_chunks(
-    content: str,
-    chunks: List[str],
-    overlap: int = CHUNK_OVERLAP,
-) -> List[Tuple[int, int, int]]:
-    """Map each chunk back to (start_line, end_line, char_offset) in `content`.
-
-    Lines are 1-based, inclusive. `RecursiveCharacterTextSplitter` preserves
-    the original text character-for-character, so `str.find` from a moving
-    cursor locates each chunk precisely. This replaces the previous
-    `chunk_index + 1` placeholder that made `source_refs` misleading.
-    """
-    results: List[Tuple[int, int, int]] = []
-    cursor = 0
-    for chunk in chunks:
-        if not chunk:
-            results.append((1, 1, 0))
-            continue
-        pos = content.find(chunk, cursor)
-        if pos == -1:
-            # Rare whitespace-normalization edge case — retry from start.
-            pos = content.find(chunk)
-        if pos == -1:
-            # Truly unlocatable — degrade gracefully rather than crash.
-            pos = min(cursor, max(0, len(content) - len(chunk)))
-        start_line = content.count("\n", 0, pos) + 1
-        end_line = content.count("\n", 0, pos + len(chunk)) + 1
-        end_line = max(end_line, start_line)
-        results.append((start_line, end_line, pos))
-        cursor = pos + max(1, len(chunk) - overlap)
-    return results
 
 
 class SovereignSyncService:
@@ -332,11 +279,10 @@ class SovereignSyncService:
     def _parse_and_chunk_file(self, file_path: str) -> List[Dict]:
         """Parse and chunk a source file into documents.
 
-        Args:
-            file_path: Relative path to file in repository
-
-        Returns:
-            List of document chunks with metadata
+        Uses the unified AST-aware chunker from `database.vector_store`
+        (tree-sitter for Python/JS/JSX/TS/TSX, line-based fallback
+        otherwise). Both ingestion paths share this so a given source
+        file produces identical vectors regardless of which path ran.
         """
         full_path = self.cache_dir / file_path
 
@@ -345,7 +291,6 @@ class SovereignSyncService:
             return []
 
         try:
-            language = _detect_language(file_path)
             lang_label = _lang_label(file_path)
 
             with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
@@ -354,36 +299,22 @@ class SovereignSyncService:
             if not content.strip():
                 return []
 
-            if language:
-                splitter = RecursiveCharacterTextSplitter.from_language(
-                    language=language,
-                    chunk_size=CHUNK_SIZE,
-                    chunk_overlap=CHUNK_OVERLAP,
-                )
-            else:
-                splitter = RecursiveCharacterTextSplitter(
-                    chunk_size=CHUNK_SIZE,
-                    chunk_overlap=CHUNK_OVERLAP,
-                )
+            from database.vector_store import _chunk_source
 
-            chunks = splitter.split_text(content)
-            line_map = _locate_chunks(content, chunks, overlap=CHUNK_OVERLAP)
-
-            # Synthetic header injected BEFORE the chunk text so the embedding
-            # encodes file identity and language into the dense vector.
-            # This is the single largest precision win for cross-file retrieval:
-            # a query like "axios baseURL" now matches the axios.js chunk by
-            # file name too, not just by body tokens.
-            lang_str = language.value if language else "text"
+            lines = content.splitlines(keepends=True)
+            chunk_tuples = list(_chunk_source(content, lines, lang_label))
 
             documents: List[Dict] = []
-            for idx, (chunk, (start_line, end_line, char_offset)) in enumerate(
-                zip(chunks, line_map)
-            ):
+            for idx, (start_line, end_line, chunk_text) in enumerate(chunk_tuples):
+                # Synthetic header injected BEFORE chunk text so the embedding
+                # encodes file identity and language into the dense vector.
+                # This is the single largest precision win for cross-file
+                # retrieval: a query like "axios baseURL" now matches the
+                # axios.js chunk by file name too, not just by body tokens.
                 synthetic_header = (
-                    f"### FILE: {file_path} | LANG: {lang_str} ###\n\n"
+                    f"### FILE: {file_path} | LANG: {lang_label} ###\n\n"
                 )
-                enriched_content = synthetic_header + chunk
+                enriched_content = synthetic_header + chunk_text
                 documents.append(
                     {
                         "id": f"{file_path}#{idx}",
@@ -394,16 +325,15 @@ class SovereignSyncService:
                             "chunk_index": idx,
                             "start_line": start_line,
                             "end_line": end_line,
-                            "char_offset": char_offset,
                             "language": lang_label,
                             "file_size": len(content),
-                            "chunk_count": len(chunks),
+                            "chunk_count": len(chunk_tuples),
                             "synced_at": datetime.now().isoformat(),
                         },
                     }
                 )
 
-            logger.debug(f"Chunked {file_path} into {len(chunks)} pieces")
+            logger.debug(f"Chunked {file_path} into {len(chunk_tuples)} pieces")
             return documents
 
         except Exception as e:
