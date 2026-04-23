@@ -9,6 +9,14 @@ from __future__ import annotations
 import argparse
 import sys
 
+# Windows cp1252 cannot encode unicode arrows when stdout is redirected
+# to a file; force utf-8 so the final summary line doesn't crash after
+# a successful ingest.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 from .vector_store import ingest_source_tree
 
 

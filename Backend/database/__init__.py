@@ -4,6 +4,7 @@ from .reranker import (
     maybe_rerank_snippets,
 )
 from .vector_store import (
+    RagMode,
     RouteIntent,
     SourceSnippet,
     VerticalSliceContext,
@@ -12,9 +13,12 @@ from .vector_store import (
     ingest_source_tree,
     query_source_context,
     query_source_snippets,
+    resolve_rag_mode,
 )
 
 __all__ = [
+    "RagMode",
+    "resolve_rag_mode",
     "RouteIntent",
     "SourceSnippet",
     "VerticalSliceContext",

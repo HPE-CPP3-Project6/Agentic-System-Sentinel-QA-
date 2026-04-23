@@ -44,6 +44,50 @@ EMBEDDING_MODEL = os.getenv(
     "SENTINEL_EMBEDDING_MODEL", "jinaai/jina-embeddings-v2-base-code"
 )
 
+
+class RagMode(str, enum.Enum):
+    """Retrieval complexity tier — trades precision for wall time.
+
+    NAIVE:    one merged ChromaDB query, top_k snippets, no reranker.
+              Fastest path (~0.3 s/call on local Chroma). Good enough
+              at demo scale (<1 k chunks) where the bi-encoder already
+              has near-ceiling precision because the corpus is tiny.
+
+    STANDARD: five-bucket multi-query expansion (router / schema /
+              model / frontend / api_client). Reranker disabled.
+              ~1–2 s/call. Default when you want labeled sections in
+              the prompt but cannot pay reranker latency.
+
+    FULL:     multi-query expansion + cross-encoder reranker.
+              ~30–90 s/call on CPU, sub-second on GPU. Use for
+              evaluation, or when corpus > 10 k chunks and bi-encoder
+              precision starts to slip.
+    """
+
+    NAIVE = "naive"
+    STANDARD = "standard"
+    FULL = "full"
+
+
+def resolve_rag_mode() -> RagMode:
+    """Read SENTINEL_RAG_MODE and return a validated RagMode.
+
+    Unknown values fall back to NAIVE with a warning rather than crashing
+    mid-pipeline; retrieval must degrade gracefully.
+    """
+    raw = os.getenv("SENTINEL_RAG_MODE", "").strip().lower()
+    if not raw:
+        return RagMode.NAIVE
+    try:
+        return RagMode(raw)
+    except ValueError:
+        logger.warning(
+            "Unknown SENTINEL_RAG_MODE=%r; falling back to 'naive'. "
+            "Valid values: naive | standard | full.",
+            raw,
+        )
+        return RagMode.NAIVE
+
 _LANG_BY_EXT: Dict[str, str] = {
     # Source code
     ".py": "python",
@@ -378,20 +422,36 @@ class JinaCodeEmbeddingFunction(EmbeddingFunction):
 
     _model: "SentenceTransformer | None" = None
 
+    # Jina v2 was trained with max_position_embeddings=8192 but encoding
+    # any 8K-token chunk materializes a full attention matrix (N batch x
+    # H heads x L x L x 4 bytes) that can blow past 50 GB on CPU. Cap
+    # the sequence length so the peak attention tensor stays in the
+    # low-GB range. 2048 tokens is ~400 lines of code — enough for an
+    # entire React component or Python class in practice.
+    MAX_SEQ_LENGTH = int(os.getenv("SENTINEL_EMBED_MAX_SEQ", "2048"))
+    ENCODE_BATCH_SIZE = int(os.getenv("SENTINEL_EMBED_BATCH_SIZE", "8"))
+
     def __init__(self) -> None:
         os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", _CHROMA_HOME)
         os.environ.setdefault("HF_HOME", _CHROMA_HOME)
         if JinaCodeEmbeddingFunction._model is None:
             logger.info("Loading SentenceTransformer: %s", EMBEDDING_MODEL)
-            JinaCodeEmbeddingFunction._model = SentenceTransformer(
+            model = SentenceTransformer(
                 EMBEDDING_MODEL,
                 trust_remote_code=True,
                 cache_folder=_CHROMA_HOME,
             )
+            model.max_seq_length = JinaCodeEmbeddingFunction.MAX_SEQ_LENGTH
+            JinaCodeEmbeddingFunction._model = model
         self.model = JinaCodeEmbeddingFunction._model
 
     def __call__(self, input: Documents) -> Embeddings:
-        return self.model.encode(input, convert_to_numpy=True).tolist()
+        return self.model.encode(
+            input,
+            convert_to_numpy=True,
+            batch_size=JinaCodeEmbeddingFunction.ENCODE_BATCH_SIZE,
+            show_progress_bar=False,
+        ).tolist()
 
 
 def get_chroma_client(persist_dir: str = DEFAULT_PERSIST_DIR) -> chromadb.PersistentClient:
@@ -515,8 +575,17 @@ def _iter_source_files(root: str) -> Iterable[str]:
             yield full
 
 
-def _doc_id(rel_path: str, start: int, end: int) -> str:
-    h = hashlib.sha1(f"{rel_path}:{start}-{end}".encode("utf-8")).hexdigest()[:16]
+def _doc_id(rel_path: str, start: int, end: int, text: str = "") -> str:
+    """Stable, collision-resistant chunk id.
+
+    Hashes (rel_path, start, end, text) rather than just the line range.
+    Two chunks at the same line range with different content (possible
+    when an AST chunker emits nested declarations that share a signature
+    line) now get distinct ids. The text contribution keeps the hash
+    stable across re-ingestions of unchanged code.
+    """
+    payload = f"{rel_path}:{start}-{end}:{text}".encode("utf-8", errors="replace")
+    h = hashlib.sha1(payload).hexdigest()[:16]
     return f"{rel_path}:{start}-{end}:{h}"
 
 
@@ -558,7 +627,7 @@ def ingest_source_tree(
         full_text = "".join(lines)
 
         for start, end, text in _chunk_source(full_text, lines, language):
-            ids.append(_doc_id(rel_path, start, end))
+            ids.append(_doc_id(rel_path, start, end, text))
             docs.append(text)
             metas.append(
                 {
@@ -794,6 +863,7 @@ def query_source_context(
     intent: RouteIntent = RouteIntent.UNKNOWN,
     context_keywords: str = "",
     rerank: Optional[bool] = None,
+    mode: Optional[RagMode] = None,
 ) -> VerticalSliceContext:
     """Multi-Query Expansion — one action → FIVE targeted retrievals.
 
@@ -824,8 +894,42 @@ def query_source_context(
     Healer in executor.py) that treat the result as `List[str]`.
 
     `n_results` is the per-category retrieval budget.
+
+    `mode` overrides the env-resolved `SENTINEL_RAG_MODE`. Useful for
+    tests that need deterministic retrieval independent of the shell
+    environment.
     """
     action = (action or "").strip() or "the requested feature"
+
+    active_mode = mode or resolve_rag_mode()
+
+    # NAIVE: one merged keyword query, all results land in the router
+    # bucket. Skips multi-query expansion entirely — the bi-encoder on a
+    # small corpus already has near-ceiling precision, and the labeled
+    # buckets cost 5x the retrieval time for marginal prompt quality
+    # gain. The Generator's prompt handles the "everything in router"
+    # case fine because as_mega_context() degrades gracefully when
+    # schema/model/frontend buckets are empty.
+    if active_mode is RagMode.NAIVE:
+        merged_query = " ".join(
+            q for q in (action, context_keywords) if q and q.strip()
+        )
+        naive_snippets = query_source_snippets(
+            merged_query,
+            n_results=n_results,
+            collection_name=collection_name,
+            rerank=False,  # naive mode never reranks
+        )
+        return VerticalSliceContext(
+            action=action,
+            router_snippets=naive_snippets,
+            route_intent=intent,
+        )
+
+    # STANDARD: 5-bucket multi-query but no reranker.
+    # FULL: 5-bucket multi-query + reranker (unless caller overrides).
+    # `rerank=None` defers to the reranker flag; STANDARD forces False.
+    effective_rerank = False if active_mode is RagMode.STANDARD else rerank
 
     seen: set = set()
     router: List[SourceSnippet] = []
@@ -837,29 +941,29 @@ def query_source_context(
     _dedup_extend(
         router, seen,
         query_source_snippets(_router_query(action, context_keywords), n_results=n_results,
-                              collection_name=collection_name, rerank=rerank),
+                              collection_name=collection_name, rerank=effective_rerank),
     )
     _dedup_extend(
         schema, seen,
         query_source_snippets(_schema_query(action, intent=intent, context_keywords=context_keywords),
                               n_results=n_results,
-                              collection_name=collection_name, rerank=rerank),
+                              collection_name=collection_name, rerank=effective_rerank),
     )
     _dedup_extend(
         model, seen,
         query_source_snippets(_model_query(action, intent=intent, context_keywords=context_keywords),
                               n_results=n_results,
-                              collection_name=collection_name, rerank=rerank),
+                              collection_name=collection_name, rerank=effective_rerank),
     )
     _dedup_extend(
         frontend, seen,
         query_source_snippets(_frontend_query(action, context_keywords), n_results=n_results,
-                              collection_name=collection_name, rerank=rerank),
+                              collection_name=collection_name, rerank=effective_rerank),
     )
     _dedup_extend(
         api_client, seen,
         query_source_snippets(_api_client_query(action, context_keywords), n_results=n_results,
-                              collection_name=collection_name, rerank=rerank),
+                              collection_name=collection_name, rerank=effective_rerank),
     )
 
     return VerticalSliceContext(

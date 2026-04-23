@@ -76,10 +76,14 @@ class CrossEncoderReranker:
         from sentence_transformers import CrossEncoder
 
         logger.info("Loading cross-encoder reranker: %s", self.model_name)
+        # Cache dir is passed via SENTENCE_TRANSFORMERS_HOME / HF_HOME
+        # (set by bootstrap.configure_caches) rather than as a kwarg —
+        # sentence-transformers renamed the constructor kwarg between
+        # releases (cache_folder -> cache_dir), and passing it
+        # explicitly breaks whichever version the user doesn't have.
         model = CrossEncoder(
             self.model_name,
             trust_remote_code=True,
-            cache_folder=_CACHE_DIR,
         )
         CrossEncoderReranker._model = model
         CrossEncoderReranker._model_name = self.model_name

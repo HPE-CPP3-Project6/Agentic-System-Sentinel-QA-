@@ -11,6 +11,11 @@ python-dotenv>=1.0.0
 json-repair>=0.25.0
 einops
 sentence-transformers>=2.7.0
+# Pinned because jinaai/jina-bert-v2-qk-post-norm@3baf9e3 (used by the
+# Jina code embedder) imports find_pruneable_heads_and_indices from
+# transformers.pytorch_utils, which was removed in transformers 4.50.
+# Unpin once Jina publishes a revision compatible with newer transformers.
+transformers>=4.40,<4.50
 
 # Git-sync daemon
 GitPython>=3.1.40

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
 import sys
 from typing import List
 
@@ -23,6 +25,16 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
+
+# Surface WARNING+ from our own modules (retry backoff, reranker fallback,
+# ingestion warnings) so the user can see what the pipeline is doing
+# instead of staring at a silent Python process. Override with
+# SENTINEL_LOG_LEVEL (DEBUG / INFO / WARNING / ERROR).
+logging.basicConfig(
+    level=os.getenv("SENTINEL_LOG_LEVEL", "WARNING").upper(),
+    format="[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 from bootstrap import configure_caches  # noqa: E402
 

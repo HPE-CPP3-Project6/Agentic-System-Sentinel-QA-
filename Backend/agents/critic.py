@@ -170,6 +170,9 @@ def critic_node(state: ProjectState) -> ProjectState:
     - SENTINEL_LLM_MODEL: model name (e.g., "gemini-3.1-pro-preview")
     - VERTEX_AI_LOCATION: location (e.g., "global" for Gemini 3.1)
     """
+    import time as _t
+    _t0 = _t.perf_counter()
+    print("[critic] invoking Vertex (Gemini) …", flush=True)
 
     llm = get_local_llm(
         temperature=0.0,
@@ -190,6 +193,7 @@ def critic_node(state: ProjectState) -> ProjectState:
             "acceptance_block": _format_acceptance_block(state.acceptance_criteria),
         }
     )
+    print(f"[critic] Vertex returned in {_t.perf_counter()-_t0:.1f}s", flush=True)
 
     try:
         payload = parse_llm_json(response.content)

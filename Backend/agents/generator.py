@@ -957,6 +957,12 @@ def generator_node(state: ProjectState) -> ProjectState:
         state.metadata["generator_skipped"] = "no validated_requirements in state"
         return state
 
+    import time as _t
+    print(
+        f"[generator] processing {len(state.validated_requirements)} "
+        f"validated requirements …", flush=True,
+    )
+
     llm = get_local_llm(temperature=0.0, json_mode=True, seed=42)
 
     new_tests: List[TestCase] = []
@@ -966,7 +972,13 @@ def generator_node(state: ProjectState) -> ProjectState:
 
     provider_failures: List[str] = []
 
-    for req in state.validated_requirements:
+    for _i, req in enumerate(state.validated_requirements, start=1):
+        _tr = _t.perf_counter()
+        print(
+            f"[generator] req {_i}/{len(state.validated_requirements)} "
+            f"[{req.requirement_id}] retrieving + invoking Vertex …",
+            flush=True,
+        )
         try:
             payload, vertical_slice, intent = _generate_for_requirement(req, llm)
         except LLMInvocationError as exc:
@@ -1055,6 +1067,12 @@ def generator_node(state: ProjectState) -> ProjectState:
         for gap in payload.get("coverage_gaps", []):
             gap.setdefault("requirement_id", req.requirement_id)
             new_gaps.append(CoverageGap(**gap))
+
+        print(
+            f"[generator] req {_i}/{len(state.validated_requirements)} "
+            f"done in {_t.perf_counter()-_tr:.1f}s",
+            flush=True,
+        )
 
     state.test_suite.extend(new_tests)
     state.coverage_gaps.extend(new_gaps)

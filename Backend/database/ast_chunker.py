@@ -139,7 +139,7 @@ def ast_chunk_source(
     source: str,
     language: str,
     *,
-    max_chunk_lines: int = 160,
+    max_chunk_lines: int = 160,  # kept for API compat; see note below
     min_chunk_lines: int = 3,
 ) -> Iterator[Tuple[int, int, str]]:
     """Yield (start_line, end_line, text) tuples aligned to AST boundaries.
@@ -152,12 +152,14 @@ def ast_chunk_source(
     this and invoke the line-based chunker. We raise rather than silently
     fall back so the caller can log per-file decisions.
 
-    Chunks larger than `max_chunk_lines` are further subdivided: the
-    chunker descends into the first layer of children and emits them as
-    separate chunks. If even the child chunks are too big (giant React
-    component body, huge Python class), it falls through to emitting the
-    whole declaration as one chunk — we prefer "one big chunk that keeps
-    a function whole" over "a function cut in half".
+    Large declarations are emitted whole. We tried descending into AST
+    children to subdivide giant React components and monolithic classes;
+    that path produced duplicate line ranges (function_declaration's
+    immediate children include `identifier` and `formal_parameters` which
+    share the signature line). Jina v2 handles 8192 tokens, which fits
+    ~500 lines of code comfortably, so "one big chunk per declaration"
+    is a better tradeoff than arbitrary slicing. `max_chunk_lines` is
+    kept as a parameter for future reintroduction of safe subdivision.
 
     `min_chunk_lines` merges tiny adjacent chunks (single-line exports,
     small lexical_declarations, etc.) into the next following chunk so
@@ -200,8 +202,9 @@ def ast_chunk_source(
     # context travels with the declaration that uses it.
     prelude_start = 0
     pending_merge_start: Optional[int] = None
+    emitted_ranges: set[Tuple[int, int]] = set()
 
-    for idx, (b_start, b_end, node) in enumerate(boundaries):
+    for idx, (b_start, b_end, _node) in enumerate(boundaries):
         chunk_start = pending_merge_start if pending_merge_start is not None else prelude_start
         chunk_end = b_end
 
@@ -214,28 +217,26 @@ def ast_chunk_source(
 
         chunk_line_count = chunk_end - chunk_start + 1
 
-        # Chunk too big — try to subdivide by descending one level.
-        if chunk_line_count > max_chunk_lines:
-            subchunks = list(_subdivide_node(node, lines, max_chunk_lines))
-            if subchunks:
-                # Attach any absorbed prelude to the first subchunk.
-                first_s, first_e, first_t = subchunks[0]
-                if chunk_start < first_s - 1:
-                    prelude = "".join(lines[chunk_start:first_s - 1])
-                    subchunks[0] = (chunk_start + 1, first_e, prelude + first_t)
-                yield from subchunks
-                prelude_start = chunk_end + 1
-                pending_merge_start = None
-                continue
-
         # Tiny chunk — merge it into the next one instead of emitting.
+        # Skip the merge when this is the last boundary so we don't drop it.
         if chunk_line_count < min_chunk_lines and idx + 1 < len(boundaries):
             if pending_merge_start is None:
                 pending_merge_start = chunk_start
             continue
 
+        # Over-sized chunks (giant React components, monolithic classes)
+        # are emitted whole. Subdividing by descending into AST children
+        # is a tar-pit: function_declaration's immediate children include
+        # the identifier and formal_parameters, both colocated on the
+        # signature line, which produced duplicate (start, end) ranges.
+        # Jina v2 handles up to 8192 tokens; a whole 500-line declaration
+        # embeds cleanly. The reranker can rescore it. Prefer one whole
+        # chunk over shreds the reranker cannot reassemble.
         text = "".join(lines[chunk_start:chunk_end + 1])
-        yield (chunk_start + 1, chunk_end + 1, text)
+        key = (chunk_start + 1, chunk_end + 1)
+        if key not in emitted_ranges:
+            emitted_ranges.add(key)
+            yield (key[0], key[1], text)
         prelude_start = chunk_end + 1
         pending_merge_start = None
 
@@ -244,60 +245,9 @@ def ast_chunk_source(
     if prelude_start < n_lines:
         trailing = "".join(lines[prelude_start:])
         if trailing.strip():
-            yield (prelude_start + 1, n_lines, trailing)
-
-
-def _subdivide_node(
-    node,
-    lines: list[str],
-    max_chunk_lines: int,
-) -> Iterator[Tuple[int, int, str]]:
-    """Split an over-sized boundary node by descending into its children.
-
-    Used for huge classes / components whose top-level span exceeds
-    `max_chunk_lines`. Emits one chunk per child declaration; if even the
-    children don't help (rare — a monolithic function body), yields the
-    whole node as one chunk rather than slicing it arbitrarily.
-    """
-    # Find the `body` / `class_body` / `statement_block` child which
-    # holds the sub-declarations. Different grammars name it differently,
-    # so we just look for any named child whose own children look
-    # chunkable.
-    candidate_children = [c for c in node.children if c.is_named and c.child_count > 0]
-    if not candidate_children:
-        yield (node.start_point[0] + 1, node.end_point[0] + 1,
-               "".join(lines[node.start_point[0]:node.end_point[0] + 1]))
-        return
-
-    # Pick the deepest "body"-like child.
-    body = max(candidate_children, key=lambda c: c.end_point[0] - c.start_point[0])
-
-    sub_boundaries = [
-        (c.start_point[0], c.end_point[0])
-        for c in body.children
-        if c.is_named and (c.end_point[0] - c.start_point[0]) >= 0
-    ]
-    if not sub_boundaries:
-        yield (node.start_point[0] + 1, node.end_point[0] + 1,
-               "".join(lines[node.start_point[0]:node.end_point[0] + 1]))
-        return
-
-    # Yield the declaration header (signature + class docstring area),
-    # then each child declaration.
-    header_end = sub_boundaries[0][0] - 1
-    if header_end >= node.start_point[0]:
-        yield (
-            node.start_point[0] + 1,
-            header_end + 1,
-            "".join(lines[node.start_point[0]:header_end + 1]),
-        )
-
-    for s, e in sub_boundaries:
-        if (e - s + 1) > max_chunk_lines:
-            # Still too big. Emit as-is rather than slicing arbitrarily.
-            yield (s + 1, e + 1, "".join(lines[s:e + 1]))
-        else:
-            yield (s + 1, e + 1, "".join(lines[s:e + 1]))
+            key = (prelude_start + 1, n_lines)
+            if key not in emitted_ranges:
+                yield (key[0], key[1], trailing)
 
 
 class AstChunkerUnavailable(RuntimeError):
