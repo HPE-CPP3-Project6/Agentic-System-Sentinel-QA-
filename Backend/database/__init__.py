@@ -1,3 +1,8 @@
+from .reranker import (
+    CrossEncoderReranker,
+    is_reranker_enabled,
+    maybe_rerank_snippets,
+)
 from .vector_store import (
     RouteIntent,
     SourceSnippet,
@@ -18,4 +23,8 @@ __all__ = [
     "ingest_source_tree",
     "query_source_context",
     "query_source_snippets",
+    # Reranker (feature-flagged)
+    "CrossEncoderReranker",
+    "is_reranker_enabled",
+    "maybe_rerank_snippets",
 ]

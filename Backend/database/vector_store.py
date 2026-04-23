@@ -549,8 +549,29 @@ def query_source_snippets(
     query: str,
     n_results: int = 5,
     collection_name: str = DEFAULT_COLLECTION,
+    rerank: Optional[bool] = None,
 ) -> List[SourceSnippet]:
-    """Single-query semantic search. Returns raw SourceSnippet objects."""
+    """Single-query semantic search. Returns raw SourceSnippet objects.
+
+    When the cross-encoder reranker is enabled
+    (`SENTINEL_RERANKER_ENABLED=1`) and `rerank` is not explicitly set to
+    False, this over-fetches from ChromaDB and returns the top `n_results`
+    after reranking. Over-fetch ratio is tunable via
+    `SENTINEL_RERANKER_OVERFETCH` (default 3).
+
+    Passing `rerank=False` explicitly disables reranking for this call
+    regardless of env flag — useful for tests / snapshots that want a
+    deterministic retriever-only ordering.
+    """
+    from .reranker import (  # local import: reranker module is optional
+        DEFAULT_OVERFETCH_RATIO,
+        is_reranker_enabled,
+        maybe_rerank_snippets,
+    )
+
+    rerank_active = is_reranker_enabled() if rerank is None else bool(rerank)
+    fetch_n = n_results * DEFAULT_OVERFETCH_RATIO if rerank_active else n_results
+
     client = get_chroma_client()
     emb_fn = _get_embedding_function()
 
@@ -576,7 +597,7 @@ def query_source_snippets(
         return []
 
     try:
-        result = collection.query(query_texts=[query], n_results=n_results)
+        result = collection.query(query_texts=[query], n_results=fetch_n)
     except Exception:
         return []
 
@@ -604,6 +625,10 @@ def query_source_snippets(
                 end_line=int(end_line or 0),
             )
         )
+
+    if rerank_active:
+        snippets = maybe_rerank_snippets(query, snippets, top_k=n_results)
+
     return snippets
 
 
@@ -730,6 +755,7 @@ def query_source_context(
     collection_name: str = DEFAULT_COLLECTION,
     intent: RouteIntent = RouteIntent.UNKNOWN,
     context_keywords: str = "",
+    rerank: Optional[bool] = None,
 ) -> VerticalSliceContext:
     """Multi-Query Expansion — one action → FIVE targeted retrievals.
 
@@ -773,29 +799,29 @@ def query_source_context(
     _dedup_extend(
         router, seen,
         query_source_snippets(_router_query(action, context_keywords), n_results=n_results,
-                              collection_name=collection_name),
+                              collection_name=collection_name, rerank=rerank),
     )
     _dedup_extend(
         schema, seen,
         query_source_snippets(_schema_query(action, intent=intent, context_keywords=context_keywords),
                               n_results=n_results,
-                              collection_name=collection_name),
+                              collection_name=collection_name, rerank=rerank),
     )
     _dedup_extend(
         model, seen,
         query_source_snippets(_model_query(action, intent=intent, context_keywords=context_keywords),
                               n_results=n_results,
-                              collection_name=collection_name),
+                              collection_name=collection_name, rerank=rerank),
     )
     _dedup_extend(
         frontend, seen,
         query_source_snippets(_frontend_query(action, context_keywords), n_results=n_results,
-                              collection_name=collection_name),
+                              collection_name=collection_name, rerank=rerank),
     )
     _dedup_extend(
         api_client, seen,
         query_source_snippets(_api_client_query(action, context_keywords), n_results=n_results,
-                              collection_name=collection_name),
+                              collection_name=collection_name, rerank=rerank),
     )
 
     return VerticalSliceContext(
