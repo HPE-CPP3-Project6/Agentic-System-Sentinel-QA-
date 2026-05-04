@@ -9,13 +9,22 @@ functional requirements).
 from __future__ import annotations
 
 import json
+import logging
 import os
-from typing import List
+from typing import Any, Dict, List
 
 from langchain_core.prompts import ChatPromptTemplate
 
-from state import ProjectState, ValidatedRequirement, SecurityRisk
-from utils import get_local_llm, parse_llm_json, stringify_response
+from state import ProjectState, SecurityRisk, ValidatedRequirement
+from utils import (
+    LLMInvocationError,
+    get_local_llm,
+    invoke_with_retry,
+    parse_llm_json,
+    stringify_response,
+)
+
+logger = logging.getLogger(__name__)
 
 
 CRITIC_SYSTEM_PROMPT = """You are Agent A — The Critic, a senior requirements analyst
@@ -163,6 +172,25 @@ def _format_acceptance_block(acs: List[str]) -> str:
     return "\n".join(f"  AC{i+1}: {ac}" for i, ac in enumerate(acs))
 
 
+def _safe_models(
+    raw_list: List[Dict[str, Any]],
+    model_cls: type,
+    label: str,
+) -> tuple[List[Any], List[Dict[str, Any]]]:
+    """Parse LLM rows into Pydantic models; skip bad rows instead of failing the whole node."""
+    good: List[Any] = []
+    skipped: List[Dict[str, Any]] = []
+    for row in raw_list:
+        if not isinstance(row, dict):
+            skipped.append({"row": row, "error": f"{label}: expected object, got {type(row).__name__}"})
+            continue
+        try:
+            good.append(model_cls(**row))
+        except Exception as exc:  # noqa: BLE001 — LLM output is untrusted
+            skipped.append({"row": row, "error": f"{label}: {exc}"})
+    return good, skipped
+
+
 def critic_node(state: ProjectState) -> ProjectState:
     """LangGraph node: audit user_story + acceptance_criteria → validated_requirements + security_risks.
     
@@ -171,42 +199,63 @@ def critic_node(state: ProjectState) -> ProjectState:
     - VERTEX_AI_LOCATION: location (e.g., "global" for Gemini 3.1)
     """
     import time as _t
+
     _t0 = _t.perf_counter()
-    print("[critic] invoking Vertex (Gemini) …", flush=True)
+    logger.info("[critic] invoking Vertex (Gemini) …")
 
     llm = get_local_llm(
         temperature=0.0,
         json_mode=True,
         model=os.getenv("SENTINEL_LLM_MODEL"),  # Allow override
         location=os.getenv("VERTEX_AI_LOCATION"),  # Allow override
+        seed=42,
     )
     prompt = ChatPromptTemplate.from_messages(
         [("system", CRITIC_SYSTEM_PROMPT), ("user", CRITIC_USER_PROMPT)]
     )
     chain = prompt | llm
-    response = chain.invoke(
-        {
-            "module": state.module or "Unknown",
-            "story_id": state.story_id or "N/A",
-            "story_title": state.story_title or "N/A",
-            "user_story": state.user_story,
-            "acceptance_block": _format_acceptance_block(state.acceptance_criteria),
-        }
-    )
-    print(f"[critic] Vertex returned in {_t.perf_counter()-_t0:.1f}s", flush=True)
+    invoke_ctx = {
+        "module": state.module or "Unknown",
+        "story_id": state.story_id or "N/A",
+        "story_title": state.story_title or "N/A",
+        "user_story": state.user_story,
+        "acceptance_block": _format_acceptance_block(state.acceptance_criteria),
+    }
+    try:
+        response = invoke_with_retry(chain.invoke, invoke_ctx)
+    except LLMInvocationError as exc:
+        logger.error("[critic] Vertex failed after retries: %s", exc)
+        state.metadata["critic_error"] = str(exc)
+        state.metadata["critic_error_cause"] = f"{type(exc.cause).__name__}: {exc.cause}"
+        return state
+
+    logger.info("[critic] Vertex returned in %.1fs", _t.perf_counter() - _t0)
 
     try:
         payload = parse_llm_json(response.content)
     except (ValueError, json.JSONDecodeError) as exc:
-        print(f"\n[ERROR] Failed to parse Critic JSON: {exc}")
+        logger.error("[critic] Failed to parse Critic JSON: %s", exc)
         # Return with empty requirements and risks if parsing fails
         state.metadata["critic_error"] = str(exc)
         state.metadata["critic_raw"] = stringify_response(response.content)
         return state
 
-    state.validated_requirements = [
-        ValidatedRequirement(**r) for r in payload.get("requirements", [])
-    ]
-    state.security_risks = [SecurityRisk(**r) for r in payload.get("risks", [])]
+    req_raw = payload.get("requirements", [])
+    risk_raw = payload.get("risks", [])
+    if not isinstance(req_raw, list):
+        req_raw = []
+    if not isinstance(risk_raw, list):
+        risk_raw = []
+
+    reqs, skipped_req = _safe_models(req_raw, ValidatedRequirement, "ValidatedRequirement")
+    risks, skipped_risk = _safe_models(risk_raw, SecurityRisk, "SecurityRisk")
+
+    state.validated_requirements = reqs
+    state.security_risks = risks
     state.metadata["critic_raw"] = stringify_response(response.content)
+    if skipped_req or skipped_risk:
+        state.metadata["critic_skipped_rows"] = {
+            "requirements": skipped_req,
+            "risks": skipped_risk,
+        }
     return state

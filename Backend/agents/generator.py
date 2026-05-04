@@ -19,6 +19,7 @@ Design points:
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any, Dict, List, Tuple
 
@@ -45,6 +46,8 @@ from utils import (
     parse_llm_json,
     stringify_response,
 )
+
+logger = logging.getLogger(__name__)
 
 
 GENERATOR_SYSTEM_PROMPT = """You are Agent B — The Generator, a senior SDET for HPE's
@@ -963,10 +966,17 @@ def generator_node(state: ProjectState) -> ProjectState:
         state.metadata["generator_skipped"] = "no validated_requirements in state"
         return state
 
+    # Heal re-entry: executor routed back here — replace the prior functional suite
+    # so we do not accumulate duplicate TC-* rows across heal iterations.
+    if state.heal_attempts > 0:
+        state.test_suite.clear()
+        state.coverage_gaps.clear()
+
     import time as _t
-    print(
-        f"[generator] processing {len(state.validated_requirements)} "
-        f"validated requirements …", flush=True,
+
+    logger.info(
+        "[generator] processing %d validated requirements …",
+        len(state.validated_requirements),
     )
 
     llm = get_local_llm(temperature=0.0, json_mode=True, seed=42)
@@ -980,10 +990,11 @@ def generator_node(state: ProjectState) -> ProjectState:
 
     for _i, req in enumerate(state.validated_requirements, start=1):
         _tr = _t.perf_counter()
-        print(
-            f"[generator] req {_i}/{len(state.validated_requirements)} "
-            f"[{req.requirement_id}] retrieving + invoking Vertex …",
-            flush=True,
+        logger.info(
+            "[generator] req %d/%d [%s] retrieving + invoking Vertex …",
+            _i,
+            len(state.validated_requirements),
+            req.requirement_id,
         )
         try:
             payload, vertical_slice, intent = _generate_for_requirement(req, llm)
@@ -1010,6 +1021,16 @@ def generator_node(state: ProjectState) -> ProjectState:
                     requirement_id=req.requirement_id,
                     acceptance_criterion=None,
                     reason=f"Generator produced unparseable output: {exc}",
+                )
+            )
+            continue
+        except Exception as exc:  # noqa: BLE001 — keep pipeline alive on unexpected LLM/RAG failures
+            logger.exception("[generator] unexpected failure for %s", req.requirement_id)
+            new_gaps.append(
+                CoverageGap(
+                    requirement_id=req.requirement_id,
+                    acceptance_criterion=None,
+                    reason=f"Generator raised unexpected error: {type(exc).__name__}: {exc}",
                 )
             )
             continue
@@ -1083,10 +1104,11 @@ def generator_node(state: ProjectState) -> ProjectState:
             gap.setdefault("requirement_id", req.requirement_id)
             new_gaps.append(CoverageGap(**gap))
 
-        print(
-            f"[generator] req {_i}/{len(state.validated_requirements)} "
-            f"done in {_t.perf_counter()-_tr:.1f}s",
-            flush=True,
+        logger.info(
+            "[generator] req %d/%d done in %.1fs",
+            _i,
+            len(state.validated_requirements),
+            _t.perf_counter() - _tr,
         )
 
     state.test_suite.extend(new_tests)
