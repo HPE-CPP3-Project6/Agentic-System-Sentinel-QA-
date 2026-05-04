@@ -1,9 +1,9 @@
 """Sentinel-QA — LangGraph entry point.
 
 Pipeline:
-    Critic  ->  Generator  ->  Red-Teamer  ->  Executor
-                   ^                              |
-                   |__________ heal ______________|  (conditional)
+    Critic  ->  Generator  ->  Security+Compiler  ->  Executor
+                   ^                                      |
+                   |______________ heal __________________|  (conditional)
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from langgraph.graph import StateGraph, END  # noqa: E402
 from agents import (  # noqa: E402
     critic_node,
     generator_node,
-    red_teamer_node,
+    security_compiler_node,
     executor_node,
     needs_healing,
 )
@@ -30,13 +30,13 @@ def build_graph():
 
     graph.add_node("critic", critic_node)
     graph.add_node("generator", generator_node)
-    graph.add_node("red_teamer", red_teamer_node)
+    graph.add_node("security_compiler", security_compiler_node)
     graph.add_node("executor", executor_node)
 
     graph.set_entry_point("critic")
     graph.add_edge("critic", "generator")
-    graph.add_edge("generator", "red_teamer")
-    graph.add_edge("red_teamer", "executor")
+    graph.add_edge("generator", "security_compiler")
+    graph.add_edge("security_compiler", "executor")
 
     graph.add_conditional_edges(
         "executor",

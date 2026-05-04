@@ -8,7 +8,7 @@ working; new code should import from `samples` directly.
 from .critic import critic_node
 from .executor import executor_node, needs_healing
 from .generator import generator_node
-from .red_teamer import red_teamer_node
+from .security_compiler import security_compiler_node
 
 from samples.sample_stories import (
     SAMPLE_DATAEXPOSURE_ACS,
@@ -31,7 +31,7 @@ __all__ = [
     # Agent nodes
     "critic_node",
     "generator_node",
-    "red_teamer_node",
+    "security_compiler_node",
     "executor_node",
     "needs_healing",
     # Sample re-exports (deprecated surface — import from `samples` instead)

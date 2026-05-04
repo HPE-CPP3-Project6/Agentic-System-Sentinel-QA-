@@ -5,6 +5,13 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# Coverage
+.coverage
+htmlcov/
 
 # Virtualenvs
 .venv/
@@ -17,6 +24,9 @@ venv/
 
 # Editor / agent caches
 .claude/
+
+# Generated test workspace (Security+Compiler → Executor)
+workspace/
 
 # Runtime state (never commit)
 repo_cache/

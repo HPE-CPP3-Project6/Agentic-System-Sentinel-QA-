@@ -117,7 +117,7 @@ Ground rules:
    Hard filter: if the only justification you can write contains the word
    "could", "might", or "may be", you are speculating — DROP the mapping.
    Prefer `"owasp_mapping": []` with empty `risks` over a weak tag. Forcing
-   a tag pollutes the downstream Red-Teamer with irrelevant payloads.
+   a tag pollutes the downstream Security+Compiler agent with irrelevant payloads.
 
 7. The top-level `risks` array aggregates distinct OWASP categories that apply
    to this story. If none apply, return an empty list. Severity must be one of

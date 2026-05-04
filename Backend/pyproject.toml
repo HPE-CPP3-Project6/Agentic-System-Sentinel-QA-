@@ -1,7 +1,7 @@
 [project]
 name = "sentinel-qa"
 version = "0.1.0"
-description = "Sentinel-QA — agentic test-generation pipeline (Critic, Generator, Red-Teamer, Executor)."
+description = "Sentinel-QA — agentic test-generation pipeline (Critic, Generator, Security+Compiler, Executor)."
 requires-python = ">=3.10"
 readme = "../README.md"
 

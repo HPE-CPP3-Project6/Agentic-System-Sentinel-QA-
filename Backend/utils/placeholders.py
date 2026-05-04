@@ -9,7 +9,7 @@ so the Generator emits a placeholder of the form
 
 and this module expands it deterministically before the TestCase is persisted.
 Deterministic output means re-running the pipeline produces the same payloads,
-which matters for reproducible Red-Teamer / Executor runs.
+which matters for reproducible Security+Compiler / Executor runs.
 """
 
 from __future__ import annotations

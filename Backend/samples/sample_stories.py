@@ -6,7 +6,7 @@ Two flavours:
   * Security-focused demos (login, search, permissions, ratelimit, data
     export) — intentionally written with OWASP-triggering anti-patterns so
     the Critic fires the appropriate A01 / A03 / A04 / A07 mappings and the
-    downstream Red-Teamer / Executor get something to attack.
+    downstream Security+Compiler / Executor get something to attack.
 
 These strings are fixtures, not product data. Keeping them out of
 `agents/critic.py` means the agent module ships only production logic.

@@ -1,4 +1,4 @@
-"""OWASP Top 10 (2021) payload library for the Red-Teamer agent.
+"""OWASP Top 10 (2021) payload library for the Security+Compiler agent.
 
 Scope: authorized security testing within HPE's Sentinel-QA pipeline. Payloads
 are intentionally canonical / public-domain so they can be fingerprinted by

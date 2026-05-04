@@ -1,7 +1,7 @@
 """Attack & Boundary Profile Library for Test Case Generation.
 
 Provides standardized boundary conditions, attack vectors, and technical
-profiles for the Generator and Red-Teamer agents.
+profiles for the Generator and Security+Compiler agents.
 """
 
 from __future__ import annotations

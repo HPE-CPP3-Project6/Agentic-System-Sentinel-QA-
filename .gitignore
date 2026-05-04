@@ -1,4 +1,15 @@
 .claude/
-.chroma_models_cache/
+.cursor/
+
+# Local transcripts / scratch
 outputs/
+
+# Python packaging / caches (any cwd)
+*.egg-info/
+dist/
+build/
 *.resolved
+
+# OS / tooling
+.DS_Store
+Thumbs.db
