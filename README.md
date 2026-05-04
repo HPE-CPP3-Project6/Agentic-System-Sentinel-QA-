@@ -177,15 +177,3 @@ pytest
 `pyproject.toml` configures **ruff** and **pytest** (`testpaths = ["tests"]`). Add a `tests/` package when you introduce automated tests.
 
 ---
-
-## Design notes and limitations
-
-- **Pinpoint line numbers** inside `why` / free-text fields can drift; **chunk-level `source_refs`** from ingestion are more reliable than prose line guesses from the LLM.
-- **Executor** is architecturally present but **not** a real end-to-end test runner until you inject a concrete `Runner` (e.g. httpx against FastAPI `TestClient`, or Playwright for UI).
-- **Security+Compiler** uses a curated **payload library** (`utils/payloads.py`) aligned to OWASP IDs surfaced by the Critic — it is rule-based mutation, not a second LLM “hacker agent.”
-
----
-
-## License / attribution
-
-Add your team’s license and hackathon attribution here when you publish the repo.
