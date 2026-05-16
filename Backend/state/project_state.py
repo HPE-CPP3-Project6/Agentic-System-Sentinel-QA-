@@ -94,6 +94,23 @@ class Patch(BaseModel):
     related_test_ids: List[str] = Field(default_factory=list)
     owasp_category: Optional[str] = None
 
+class DesignContract(BaseModel):
+    requirement_id: str
+    endpoint: str
+    method: str
+    request_fields: Dict[str, str] = Field(default_factory=dict)
+    response_fields: Dict[str, str] = Field(default_factory=dict)
+    error_codes: Dict[str, str] = Field(default_factory=dict)
+    validation_rules: List[str] = Field(default_factory=list)
+    notes: Optional[str] = None
+
+
+class SecurityChecklistItem(BaseModel):
+    owasp_id: str
+    requirement_id: str
+    instruction: str
+    rationale: str
+    definition_of_done: str
 
 class ProjectState(BaseModel):
     """Single source of truth threaded through the LangGraph pipeline."""
@@ -110,6 +127,13 @@ class ProjectState(BaseModel):
     security_risks: List[SecurityRisk] = Field(default_factory=list)
     logs: List[ExecutionLog] = Field(default_factory=list)
     suggested_patches: List[Patch] = Field(default_factory=list)
+
+    # Two-phase Agile extension fields
+    pipeline_mode: str = "POST_CODE"
+    design_contracts: List[DesignContract] = Field(default_factory=list)
+    security_checklist: List[SecurityChecklistItem] = Field(default_factory=list)
+    phase1_risk_ids: List[str] = Field(default_factory=list)
+
 
     heal_attempts: int = 0
     max_heal_attempts: int = 2

@@ -6,8 +6,9 @@ from .project_state import (
     SecurityRisk,
     ExecutionLog,
     Patch,
+    DesignContract,
+    SecurityChecklistItem,
 )
-
 __all__ = [
     "ProjectState",
     "ValidatedRequirement",
@@ -16,4 +17,6 @@ __all__ = [
     "SecurityRisk",
     "ExecutionLog",
     "Patch",
+    "DesignContract",
+    "SecurityChecklistItem",
 ]

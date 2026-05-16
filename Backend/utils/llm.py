@@ -1,14 +1,10 @@
-"""LLM client factory — Gemini via Vertex AI.
+"""LLM client factory — Gemini via Vertex AI or Google AI Studio.
 
-Authentication uses Application Default Credentials (ADC). The caller is
-responsible for configuring ADC before the first `get_local_llm()` call,
-either via `gcloud auth application-default login` or by exporting
-`GOOGLE_APPLICATION_CREDENTIALS` to a service-account JSON path.
-
-Requires two env vars: `VERTEX_AI_PROJECT_ID` and (optionally)
-`VERTEX_AI_LOCATION` (defaults to `us-central1`). The project id has NO
-fallback value — missing / empty configuration raises immediately so a
-misconfigured environment cannot silently bill a stranger's GCP project.
+Authentication:
+  - Vertex AI: uses Application Default Credentials (ADC). Requires
+    VERTEX_AI_PROJECT_ID and optionally VERTEX_AI_LOCATION.
+  - Google AI Studio: uses GEMINI_API_KEY directly. Set LLM_PROVIDER=gemini
+    in .env to use this path. No GCP project needed.
 """
 
 from __future__ import annotations
@@ -26,11 +22,11 @@ import vertexai
 try:
     from google.api_core import exceptions as google_exceptions
     _TRANSIENT_ERRORS: Tuple[Type[BaseException], ...] = (
-        google_exceptions.ResourceExhausted,   # 429
-        google_exceptions.ServiceUnavailable,  # 503
-        google_exceptions.DeadlineExceeded,    # 504
-        google_exceptions.InternalServerError,  # 500 on transient backend hiccups
-        google_exceptions.Aborted,             # 409 from concurrent contention
+        google_exceptions.ResourceExhausted,    # 429
+        google_exceptions.ServiceUnavailable,   # 503
+        google_exceptions.DeadlineExceeded,     # 504
+        google_exceptions.InternalServerError,  # 500
+        google_exceptions.Aborted,              # 409
     )
 except ImportError:
     _TRANSIENT_ERRORS = ()
@@ -41,11 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 class LLMInvocationError(RuntimeError):
-    """Raised when every retry of an LLM invocation has failed.
-
-    Carries the last transient exception so callers can surface details
-    (HTTP status, quota project, retry-after) in coverage_gap reasons.
-    """
+    """Raised when every retry of an LLM invocation has failed."""
 
     def __init__(self, message: str, cause: BaseException):
         super().__init__(message)
@@ -60,19 +52,8 @@ def invoke_with_retry(
     max_delay_s: float = 30.0,
     **kwargs: Any,
 ) -> Any:
-    """Invoke `fn(*args, **kwargs)` with exponential backoff on transient errors.
-
-    Retries only on Google API transient errors (429 ResourceExhausted,
-    503 ServiceUnavailable, 504 DeadlineExceeded, 500, 409 Aborted).
-    Non-transient errors (parse errors, auth errors, quota project misconfig)
-    surface immediately so they are diagnosed, not masked.
-
-    Raises `LLMInvocationError` if `max_attempts` retries all fail — generator
-    callers convert this to a per-requirement coverage_gap rather than
-    crashing the whole run.
-    """
+    """Invoke fn(*args, **kwargs) with exponential backoff on transient errors."""
     if not _TRANSIENT_ERRORS:
-        # google-api-core not importable; cannot classify — just pass through.
         return fn(*args, **kwargs)
 
     last_exc: BaseException | None = None
@@ -84,8 +65,6 @@ def invoke_with_retry(
             if attempt >= max_attempts:
                 break
             delay = min(max_delay_s, base_delay_s * (2 ** (attempt - 1)))
-            # Jitter prevents thundering herd when multiple requirements hit
-            # the same quota window.
             delay = delay * (0.75 + random.random() * 0.5)
             logger.warning(
                 "LLM transient error (%s) on attempt %d/%d — backing off %.1fs",
@@ -93,7 +72,7 @@ def invoke_with_retry(
             )
             time.sleep(delay)
 
-    assert last_exc is not None  # unreachable if max_attempts >= 1
+    assert last_exc is not None
     raise LLMInvocationError(
         f"LLM invocation failed after {max_attempts} attempts: "
         f"{type(last_exc).__name__}: {last_exc}",
@@ -107,42 +86,75 @@ def get_local_llm(
     json_mode: bool = False,
     location: str | None = None,
     seed: int | None = 42,
-) -> ChatVertexAI:
-    """Return a ChatVertexAI instance configured for Gemini models.
+):
+    """Return an LLM instance configured for Gemini models.
+
+    If LLM_PROVIDER=gemini in .env, uses Google AI Studio via GEMINI_API_KEY
+    (langchain-google-genai). Otherwise falls back to Vertex AI.
 
     Args:
-        temperature: sampling temperature. Defaults to 0.0 for deterministic output.
-        model: override the model id (defaults to SENTINEL_LLM_MODEL or
-            "gemini-2.5-flash").
-        json_mode: if True, force Vertex AI to emit `application/json` so every
-            response is parseable without regex scraping. Every agent that
-            returns structured output should set this.
-        location: override the location (defaults to VERTEX_AI_LOCATION or
-            "us-central1"). Use "global" for Gemini 1.5/3.1 models.
-        seed: fixed decoding seed. Combined with temperature=0.0 this pins
-            outputs run-to-run on the same prompt. Pass None to disable.
+        temperature: sampling temperature. Defaults to 0.0.
+        model: override model id. Defaults to SENTINEL_LLM_MODEL or
+            "gemini-2.0-flash".
+        json_mode: force JSON output mode.
+        location: Vertex AI only — overrides VERTEX_AI_LOCATION.
+        seed: fixed decoding seed for reproducibility. Pass None to disable.
     """
-    project_id = os.getenv("VERTEX_AI_PROJECT_ID", "").strip()
-    if not project_id:
-        raise RuntimeError(
-            "VERTEX_AI_PROJECT_ID is not set. Configure it in the environment "
-            "(see Backend/.env.example). There is no default project — this "
-            "check exists so a misconfigured run cannot bill an unrelated GCP "
-            "project."
-        )
-    location = location or os.getenv("VERTEX_AI_LOCATION", "us-central1")
+    provider = os.getenv("LLM_PROVIDER", "").strip().lower()
+    model_name = model or os.getenv("SENTINEL_LLM_MODEL", "gemini-2.0-flash")
 
-    vertexai.init(project=project_id, location=location)
+    if provider == "gemini":
+        # ── Google AI Studio path ──────────────────────────────────────────
+        try:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+        except ImportError as e:
+            raise RuntimeError(
+                "langchain-google-genai is not installed. "
+                "Run: pip install langchain-google-genai"
+            ) from e
 
-    kwargs = {
-        "model_name": model or os.getenv("SENTINEL_LLM_MODEL", "gemini-2.5-flash"),
-        "temperature": temperature,
-        "project": project_id,
-        "location": location,
-    }
-    if json_mode:
-        kwargs["response_mime_type"] = "application/json"
-    if seed is not None:
-        kwargs["seed"] = seed
+        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError(
+                "GEMINI_API_KEY is not set. Add it to your .env file."
+            )
 
-    return ChatVertexAI(**kwargs)
+        kwargs: dict[str, Any] = {
+            "model": model_name,
+            "temperature": temperature,
+            "google_api_key": api_key,
+        }
+        if json_mode:
+            kwargs["response_mime_type"] = "application/json"
+        if seed is not None:
+            kwargs["seed"] = seed
+
+        logger.info("Using Google AI Studio (LLM_PROVIDER=gemini), model=%s", model_name)
+        return ChatGoogleGenerativeAI(**kwargs)
+
+    else:
+        # ── Vertex AI path (unchanged) ─────────────────────────────────────
+        project_id = os.getenv("VERTEX_AI_PROJECT_ID", "").strip()
+        if not project_id:
+            raise RuntimeError(
+                "VERTEX_AI_PROJECT_ID is not set. Configure it in the environment "
+                "(see Backend/.env.example). There is no default project — this "
+                "check exists so a misconfigured run cannot bill an unrelated GCP "
+                "project."
+            )
+        location = location or os.getenv("VERTEX_AI_LOCATION", "us-central1")
+        vertexai.init(project=project_id, location=location)
+
+        kwargs = {
+            "model_name": model_name,
+            "temperature": temperature,
+            "project": project_id,
+            "location": location,
+        }
+        if json_mode:
+            kwargs["response_mime_type"] = "application/json"
+        if seed is not None:
+            kwargs["seed"] = seed
+
+        logger.info("Using Vertex AI, model=%s", model_name)
+        return ChatVertexAI(**kwargs)
