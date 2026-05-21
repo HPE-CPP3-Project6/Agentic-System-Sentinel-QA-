@@ -128,6 +128,19 @@ SAMPLE_DATAEXPOSURE_ACS: List[str] = [
 ]
 
 
+SAMPLE_TASKSHARE_STORY = (
+    "As a registered user, I want to share a task with others by generating a "
+    "public link, so that external collaborators can view the task without "
+    "needing an account."
+)
+
+SAMPLE_TASKSHARE_ACS: List[str] = [
+    "Given a logged-in user owns a task, when they request a public share link, then a unique URL must be generated for that task.",
+    "Given a public share link exists, when anyone accesses it, then they can view the task details without authentication.",
+    "Given a public share link, when an unauthenticated user accesses it, then they must only see the specific task it was generated for and no other tasks.",
+]
+
+
 # --------------------------------------------------------------------------- #
 # Registry (consumed by run_critic_generator.py)                              #
 # --------------------------------------------------------------------------- #
@@ -181,5 +194,12 @@ SAMPLE_STORIES: Dict[str, SampleStory] = {
         "title": "Data Export",
         "story_id": "DATAEXP-001",
         "module": "DataHandling",
+    },
+    "taskshare": {
+    "story": SAMPLE_TASKSHARE_STORY,
+    "acs": SAMPLE_TASKSHARE_ACS,
+    "title": "Share Task via Public Link",
+    "story_id": "TASK-002",
+    "module": "TaskSharing",
     },
 }

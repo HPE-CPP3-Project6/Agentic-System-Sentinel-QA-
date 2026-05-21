@@ -4,9 +4,18 @@ Pipeline:
     Critic  ->  Generator  ->  Security+Compiler  ->  Executor
                    ^                                      |
                    |______________ heal __________________|  (conditional)
+
+Usage:
+    python main.py              # runs default story (taskshare)
+    python main.py login        # runs login story
+    python main.py perms        # runs permissions story
+    python main.py search       # runs search/injection story
+    python main.py taskshare    # runs IDOR task share story
 """
 
 from __future__ import annotations
+
+import sys
 
 from bootstrap import configure_caches
 
@@ -21,7 +30,7 @@ from agents import (  # noqa: E402
     executor_node,
     needs_healing,
 )
-from samples import SAMPLE_ORGANIZATION_ACS, SAMPLE_ORGANIZATION_STORY  # noqa: E402
+from samples import SAMPLE_STORIES  # noqa: E402
 from state import ProjectState  # noqa: E402
 
 
@@ -47,18 +56,51 @@ def build_graph():
     return graph.compile()
 
 
-def main() -> ProjectState:
+def main(story_key: str = "taskshare") -> ProjectState:
     app = build_graph()
+    s = SAMPLE_STORIES[story_key]
     initial = ProjectState(
-        user_story=SAMPLE_ORGANIZATION_STORY,
-        acceptance_criteria=list(SAMPLE_ORGANIZATION_ACS),
-        story_title="Create Organization",
-        story_id="ORG-001",
-        module="Organization",
+        user_story=s["story"],
+        acceptance_criteria=s["acs"],
+        story_title=s["title"],
+        story_id=s["story_id"],
+        module=s["module"],
+        pipeline_mode="PRE_CODE",
     )
     return app.invoke(initial)
 
 
 if __name__ == "__main__":
-    final_state = main()
-    print(final_state)
+    key = sys.argv[1] if len(sys.argv) > 1 else "taskshare"
+    final_state = main(story_key=key)
+
+    print("\n" + "="*60)
+    print("SENTINEL-QA  —  PRE_CODE PIPELINE RESULTS")
+    print("="*60)
+
+    print(f"\n📋 STORY: {final_state['story_title']} ({final_state['story_id']})")
+    print(f"🔧 Mode:  {final_state['pipeline_mode']}")
+
+    print(f"\n✅ VALIDATED REQUIREMENTS ({len(final_state['validated_requirements'])})")
+    for r in final_state['validated_requirements']:
+        print(f"  • {r.requirement_id}: {r.statement[:80]}...")
+
+    print(f"\n📄 DESIGN CONTRACTS ({len(final_state['design_contracts'])})")
+    for c in final_state['design_contracts']:
+        print(f"  • {c.requirement_id}: {c.endpoint}")
+        if c.validation_rules:
+            for rule in c.validation_rules:
+                print(f"      - {rule}")
+
+    print(f"\n🔒 SECURITY CHECKLIST ({len(final_state['security_checklist'])})")
+    for s in final_state['security_checklist']:
+        print(f"  • [{s.owasp_id}] {s.instruction}")
+
+    print(f"\n🧪 TEST SUITE: {len(final_state['test_suite'])} tests (expected 0 in PRE_CODE)")
+
+    print("\n📊 METADATA")
+    for k, v in final_state['metadata'].items():
+        if k not in ('critic_raw', 'generator_raw'):
+            print(f"  • {k}: {v}")
+
+    print("\n" + "="*60)

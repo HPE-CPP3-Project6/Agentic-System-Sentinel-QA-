@@ -34,6 +34,7 @@ from database import (
 )
 from state import (
     CoverageGap,
+    DesignContract,
     ProjectState,
     TestCase,
     ValidatedRequirement,
@@ -705,6 +706,49 @@ emit a security test that demonstrates the missing control, not a coverage gap.
 Emit STRICT JSON only, following the schema exactly. Every test_case MUST set
 `test_category` AND `setup_fixtures` (use ["none"] for stateless tests)."""
 
+# ------------------------------------------------------------------ #
+# PRE_CODE prompts — no codebase, output DesignContracts
+# ------------------------------------------------------------------ #
+
+DESIGN_CONTRACT_SYSTEM_PROMPT = """You are Agent B in PRE_CODE mode — a senior API
+designer for HPE's Sentinel-QA pipeline. No codebase exists yet. Your job is to
+output a precise API contract for each Acceptance Criterion so developers know
+exactly what to build before writing a line of code.
+
+Output STRICT JSON only, no prose, no markdown fences.
+
+OUTPUT SCHEMA:
+{{
+  "design_contracts": [
+    {{
+      "requirement_id": "<REQ-ID>",
+      "endpoint": "<e.g. POST /auth/login>",
+      "method": "<GET|POST|PUT|PATCH|DELETE>",
+      "request_fields": {{"<field_name>": "<type e.g. string|int|bool>"}},
+      "response_fields": {{"<field_name>": "<type>"}},
+      "error_codes": {{"<status_code>": "<meaning>"}},
+      "validation_rules": ["<rule e.g. 'email must be valid format'>"],
+      "notes": "<optional clarifications>"
+    }}
+  ]
+}}
+Rules:
+- One DesignContract per distinct endpoint implied by the ACs.
+- Infer only what the ACs explicitly state — do NOT invent fields.
+- If an AC implies a field but its type is ambiguous, use "string".
+- error_codes keys must be strings e.g. "401", "422" — not integers.
+- validation_rules must be direct quotes or close paraphrases of the AC text.
+- notes should flag any AC ambiguity the developer must resolve.
+"""
+
+DESIGN_CONTRACT_USER_PROMPT = """Requirement:
+  ID: {requirement_id}
+  Statement: {statement}
+  Acceptance Criteria:
+{acceptance_criteria_block}
+
+Output STRICT JSON only."""
+
 
 # --------------------------------------------------------------------------- #
 # Retrieval helpers
@@ -920,7 +964,29 @@ def _generate_for_requirement(
     req: ValidatedRequirement,
     llm,
     n_per_category: int = 15,
-) -> Tuple[Dict[str, Any], VerticalSliceContext, RouteIntent]:
+    pipeline_mode: str = "POST_CODE",
+) -> Tuple[Dict[str, Any], VerticalSliceContext | None, RouteIntent | None]:
+
+    if pipeline_mode == "PRE_CODE":
+        prompt = ChatPromptTemplate.from_messages(
+            [("system", DESIGN_CONTRACT_SYSTEM_PROMPT),
+             ("user", DESIGN_CONTRACT_USER_PROMPT)]
+        )
+        chain = prompt | llm
+        response = invoke_with_retry(
+            chain.invoke,
+            {
+                "requirement_id": req.requirement_id,
+                "statement": req.statement,
+                "acceptance_criteria_block": _format_acceptance_criteria(
+                    req.acceptance_criteria
+                ),
+            },
+        )
+        payload = parse_llm_json(response.content)
+        payload["_raw"] = stringify_response(response.content)
+        return payload, None, None
+
     action = _build_action_descriptor(req)
     intent = _classify_route_intent(req)
     context_keywords = _extract_ac_keywords(req)
@@ -965,6 +1031,40 @@ def generator_node(state: ProjectState) -> ProjectState:
     if not state.validated_requirements:
         state.metadata["generator_skipped"] = "no validated_requirements in state"
         return state
+    # ── PRE_CODE: produce DesignContracts, skip RAG entirely ──────────────
+    if state.pipeline_mode == "PRE_CODE":
+        precode_llm = get_local_llm(temperature=0.0, json_mode=True, seed=42)
+        new_contracts: List[DesignContract] = []
+        raw_outputs: List[str] = []
+
+        for req in state.validated_requirements:
+            try:
+                payload, _, _ = _generate_for_requirement(
+                    req, precode_llm, pipeline_mode="PRE_CODE"
+                )
+            except LLMInvocationError as exc:
+                state.metadata.setdefault("generator_provider_failures", []).append(
+                    req.requirement_id
+                )
+                continue
+            except (json.JSONDecodeError, ValueError):
+              continue
+            except Exception as exc:
+                continue
+
+            raw_outputs.append(payload.pop("_raw", ""))
+            for dc in payload.get("design_contracts", []):
+                dc.setdefault("requirement_id", req.requirement_id)
+                try:
+                    new_contracts.append(DesignContract(**dc))
+                except Exception:
+                    continue
+
+        state.design_contracts.extend(new_contracts)
+        state.metadata["generator_raw"] = raw_outputs
+        state.metadata["generator_mode"] = "PRE_CODE"
+        return state
+
 
     # Heal re-entry: executor routed back here — replace the prior functional suite
     # so we do not accumulate duplicate TC-* rows across heal iterations.

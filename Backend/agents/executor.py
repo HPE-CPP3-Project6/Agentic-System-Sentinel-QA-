@@ -17,6 +17,10 @@ file is used. If ``security_compiler_generated_files`` includes a ``.py``
 path, the node runs ``pytest --junitxml`` once (``pytest_runner``) unless
 ``SENTINEL_EXECUTOR_RUN_PYTEST=0``. Otherwise the default stub reports failure
 unless a custom ``runner=`` is supplied.
+
+PRE_CODE mode:
+  No test suite exists yet. The executor returns immediately without running
+  anything, healing anything, or writing a security posture report.
 """
 
 from __future__ import annotations
@@ -362,7 +366,23 @@ def executor_node(
     *,
     runner: Runner = _default_runner,
 ) -> ProjectState:
-    """Run every test, capture telemetry, heal failures, publish security posture."""
+    """Run every test, capture telemetry, heal failures, publish security posture.
+
+    PRE_CODE mode: no test suite exists yet — returns immediately without
+    executing, healing, or writing a security posture report.
+    POST_CODE mode: unchanged — runs all tests, heals failures, reports posture.
+    """
+
+    # ------------------------------------------------------------------
+    # PRE_CODE branch — no test suite exists yet, nothing to execute
+    # ------------------------------------------------------------------
+    if state.pipeline_mode == "PRE_CODE":
+        state.metadata["executor_skipped"] = "PRE_CODE: no test suite to execute"
+        return state
+
+    # ------------------------------------------------------------------
+    # POST_CODE branch — original logic, completely unchanged
+    # ------------------------------------------------------------------
 
     state.heal_attempts += 1
     llm = get_local_llm(temperature=0.0)
@@ -426,8 +446,6 @@ def needs_healing(state: ProjectState) -> str:
     if state.heal_attempts >= state.max_heal_attempts:
         return "end"
 
-    # Only consider logs from the most recent run by scanning the tail.
-    # Simpler/safer: check whole log list — healing is bounded by heal_attempts anyway.
     has_functional_failure = any(
         (not l.is_adversarial) and l.passed is False for l in state.logs
     )

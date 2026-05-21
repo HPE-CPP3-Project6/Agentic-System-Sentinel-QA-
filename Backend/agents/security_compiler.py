@@ -7,6 +7,12 @@ Materializes a **single combined** `test_sentinel_api_generated.py` per run unde
 `workspace/runs/run_<UTC-timestamp>_utc/`, targeting a live API via **httpx**
 and **SENTINEL_BASE_URL** (see `.env.example`). Templates live in
 `agents/templates/pytest_api.jinja2` (Jinja2, autoescape off — Python source).
+
+PRE_CODE mode:
+  Skips all payload mutation and pytest materialization. For each SecurityRisk
+  identified by the Critic, calls the LLM to produce one or more
+  SecurityChecklistItems — developer-facing security instructions the team must
+  satisfy before writing any code. Results stored in state.security_checklist.
 """
 
 from __future__ import annotations
@@ -22,9 +28,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from jinja2 import Environment, FileSystemLoader
+from langchain_core.prompts import ChatPromptTemplate
 
-from state import ProjectState, SecurityRisk, TestCase
-from utils import Payload, get_payloads
+from state import ProjectState, SecurityRisk, SecurityChecklistItem, TestCase
+from utils import (
+    LLMInvocationError,
+    Payload,
+    get_local_llm,
+    get_payloads,
+    invoke_with_retry,
+    parse_llm_json,
+    stringify_response,
+)
 from utils.boundaries import RESILIENCE_SIGNATURES, VULNERABILITY_SIGNATURES
 
 logger = logging.getLogger(__name__)
@@ -32,6 +47,111 @@ logger = logging.getLogger(__name__)
 _BACKEND_ROOT = Path(__file__).resolve().parent.parent
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 
+
+# ---------------------------------------------------------------------------
+# PRE_CODE prompts
+# ---------------------------------------------------------------------------
+
+SECURITY_CHECKLIST_SYSTEM_PROMPT = """You are a senior application-security engineer.
+You will be given a user story requirement and a specific OWASP security risk that a
+security critic identified for that story.
+
+Your job is to produce a list of concrete, story-specific developer security instructions
+that the engineering team must implement BEFORE writing any code.
+
+Rules:
+- Each instruction must be specific to this story and this risk — no generic advice.
+- Each instruction must be independently testable.
+- Output ONLY a JSON array. No preamble, no markdown fences, no commentary.
+
+Each element of the array must have exactly these keys:
+  "owasp_id"           : the OWASP identifier (e.g. "A01:2021")
+  "requirement_id"     : the requirement id provided
+  "instruction"        : a short, imperative developer instruction (≤ 25 words)
+  "rationale"          : why this matters specifically for this story (1–2 sentences)
+  "definition_of_done" : a testable condition starting with "Verified when..."
+"""
+
+SECURITY_CHECKLIST_USER_PROMPT = """Requirement ID: {requirement_id}
+Requirement statement: {statement}
+Acceptance criteria: {acceptance_criteria}
+
+OWASP Risk identified by security critic:
+  owasp_id  : {owasp_id}
+  title     : {title}
+  rationale : {risk_rationale}
+  affected_requirements: {affected_requirements}
+
+Produce the JSON array of SecurityChecklistItems for this risk."""
+
+
+# ---------------------------------------------------------------------------
+# PRE_CODE helper
+# ---------------------------------------------------------------------------
+
+def _call_llm_for_checklist_items(
+    llm,
+    risk: SecurityRisk,
+    requirement_id: str,
+    statement: str,
+    acceptance_criteria: str,
+) -> List[SecurityChecklistItem]:
+    """Call LLM for one risk/requirement pair, return SecurityChecklistItem list."""
+
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", SECURITY_CHECKLIST_SYSTEM_PROMPT),
+            ("user", SECURITY_CHECKLIST_USER_PROMPT),
+        ]
+    )
+    chain = prompt | llm
+    response = invoke_with_retry(
+        chain.invoke,
+        {
+            "requirement_id": requirement_id,
+            "statement": statement,
+            "acceptance_criteria": acceptance_criteria,
+            "owasp_id": risk.owasp_id,
+            "title": risk.title,
+            "risk_rationale": risk.rationale,
+            "affected_requirements": ", ".join(
+                risk.affected_requirements or [requirement_id]
+            ),
+        },
+    )
+
+    payload = parse_llm_json(response.content)
+
+    # System prompt asks for a bare JSON array; handle both shapes defensively:
+    #   [ {...}, {...} ]        ← direct array (expected)
+    #   { "items": [...] }     ← wrapped object (occasional LLM drift)
+    if isinstance(payload, list):
+        items_data = payload
+    elif isinstance(payload, dict):
+        for key in ("items", "checklist", "security_checklist", "results"):
+            if isinstance(payload.get(key), list):
+                items_data = payload[key]
+                break
+        else:
+            items_data = next(
+                (v for v in payload.values() if isinstance(v, list)), []
+            )
+    else:
+        items_data = []
+
+    checklist_items: List[SecurityChecklistItem] = []
+    for item in items_data:
+        try:
+            checklist_items.append(SecurityChecklistItem(**item))
+        except Exception:
+            continue
+
+    return checklist_items
+
+
+# ---------------------------------------------------------------------------
+# Unchanged POST_CODE helpers
+# ---------------------------------------------------------------------------
 
 def _workspace_root() -> Path:
     raw = os.getenv("SENTINEL_WORKSPACE_ROOT", "").strip()
@@ -205,8 +325,6 @@ def _materialize_pytest_workspace(state: ProjectState) -> None:
             }
         )
 
-    # trim_blocks=True strips the newline after `{% endif %}`, which merged
-    # the following Python line into the previous one (SyntaxError).
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
         autoescape=False,
@@ -339,8 +457,77 @@ def _candidate_tests_for_risk(state: ProjectState, risk: SecurityRisk) -> List[T
     return targeted or functional
 
 
+# ---------------------------------------------------------------------------
+# Node
+# ---------------------------------------------------------------------------
+
 def security_compiler_node(state: ProjectState) -> ProjectState:
-    """OWASP adversarial expansion + Jinja pytest materialization (httpx live server)."""
+    """OWASP adversarial expansion + Jinja pytest materialization (httpx live server).
+
+    PRE_CODE mode: produce SecurityChecklistItems from Critic's SecurityRisks,
+    store in state.security_checklist, skip all mutation and pytest generation.
+    POST_CODE mode: unchanged — mutate functional tests + materialize pytest file.
+    """
+
+    # ------------------------------------------------------------------
+    # PRE_CODE branch — produces SecurityChecklistItems, no test mutation,
+    # no pytest materialization (no codebase exists yet to run against)
+    # ------------------------------------------------------------------
+    if state.pipeline_mode == "PRE_CODE":
+        if not state.security_risks:
+            state.metadata["security_compiler_skipped"] = (
+                "PRE_CODE: no security_risks in state"
+            )
+            return state
+
+        req_lookup = {r.requirement_id: r for r in state.validated_requirements}
+
+        llm = get_local_llm(temperature=0.0, json_mode=True, seed=42)
+        checklist: List[SecurityChecklistItem] = []
+        failed_risks: List[str] = []
+
+        for risk in state.security_risks:
+            req_ids = risk.affected_requirements or [
+                r.requirement_id for r in state.validated_requirements
+            ]
+
+            for req_id in req_ids:
+                req = req_lookup.get(req_id)
+                if req is None:
+                    continue
+
+                statement = getattr(req, "statement", str(req))
+                acceptance_criteria = getattr(req, "acceptance_criteria", "")
+                if isinstance(acceptance_criteria, list):
+                    acceptance_criteria = "; ".join(str(ac) for ac in acceptance_criteria)
+
+                try:
+                    items = _call_llm_for_checklist_items(
+                        llm=llm,
+                        risk=risk,
+                        requirement_id=req_id,
+                        statement=statement,
+                        acceptance_criteria=acceptance_criteria,
+                    )
+                    checklist.extend(items)
+                except LLMInvocationError as exc:
+                    failed_risks.append(
+                        f"{risk.owasp_id}/{req_id}: provider error after retries: {exc}"
+                    )
+                except Exception as exc:
+                    failed_risks.append(f"{risk.owasp_id}/{req_id}: {exc}")
+
+        state.security_checklist.extend(checklist)
+        state.metadata["security_compiler_mode"] = "PRE_CODE"
+        state.metadata["security_compiler_checklist_generated"] = len(checklist)
+        if failed_risks:
+            state.metadata["security_compiler_failed_risks"] = failed_risks
+
+        return state
+
+    # ------------------------------------------------------------------
+    # POST_CODE branch — original logic, completely unchanged
+    # ------------------------------------------------------------------
 
     if not state.test_suite:
         state.metadata["security_compiler_skipped"] = "empty test_suite"
