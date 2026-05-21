@@ -261,6 +261,31 @@ RESILIENCE_SIGNATURES = {
         "expected_behavior": "No sensitive system information leaked",
         "safe_response_example": '{"error": "An error occurred. Please try again."}',
     },
+    # Used when Critic maps A02/A05/A08/A10; previously fell through to empty → 200-only tests.
+    "A02_CRYPTO_FAILURE": {
+        "http_status": [400, 403, 422],
+        "forbidden_keywords": [],
+        "expected_behavior": "Sensitive transport or crypto policy enforced; no secret echoed",
+        "safe_response_example": '{"error": "Invalid request"}',
+    },
+    "A05_SECURITY_MISCONFIGURATION": {
+        "http_status": [400, 403, 422],
+        "forbidden_keywords": ["evil.example", "attacker"],
+        "expected_behavior": "Host / config injection does not change routing or trusted host",
+        "safe_response_example": '{"error": "Bad request"}',
+    },
+    "A08_INTEGRITY_FAILURE": {
+        "http_status": [400, 422],
+        "forbidden_keywords": ["__proto__", "constructor", "prototype"],
+        "expected_behavior": "Deserialisation or merge rejects prototype pollution payloads",
+        "safe_response_example": '{"error": "Invalid input"}',
+    },
+    "A10_SSRF": {
+        "http_status": [400, 403, 422],
+        "forbidden_keywords": ["169.254.169.254", "metadata", "instance-id"],
+        "expected_behavior": "Outbound or URL validation blocks metadata / internal targets",
+        "safe_response_example": '{"error": "URL not allowed"}',
+    },
 }
 
 # ============================================================================
@@ -291,6 +316,30 @@ VULNERABILITY_SIGNATURES = {
         "expected_keywords": ["stack trace", "line 123", "file: config.php", "API key"],
         "expected_behavior": "Sensitive system information exposed",
         "vulnerable_response_example": '{"error": "Connection failed at /app/config.php:45 — DB_PASSWORD=..."}',
+    },
+    "A02_CRYPTO_FAILURE": {
+        "http_status": [200],
+        "expected_keywords": ["http://internal", "password=", "token="],
+        "expected_behavior": "Cleartext or internal URL accepted when it should be refused",
+        "vulnerable_response_example": '{"token": "secret", "url": "http://internal-service/"}',
+    },
+    "A05_SECURITY_MISCONFIGURATION": {
+        "http_status": [200, 302],
+        "expected_keywords": ["evil.example", "Location: http://evil"],
+        "expected_behavior": "Host header or misconfig allows attacker-controlled redirect/host",
+        "vulnerable_response_example": '{"redirect": "http://evil.example/"}',
+    },
+    "A08_INTEGRITY_FAILURE": {
+        "http_status": [200],
+        "expected_keywords": ["isAdmin", "__proto__", "true"],
+        "expected_behavior": "Prototype pollution alters object behaviour or auth flags",
+        "vulnerable_response_example": '{"isAdmin": true, "role": "admin"}',
+    },
+    "A10_SSRF": {
+        "http_status": [200],
+        "expected_keywords": ["ami-id", "instance-id", "169.254"],
+        "expected_behavior": "Server fetched cloud metadata or internal URL and leaked it",
+        "vulnerable_response_example": '{"body": "ami-0123456789abcdef0"}',
     },
 }
 

@@ -12,9 +12,11 @@ Responsibilities:
 4. Posture     — writes a Security Posture summary into state.metadata:
                  attempted / resilient / vulnerable / coverage %.
 
-The actual browser/HTTP runner is injected as a callable so this module stays
-testable without a live app. A default stub is provided that always reports
-failure — replace it with a Playwright-backed runner in production.
+The browser/HTTP runner is injected as a callable when no generated pytest
+file is used. If ``security_compiler_generated_files`` includes a ``.py``
+path, the node runs ``pytest --junitxml`` once (``pytest_runner``) unless
+``SENTINEL_EXECUTOR_RUN_PYTEST=0``. Otherwise the default stub reports failure
+unless a custom ``runner=`` is supplied.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ import os
 import time
 import traceback
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from langchain_core.prompts import ChatPromptTemplate
@@ -367,10 +370,33 @@ def executor_node(
     run_logs: List[ExecutionLog] = []
     new_patches: List[Patch] = []
 
-    for tc in state.test_suite:
-        log = _execute_single(tc, runner)
-        run_logs.append(log)
+    paths = list(state.metadata.get("security_compiler_generated_files") or [])
+    py_candidates = [Path(p) for p in reversed(paths) if str(p).endswith(".py")]
+    py_file = next((p for p in py_candidates if p.is_file()), None)
+    run_pytest = os.getenv("SENTINEL_EXECUTOR_RUN_PYTEST", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+    )
 
+    if py_file and run_pytest and state.test_suite:
+        from .pytest_runner import run_pytest_generated_file
+
+        run_logs, rc, out, err = run_pytest_generated_file(list(state.test_suite), py_file)
+        state.metadata["executor_pytest_file"] = str(py_file.resolve())
+        state.metadata["executor_pytest_returncode"] = rc
+        state.metadata["executor_pytest_stdout_tail"] = out[-4000:] if len(out) > 4000 else out
+        state.metadata["executor_pytest_stderr_tail"] = err[-4000:] if len(err) > 4000 else err
+    else:
+        if py_file and not run_pytest:
+            state.metadata["executor_pytest_skipped"] = "SENTINEL_EXECUTOR_RUN_PYTEST disabled"
+        for tc in state.test_suite:
+            run_logs.append(_execute_single(tc, runner))
+
+    # Heal pass — runs for BOTH the pytest path and the injected-runner path.
+    # run_logs is aligned 1:1 with state.test_suite in either branch (the pytest
+    # runner emits one log per TestCase in order; so does the stub loop above).
+    for tc, log in zip(state.test_suite, run_logs):
         needs_patch = (
             (not tc.is_adversarial and log.passed is False)
             or (tc.is_adversarial and log.is_vulnerable is True)

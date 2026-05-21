@@ -48,6 +48,35 @@ def _max_tests_per_file() -> int:
         return 80
 
 
+def _max_adversarial() -> int:
+    """Cap adversarial rows before extend (matches .env.example SENTINEL_COMPILER_MAX_ADVERSARIAL)."""
+
+    raw = os.getenv("SENTINEL_COMPILER_MAX_ADVERSARIAL", "200")
+    try:
+        return max(1, min(10_000, int(raw)))
+    except ValueError:
+        return 200
+
+
+# Maps Critic OWASP short id → RESILIENCE_SIGNATURES / VULNERABILITY_SIGNATURES key in utils.boundaries.
+_OWASP_TO_RESILIENCE_KEY: Dict[str, str] = {
+    "A01": "A01_ACCESS_CONTROL",
+    "A02": "A02_CRYPTO_FAILURE",
+    "A03": "A03_INJECTION",
+    "A04": "A04_INSECURE_DESIGN",
+    "A05": "A05_SECURITY_MISCONFIGURATION",
+    "A07": "A07_AUTH_FAILURE",
+    "A08": "A08_INTEGRITY_FAILURE",
+    "A10": "A10_SSRF",
+}
+
+
+def slug_from_test_id(test_id: str) -> str:
+    """Public alias for junit ↔ TestCase mapping (executor / pytest runner)."""
+
+    return _slug_from_test_id(test_id)
+
+
 def _slug_from_test_id(test_id: str) -> str:
     s = re.sub(r"[^0-9A-Za-z_]+", "_", test_id)
     s = re.sub(r"_+", "_", s).strip("_").lower()
@@ -118,7 +147,10 @@ def _payload_python_literal(input_data: Any) -> str:
         except (TypeError, ValueError):
             normalized = input_data
         return repr(normalized)
-    return "{}"
+    if input_data is None:
+        return "{}"
+    # Scalar / unexpected shapes: never silently emit `{}` (breaks GET params / hides intent).
+    return repr({"_scalar": str(input_data)})
 
 
 def _materialize_pytest_workspace(state: ProjectState) -> None:
@@ -139,9 +171,9 @@ def _materialize_pytest_workspace(state: ProjectState) -> None:
     root.mkdir(parents=True, exist_ok=True)
     runs_dir = root / "runs"
     runs_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
     run_dir = runs_dir / f"run_{stamp}_utc"
-    run_dir.mkdir(parents=True, exist_ok=False)
+    run_dir.mkdir(parents=True, exist_ok=True)
 
     rows: List[Dict[str, Any]] = []
     used_slugs: set[str] = set()
@@ -250,16 +282,8 @@ def _mutate(
         mutated_input["__adversarial_probe__"] = payload.value
         mutated_fields = ["__adversarial_probe__"]
 
-    owasp_short = risk.owasp_id.split(":", maxsplit=1)[0]
-    resilience_key = (
-        f"{owasp_short}_INJECTION"
-        if owasp_short == "A03"
-        else f"{owasp_short}_ACCESS_CONTROL"
-        if owasp_short == "A01"
-        else f"{owasp_short}_AUTH_FAILURE"
-        if owasp_short == "A07"
-        else f"{owasp_short}_INSECURE_DESIGN"
-    )
+    owasp_short = risk.owasp_id.split(":", maxsplit=1)[0].strip().upper()
+    resilience_key = _OWASP_TO_RESILIENCE_KEY.get(owasp_short, "A04_INSECURE_DESIGN")
 
     resilience_sig = RESILIENCE_SIGNATURES.get(resilience_key, {})
     vuln_sig = VULNERABILITY_SIGNATURES.get(resilience_key, {})
@@ -345,6 +369,10 @@ def security_compiler_node(state: ProjectState) -> ProjectState:
                     counter += 1
                     adversarial.append(_mutate(base, payload, risk, counter))
 
+        cap_adv = _max_adversarial()
+        if len(adversarial) > cap_adv:
+            adversarial = adversarial[:cap_adv]
+            state.metadata["security_compiler_adversarial_truncated_to"] = cap_adv
         state.test_suite.extend(adversarial)
         state.metadata["security_compiler_adversarial_count"] = len(adversarial)
         if unmatched_risks:
