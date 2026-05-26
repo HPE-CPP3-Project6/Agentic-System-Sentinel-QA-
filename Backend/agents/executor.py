@@ -334,24 +334,54 @@ def _heal(tc: TestCase, log: ExecutionLog, llm) -> Optional[Patch]:
 def _security_posture(logs: List[ExecutionLog]) -> Dict[str, object]:
     adv = [l for l in logs if l.is_adversarial]
     attempted = len(adv)
-    resilient = sum(1 for l in adv if l.resilient)
-    vulnerable = sum(1 for l in adv if l.is_vulnerable)
+    resilient = sum(1 for l in adv if l.resilient is True)
+    vulnerable = sum(1 for l in adv if l.is_vulnerable is True)
+
+    # Two distinct failure-to-decide modes — must NOT be conflated:
+    #   skipped — pytest.skip fired (no JWT, parametrize filter, etc.).
+    #             The attack never ran. NOT evidence of resilience.
+    #   error   — pytest_runner timeout, collect error, target unreachable.
+    #             The attack tried to run and infrastructure failed.
+    #             NOT evidence of resilience either — but ALSO not evidence
+    #             that the test was deliberately filtered out.
+    # Previous version lumped both into "skipped", which lied about how
+    # much was deliberately deferred vs how much fell over.
+    skipped = sum(
+        1 for l in adv
+        if l.resilient is None and l.is_vulnerable is None and l.status == "skipped"
+    )
+    errored = sum(
+        1 for l in adv
+        if l.resilient is None and l.is_vulnerable is None and l.status == "error"
+    )
+    decided = resilient + vulnerable
 
     by_target: Dict[str, Dict[str, int]] = {}
     for l in adv:
         key = l.exploit_target or "unknown"
-        bucket = by_target.setdefault(key, {"attempted": 0, "resilient": 0, "vulnerable": 0})
+        bucket = by_target.setdefault(
+            key,
+            {"attempted": 0, "resilient": 0, "vulnerable": 0, "skipped": 0, "errored": 0},
+        )
         bucket["attempted"] += 1
-        if l.resilient:
+        if l.resilient is True:
             bucket["resilient"] += 1
-        if l.is_vulnerable:
+        elif l.is_vulnerable is True:
             bucket["vulnerable"] += 1
+        elif l.status == "error":
+            bucket["errored"] += 1
+        else:
+            bucket["skipped"] += 1
 
     return {
         "attempted": attempted,
         "resilient": resilient,
         "vulnerable": vulnerable,
-        "resilience_pct": round(100 * resilient / attempted, 1) if attempted else None,
+        "skipped": skipped,
+        "errored": errored,
+        # Percentage is computed against DECIDED tests only — skipped AND
+        # errored are excluded so partial runs do not understate resilience.
+        "resilience_pct": round(100 * resilient / decided, 1) if decided else None,
         "by_exploit_target": by_target,
     }
 
@@ -407,11 +437,22 @@ def executor_node(
         state.metadata["executor_pytest_returncode"] = rc
         state.metadata["executor_pytest_stdout_tail"] = out[-4000:] if len(out) > 4000 else out
         state.metadata["executor_pytest_stderr_tail"] = err[-4000:] if len(err) > 4000 else err
+        if rc == -1:
+            # pytest_runner signals subprocess.TimeoutExpired with rc=-1 and
+            # synthesises one error log per test so the graph can heal once
+            # instead of crashing.
+            state.metadata["executor_pytest_timeout"] = True
     else:
         if py_file and not run_pytest:
             state.metadata["executor_pytest_skipped"] = "SENTINEL_EXECUTOR_RUN_PYTEST disabled"
         for tc in state.test_suite:
             run_logs.append(_execute_single(tc, runner))
+
+    # Stamp every new log with the current heal attempt. `needs_healing` filters
+    # on this so prior-run failures (still present in state.logs after extend)
+    # cannot keep routing "heal" after the current cycle has actually cleared.
+    for log in run_logs:
+        log.heal_attempt = state.heal_attempts
 
     # Heal pass — runs for BOTH the pytest path and the injected-runner path.
     # run_logs is aligned 1:1 with state.test_suite in either branch (the pytest
@@ -442,14 +483,23 @@ def executor_node(
 
 def needs_healing(state: ProjectState) -> str:
     """Conditional edge: loop if (any functional failure OR any vulnerability)
-    AND we still have heal budget."""
+    in the MOST RECENT run AND we still have heal budget.
+
+    Filters on `heal_attempt` so a failure from attempt N-1 (still present in
+    state.logs because we extend rather than replace) cannot keep routing back
+    to "heal" after attempt N has actually cleared the problem.
+    """
     if state.heal_attempts >= state.max_heal_attempts:
         return "end"
 
+    current = state.heal_attempts
     has_functional_failure = any(
-        (not l.is_adversarial) and l.passed is False for l in state.logs
+        (not l.is_adversarial) and l.passed is False and l.heal_attempt == current
+        for l in state.logs
     )
-    has_vulnerability = any(l.is_vulnerable for l in state.logs)
+    has_vulnerability = any(
+        l.is_vulnerable and l.heal_attempt == current for l in state.logs
+    )
 
     if has_functional_failure or has_vulnerability:
         return "heal"

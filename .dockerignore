@@ -1,0 +1,45 @@
+# Keep the Docker build context lean. Anything matched here is invisible to
+# `COPY` and to docker build's hash — so the image rebuild cache stays warm.
+
+# --- Version control / IDE -------------------------------------------------- #
+.git/
+.gitignore
+.github/
+.idea/
+.vscode/
+.claude/
+
+# --- Python ----------------------------------------------------------------- #
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+
+# --- Virtual envs (broken on this machine; never copy into the image) ------ #
+**/venv/
+**/.venv/
+**/env/
+
+# --- Runtime artifacts the entrypoint regenerates --------------------------- #
+outputs/
+Backend/workspace/
+Backend/chroma_models_cache/
+Backend/chroma_data/
+
+# --- Local-only files ------------------------------------------------------- #
+**/.env
+**/.env.local
+**/*.log
+**/*.sqlite3
+**/*.db
+Backend/repo_cache/smart_task_manager.db
+
+# --- Sibling folder from the friend's branch (already merged) -------------- #
+Agentic-System-Sentinel-QA--feature-precode-pipeline/
+
+# --- Stray plan/docs -------------------------------------------------------- #
+*.pdf
+sync.log

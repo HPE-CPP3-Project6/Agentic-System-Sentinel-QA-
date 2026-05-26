@@ -85,14 +85,42 @@ def run_pytest_generated_file(
         "-o",
         "junit_family=xunit2",
     ]
-    proc = subprocess.run(
-        cmd,
-        cwd=str(work_cwd.resolve()),
-        capture_output=True,
-        text=True,
-        timeout=timeout_sec,
-        env=os.environ.copy(),
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(work_cwd.resolve()),
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+            env=os.environ.copy(),
+        )
+    except subprocess.TimeoutExpired as exc:
+        # A hung target API or pathological test would otherwise propagate
+        # TimeoutExpired out of executor_node and crash the LangGraph run.
+        # Convert into one error-status ExecutionLog per test so needs_healing
+        # sees the failure and routes "heal" once (bounded by max_heal_attempts)
+        # instead of the whole graph aborting.
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        stdout_part = (exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")) or ""
+        stderr_part = (exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")) or ""
+        timeout_msg = (
+            f"pytest subprocess exceeded {timeout_sec}s timeout — target API hung "
+            f"or test is pathological. Killed and converted to per-test error logs."
+        )
+        timeout_logs: List[ExecutionLog] = [
+            ExecutionLog(
+                test_id=tc.test_id,
+                status="error",
+                is_adversarial=tc.is_adversarial,
+                passed=False if not tc.is_adversarial else None,
+                is_vulnerable=None,
+                resilient=None,
+                stderr=timeout_msg,
+            )
+            for tc in test_suite
+        ]
+        return timeout_logs, -1, stdout_part, (stderr_part + "\n" + timeout_msg).strip()
+
     stdout = proc.stdout or ""
     stderr = proc.stderr or ""
     cases = _parse_junit_cases(junit_path)
@@ -142,14 +170,18 @@ def run_pytest_generated_file(
                     )
                 )
         elif st == "skipped":
+            # A skipped test never observed the attacker class (or for functional
+            # tests: never observed the behaviour under test). It MUST NOT be
+            # rolled into resilient/passed counts — that would manufacture
+            # phantom security posture from tests that did not run.
             logs.append(
                 ExecutionLog(
                     test_id=tc.test_id,
-                    status="passed",
+                    status="skipped",
                     is_adversarial=tc.is_adversarial,
-                    passed=True if not tc.is_adversarial else None,
-                    is_vulnerable=False if tc.is_adversarial else None,
-                    resilient=True if tc.is_adversarial else None,
+                    passed=None,
+                    is_vulnerable=None,
+                    resilient=None,
                     stderr=("pytest skipped: " + detail)[:4000],
                 )
             )

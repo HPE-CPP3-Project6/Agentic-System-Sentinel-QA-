@@ -1,0 +1,101 @@
+name: ci
+
+# Two-job CI:
+#   lint   — fast, always runs first, doesn't need heavy deps
+#   tests  — heavier (installs full requirements.txt for the agent import chain);
+#            depends on lint to fail fast on style/import issues before paying
+#            for the ML wheel install.
+#
+# Caches both pip wheels and the HuggingFace model cache. First-time cold
+# build is ~6 min (torch + transformers + Jina download); cache-warm rebuild
+# is ~90 s.
+#
+# Concurrency: a new push to the same PR cancels the in-flight run.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: Backend
+
+jobs:
+  # ------------------------------------------------------------------------- #
+  # 1. lint — ruff only. Fast feedback (<60 s).                                #
+  # ------------------------------------------------------------------------- #
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: Backend/requirements.txt
+
+      - name: Install ruff
+        run: pip install "ruff>=0.5.0"
+
+      - name: ruff check
+        run: ruff check .
+
+  # ------------------------------------------------------------------------- #
+  # 2. tests — install full deps (cached), run pytest.                         #
+  # ------------------------------------------------------------------------- #
+  tests:
+    name: pytest
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      # Vertex calls are mocked in tests via monkeypatch; this var just keeps
+      # utils.llm.get_local_llm from blowing up on a missing project id at
+      # import time (it doesn't, but belt + suspenders).
+      VERTEX_AI_PROJECT_ID: ci-mock-project
+      VERTEX_AI_LOCATION: us-central1
+      # Pin a writable cache location so bootstrap.configure_caches doesn't
+      # try to create one under the runner's home dir.
+      SENTINEL_CACHE_DIR: ${{ github.workspace }}/Backend/chroma_models_cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: Backend/requirements.txt
+
+      - name: Cache HuggingFace model files
+        uses: actions/cache@v4
+        with:
+          # Tests don't actually load the Jina model (vector_store calls are
+          # mocked), but bootstrap creates the cache dir on import. Keeping
+          # this cached makes warm runs faster if a future test does need it.
+          path: Backend/chroma_models_cache
+          key: hf-${{ runner.os }}-py3.11-${{ hashFiles('Backend/requirements.txt') }}
+          restore-keys: |
+            hf-${{ runner.os }}-py3.11-
+
+      - name: Install runtime + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: pytest
+        run: pytest tests/ -v --tb=short

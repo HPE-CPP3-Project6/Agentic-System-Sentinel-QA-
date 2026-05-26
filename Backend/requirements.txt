@@ -29,3 +29,7 @@ GitPython>=3.1.40
 # to line-based chunking automatically.
 tree-sitter>=0.23.0
 tree-sitter-language-pack>=0.4.0
+
+# Cloud-runtime publisher (cloud/publish_results.py). Only imported inside
+# the container; local runs use --dry-run and never touch the package.
+google-cloud-storage>=2.16.0
