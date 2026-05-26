@@ -29,11 +29,22 @@ venv/
 workspace/
 
 # Runtime state (never commit)
-repo_cache/
 chroma_data/
 chroma_models_cache/
 database/chroma_store/
-state/
+# Note: `state/` is NOT ignored — that's the Pydantic models module
+#       (state/project_state.py is tracked source code, not runtime state).
+
+# Smart Task Manager cache (entire directory excluded)
+repo_cache/
+repo_cache/frontend/.vite/
+repo_cache/frontend/coverage/
+
+# Phase-bridge snapshots (per-story Phase-1 JSON, written by phase_bridge.save_phase1)
+phase_bridge_data/
+
+# Sovereign sync sidecar (per-repo last-synced SHA, written by github_sync)
+.*_last_sync_sha
 
 # Logs and binary artifacts
 *.log

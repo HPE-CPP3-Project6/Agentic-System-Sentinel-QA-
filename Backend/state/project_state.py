@@ -70,13 +70,18 @@ class SecurityRisk(BaseModel):
 
 class ExecutionLog(BaseModel):
     test_id: str
-    status: str  # "passed" | "failed" | "error"
+    status: str  # "passed" | "failed" | "error" | "skipped"
     is_adversarial: bool = False
     # Functional verdict
     passed: Optional[bool] = None
-    # Adversarial verdicts — mutually exclusive: exploit succeeded vs. app blocked it
+    # Adversarial verdicts — mutually exclusive: exploit succeeded vs. app blocked it.
+    # Both stay None when the test was skipped (e.g. no bearer token) — a skipped
+    # test never observed the attacker class and must NOT count as resilient.
     is_vulnerable: Optional[bool] = None
     resilient: Optional[bool] = None
+    # Which heal cycle produced this log. None for legacy / out-of-band logs.
+    # needs_healing filters on this to avoid re-routing on stale failures.
+    heal_attempt: Optional[int] = None
     # Telemetry captured on failure
     duration_ms: Optional[int] = None
     stdout: Optional[str] = None
