@@ -701,17 +701,49 @@ def query_source_snippets(
         )
         try:
             collection = client.get_collection(name=collection_name)
-        except Exception:
+        except Exception as exc2:  # noqa: BLE001 — fall back, but tell us why
+            logger.warning(
+                "Collection '%s' unavailable after embedding-mismatch fallback "
+                "(%s: %s). Returning empty retrieval — the Generator will see "
+                "this as a coverage gap.",
+                collection_name,
+                type(exc2).__name__,
+                str(exc2)[:200],
+            )
             return []
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — never crash retrieval, but log it
+        logger.warning(
+            "Cannot open collection '%s' (%s: %s). Returning empty retrieval — "
+            "downstream will see this as a coverage gap, NOT as a retrieval failure. "
+            "Check Chroma persist dir, embedding model availability, and process RAM.",
+            collection_name,
+            type(exc).__name__,
+            str(exc)[:200],
+        )
         return []
 
     if collection.count() == 0:
+        logger.warning(
+            "Collection '%s' is EMPTY (count=0). Did `python -m database.ingest "
+            "<source_root>` run successfully? Returning empty retrieval.",
+            collection_name,
+        )
         return []
 
     try:
         result = collection.query(query_texts=[query], n_results=fetch_n)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 — never crash retrieval, but log it
+        # Most common causes seen in practice: embedding OOM on a long chunk,
+        # malformed query string, or transient Chroma file-lock contention.
+        logger.warning(
+            "Query against '%s' failed (%s: %s). Query was %d chars; fetch_n=%d. "
+            "Returning empty retrieval.",
+            collection_name,
+            type(exc).__name__,
+            str(exc)[:200],
+            len(query),
+            fetch_n,
+        )
         return []
 
     docs = (result.get("documents") or [[]])[0]

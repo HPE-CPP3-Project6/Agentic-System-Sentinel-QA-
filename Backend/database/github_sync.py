@@ -189,24 +189,63 @@ class SovereignSyncService:
         # Initialize or update repository
         self._setup_repository()
 
+    @property
+    def _sha_state_file(self) -> Path:
+        """Sidecar file persisting the last synced SHA across daemon restarts.
+
+        Without this, a restart resets `previous_commit` to None and the next
+        sync re-embeds the ENTIRE corpus (every file flagged as 'added'). On a
+        5k-file repo that is 30+ minutes of Jina embedding per restart.
+        """
+        return self.cache_dir.parent / f".{self.cache_dir.name}_last_sync_sha"
+
+    def _load_last_synced_sha(self) -> Optional[str]:
+        try:
+            sha = self._sha_state_file.read_text(encoding="utf-8").strip()
+            return sha or None
+        except (OSError, UnicodeDecodeError):
+            return None
+
+    def _persist_last_synced_sha(self, sha: str) -> None:
+        try:
+            self._sha_state_file.write_text(sha, encoding="utf-8")
+        except OSError as exc:
+            logger.warning(
+                "Could not persist last-synced SHA to %s (%s) — next restart "
+                "will re-index everything.",
+                self._sha_state_file,
+                exc,
+            )
+
     def _setup_repository(self) -> None:
-        """Clone or open existing repository."""
+        """Clone or open existing repository, restore last-synced SHA if present."""
         if self.cache_dir.exists() and (self.cache_dir / ".git").exists():
             logger.info(f"Repository exists at {self.cache_dir}. Opening...")
             self.repo = Repo(str(self.cache_dir))
-            # Set to None for first sync to index all files
-            self.previous_commit = None
         else:
             logger.info(f"Cloning repository from {self.repo_url}...")
             self.cache_dir.parent.mkdir(parents=True, exist_ok=True)
             try:
                 self.repo = Repo.clone_from(self.repo_url, str(self.cache_dir))
-                # Set to None for first sync to index all files
-                self.previous_commit = None
                 logger.info(f"Repository cloned successfully")
             except GitCommandError as e:
                 logger.error(f"Failed to clone repository: {e}")
                 raise
+
+        # Restore the SHA we synced to last time. If absent (cold start, or
+        # broken sidecar), fall back to None → next sync indexes everything,
+        # same as before. Either way, every successful cycle persists.
+        self.previous_commit = self._load_last_synced_sha()
+        if self.previous_commit:
+            logger.info(
+                f"Resumed from last-synced commit {self.previous_commit[:8]} "
+                f"(only diff vs current HEAD will be embedded)."
+            )
+        else:
+            logger.info(
+                "No prior sync state found — first cycle will index ALL "
+                "tracked files."
+            )
 
     def _pull_latest_changes(self) -> bool:
         """Pull latest changes from remote.
@@ -233,6 +272,17 @@ class SovereignSyncService:
     def _get_changed_files(self) -> Dict[str, Set[str]]:
         """Detect changed files using git diff.
 
+        Handles all five change types git emits:
+            A — Added         → upsert at new path
+            M — Modified      → upsert at same path
+            D — Deleted       → drop vectors for that path
+            R — Renamed       → drop vectors at old path + upsert at new path
+            T — Type changed  → treat as modify (path unchanged; file/symlink swap)
+
+        Previously only A/M/D were handled, so a renamed file left STALE vectors
+        at the old path AND never gained vectors at the new path. Real bug —
+        renames are common in any active repo.
+
         Returns:
             Dict with keys 'added', 'modified', 'deleted' containing file paths.
         """
@@ -256,19 +306,47 @@ class SovereignSyncService:
                 )
 
                 for item in diff_index:
-                    # Get the file path (use new_path if available, otherwise old_path)
-                    file_path = item.b_path or item.a_path
+                    new_path = item.b_path
+                    old_path = item.a_path
+                    primary = new_path or old_path
 
-                    if not _is_tracked(file_path):
-                        continue
+                    if item.change_type == "A":
+                        if _is_tracked(primary):
+                            changed["added"].add(primary)
+                    elif item.change_type == "M":
+                        if _is_tracked(primary):
+                            changed["modified"].add(primary)
+                    elif item.change_type == "D":
+                        # _is_tracked check uses the old path — that's the one
+                        # whose vectors actually live in Chroma.
+                        if _is_tracked(old_path):
+                            changed["deleted"].add(old_path)
+                    elif item.change_type == "R":
+                        # Rename: drop old vectors (if tracked), add at new
+                        # path (if tracked). Possible the new file type is
+                        # not tracked anymore (e.g. .py → .md) — that's still
+                        # a delete-old, no add-new.
+                        if old_path and _is_tracked(old_path):
+                            changed["deleted"].add(old_path)
+                        if new_path and _is_tracked(new_path):
+                            changed["added"].add(new_path)
+                    elif item.change_type == "T":
+                        # Type change (regular file <-> symlink, etc.) at the
+                        # same path. Safest treatment: re-embed.
+                        if _is_tracked(primary):
+                            changed["modified"].add(primary)
+                    else:
+                        logger.debug(
+                            "Unhandled git diff change_type=%r for %s; "
+                            "treating as modify.",
+                            item.change_type, primary,
+                        )
+                        if _is_tracked(primary):
+                            changed["modified"].add(primary)
 
-                    if item.change_type == "A":  # Added
-                        changed["added"].add(file_path)
-                    elif item.change_type == "M":  # Modified
-                        changed["modified"].add(file_path)
-                    elif item.change_type == "D":  # Deleted
-                        changed["deleted"].add(item.a_path)
-
+            # Advance our cursor — but DON'T persist until the cycle's upserts
+            # actually succeed (see sync_cycle), so a crash mid-cycle doesn't
+            # leave Chroma half-updated AND the sidecar advanced past the gap.
             self.previous_commit = self.repo.head.commit.hexsha
             return changed
 
@@ -453,7 +531,15 @@ class SovereignSyncService:
                 chunks_count = self._upsert_files(to_upsert)
                 logger.info(f"Upserted {chunks_count} code chunks into Chroma")
 
-            logger.info("Sync cycle complete.")
+            # Persist the cursor ONLY after Chroma writes succeeded for this
+            # cycle. On crash mid-cycle, sidecar stays at the prior SHA and
+            # the next start replays this diff — at-least-once delivery, safe
+            # because upsert is idempotent.
+            self._persist_last_synced_sha(self.previous_commit)
+            logger.info(
+                f"Sync cycle complete. Cursor advanced to "
+                f"{self.previous_commit[:8]}."
+            )
 
         except Exception as e:
             logger.error(f"Sync cycle failed: {e}", exc_info=True)
