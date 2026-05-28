@@ -28,7 +28,7 @@ def save_phase1(state) -> str:
     path = _bridge_path(state.story_id or "unknown")
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
-    print(f"[phase_bridge] Phase 1 saved → {path}")
+    print(f"[phase_bridge] Phase 1 saved -> {path}")
     return path
 
 
@@ -41,5 +41,5 @@ def load_phase1(story_id: str) -> Dict[str, Any]:
         return {}
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
-    print(f"[phase_bridge] Phase 1 loaded ← {path}")
+    print(f"[phase_bridge] Phase 1 loaded <- {path}")
     return data

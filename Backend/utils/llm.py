@@ -150,6 +150,7 @@ def get_local_llm(
             "temperature": temperature,
             "project": project_id,
             "location": location,
+            "transport": "rest",
         }
         if json_mode:
             kwargs["response_mime_type"] = "application/json"

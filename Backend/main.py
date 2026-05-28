@@ -21,8 +21,15 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import json
+import logging
 import sys
 from pathlib import Path
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 from bootstrap import configure_caches
 
@@ -95,6 +102,15 @@ def main(story_key: str = "taskshare", mode: str = "post_code") -> ProjectState:
         elif final_state.pipeline_mode == "POST_CODE":
             phase1 = load_phase1(final_state.story_id or "unknown")
             if phase1:
+                from state import DesignContract, SecurityChecklistItem
+                if not final_state.design_contracts and "design_contracts" in phase1:
+                    final_state.design_contracts.extend([
+                        DesignContract(**dc) for dc in phase1["design_contracts"]
+                    ])
+                if not final_state.security_checklist and "security_checklist" in phase1:
+                    final_state.security_checklist.extend([
+                        SecurityChecklistItem(**i) for i in phase1["security_checklist"]
+                    ])
                 drift = generate_drift_report(phase1, final_state)
                 final_state.metadata["drift_report"] = drift
             else:

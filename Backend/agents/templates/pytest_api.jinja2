@@ -25,15 +25,57 @@ except ImportError:
 BASE_URL = (os.environ.get("SENTINEL_BASE_URL") or "http://localhost:8000").rstrip("/")
 
 
-def _default_auth_headers() -> dict[str, str]:
+_cached_token: str | None = None
+
+
+def _get_fresh_token() -> str:
+    global _cached_token
+    if _cached_token is not None:
+        return _cached_token
+
+    # 1. Check environment/dotenv first
     raw = os.environ.get("SENTINEL_TEST_BEARER_TOKEN", "").strip()
     if len(raw) >= 2 and ((raw[0] == raw[-1] == '"') or (raw[0] == raw[-1] == "'")):
         raw = raw[1:-1].strip()
-    if not raw:
-        return {}
     if raw.lower().startswith("bearer "):
-        return {"Authorization": raw}
-    return {"Authorization": "Bearer " + raw}
+        raw = raw[7:].strip()
+
+    email = os.environ.get("SENTINEL_TEST_USER_EMAIL", "sentinel-qa@example.com")
+    password = os.environ.get("SENTINEL_TEST_USER_PASSWORD", "Sentinel-QA-Bootstrap-2026!")
+
+    # 2. Try to dynamically register and login to get a fresh JWT
+    try:
+        with httpx.Client(base_url=BASE_URL, timeout=5.0, follow_redirects=True) as client:
+            try:
+                client.post("/register", json={"email": email, "password": password})
+            except Exception:
+                pass
+
+            r = client.post(
+                "/login",
+                data={"username": email, "password": password},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            if r.status_code == 200:
+                token = r.json().get("access_token")
+                if token:
+                    _cached_token = token
+                    return token
+    except Exception:
+        pass
+
+    # 3. Fallback to raw token if dynamic fetch failed
+    if raw:
+        _cached_token = raw
+        return raw
+    return ""
+
+
+def _default_auth_headers() -> dict[str, str]:
+    token = _get_fresh_token()
+    if not token:
+        return {}
+    return {"Authorization": "Bearer " + token}
 
 
 def _assert_forbidden(text: str, forbidden: list[str]) -> None:
@@ -74,7 +116,15 @@ def test_{{ tc.slug }}() -> None:
                 pytest.skip("GET with non-dict payload is not generated for this harness")
             response = client.request("GET", path, params=payload)
         elif m in ("POST", "PUT", "PATCH", "DELETE"):
-            response = client.request(m, path, json=payload)
+            is_form = False
+            if isinstance(payload, dict):
+                if payload.get("_content_type") == "application/x-www-form-urlencoded" or path == "/login":
+                    is_form = True
+            if is_form:
+                form_data = {k: v for k, v in payload.items() if k != "_content_type"}
+                response = client.request(m, path, data=form_data)
+            else:
+                response = client.request(m, path, json=payload)
         else:
             pytest.skip("Unsupported HTTP method: " + str(method))
 
