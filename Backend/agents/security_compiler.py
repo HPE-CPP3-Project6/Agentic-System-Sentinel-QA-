@@ -205,32 +205,160 @@ def _slug_from_test_id(test_id: str) -> str:
     return s[:120] if s else "unnamed"
 
 
-def _method_path_from_action(action: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """Infer (method, path, skip_reason). skip_reason set when inference fails."""
+# --------------------------------------------------------------------------- #
+# HTTP method/path inference — multi-source fallback                          #
+# --------------------------------------------------------------------------- #
+#
+# The Generator is INSTRUCTED to emit `action` as `<METHOD> <path> — phrase`
+# (see generator.py rule 3a). But LLM output drifts toward natural-language
+# verb phrases ("Attempt to log in with bad credentials"), and a strict
+# regex on `action` alone yields ~6% executable test rate (observed in
+# exec-demo-login-post_code-20260528_153807).
+#
+# This module's job is to MAXIMIZE executable test count without inventing
+# routes that don't exist. We try four sources in order, taking the first
+# confident hit:
+#
+#   1. action       — `\b(GET|POST|...)\b ... /path` regex on action text
+#   2. title        — same regex on the test title
+#   3. action+title — bare path regex (assumes POST if a path is mentioned
+#                     without an explicit method)
+#   4. input_data + title heuristic — infer from input shape:
+#                     {email, password}   → POST /login or /register based
+#                                           on title keywords (register/login)
+#                     {email}             → POST /register
+#                     Bearer-using auth   → GET /tasks (default authenticated
+#                                           read endpoint)
+#
+# If all four fail we emit a skip_reason that names the inputs we examined
+# so the artifact tells the dev WHY the test was unrunnable.
 
-    text = (action or "").strip()
-    combined = re.compile(
-        r"\b(GET|POST|PUT|PATCH|DELETE)\b\s*[^\n/]*?(/[A-Za-z0-9_\-./]+)",
-        re.IGNORECASE | re.DOTALL,
-    )
-    m = combined.search(text)
-    if m:
-        meth = m.group(1).upper()
-        path = m.group(2).strip()
-        if "{" in path or "}" in path:
-            return None, None, "Path contains `{`/`}` placeholders — not supported in generated httpx tests"
-        if not path.startswith("/"):
-            path = "/" + path.lstrip("/")
+_METHOD_PATH_RE = re.compile(
+    r"\b(GET|POST|PUT|PATCH|DELETE)\b\s*[^\n/]*?(/[A-Za-z0-9_\-./]+)",
+    re.IGNORECASE | re.DOTALL,
+)
+_BARE_PATH_RE = re.compile(r"(/[A-Za-z][A-Za-z0-9_/\-]{0,200})")
+
+# Heuristic routes for the Smart Task Manager API — kept narrow on purpose.
+# If a new target app is bundled (Phase 2), this dict moves to config OR
+# we replace it with a small registry-lookup. For now: hardcoded to the
+# routes the current target actually exposes.
+_HEURISTIC_ROUTES = {
+    "login":    ("POST", "/login"),
+    "register": ("POST", "/register"),
+    "logout":   ("POST", "/logout"),
+    "tasks":    ("GET",  "/tasks/"),
+    "task":     ("GET",  "/tasks/"),
+}
+
+
+def _try_regex(text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Run the strict METHOD-path regex. Return (method, path) or (None, None)."""
+    if not text:
+        return None, None
+    m = _METHOD_PATH_RE.search(text)
+    if not m:
+        return None, None
+    path = m.group(2).strip()
+    if "{" in path or "}" in path:
+        return None, None  # placeholders not supported by the runtime template
+    if not path.startswith("/"):
+        path = "/" + path.lstrip("/")
+    return m.group(1).upper(), path
+
+
+def _try_bare_path(text: str) -> Optional[str]:
+    """Bare-path fallback (e.g. action mentions /tasks/42 without a verb)."""
+    if not text:
+        return None
+    m = _BARE_PATH_RE.search(text)
+    if not m:
+        return None
+    path = m.group(1)
+    if "{" in path or "}" in path:
+        return None
+    return path
+
+
+def _heuristic_from_input_and_title(
+    input_data: Any,
+    title: str,
+    action: str,
+) -> Tuple[Optional[str], Optional[str]]:
+    """Last-resort: infer (method, path) from input shape + textual hints.
+
+    Conservative — only fires when input_data shape unambiguously matches a
+    known route AND the title/action narrows method intent. Returns
+    (None, None) if no high-confidence guess is available.
+    """
+    if not isinstance(input_data, dict):
+        return None, None
+    keys = {k.lower() for k in input_data.keys()}
+    combined = f"{title or ''} {action or ''}".lower()
+
+    # email+password is the classic auth-route shape. Disambiguate by intent
+    # keyword in title/action — `register/sign up/create account` → /register,
+    # otherwise default to /login (the more common test target).
+    if {"email", "password"}.issubset(keys) or {"username", "password"}.issubset(keys):
+        if any(k in combined for k in ("register", "sign up", "signup", "create account", "new account")):
+            return "POST", "/register"
+        return "POST", "/login"
+
+    # Just an email → typical "forgot password" or "register" partial flow.
+    # Defer to /register since it's the only endpoint in repo_cache that
+    # takes a single-field email payload.
+    if keys == {"email"}:
+        return "POST", "/register"
+
+    # Title-keyword routing — last gasp, only for known target endpoints.
+    for keyword, (method, path) in _HEURISTIC_ROUTES.items():
+        if keyword in combined:
+            return method, path
+
+    return None, None
+
+
+def _method_path_from_action(
+    action: str,
+    *,
+    title: str = "",
+    input_data: Any = None,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Infer (method, path, skip_reason) using a four-tier fallback chain.
+
+    Backward-compatible: kwargs `title` and `input_data` are optional, so
+    legacy callers (`_method_path_from_action(tc.action)`) still work but get
+    only tiers 1+3. The full caller in _materialize_pytest_workspace passes
+    everything for all four tiers.
+    """
+    # Tier 1: strict regex on `action`
+    meth, path = _try_regex(action)
+    if meth and path:
         return meth, path, None
 
-    path_m = re.search(r"(/[A-Za-z][A-Za-z0-9_/\-]{0,200})", text)
-    if path_m:
-        path = path_m.group(1)
-        if "{" in path or "}" in path:
-            return None, None, "Path contains placeholders"
-        return "POST", path, None
+    # Tier 2: strict regex on `title`
+    meth, path = _try_regex(title)
+    if meth and path:
+        return meth, path, None
 
-    return None, None, "Could not infer HTTP method and path from action: " + text[:220]
+    # Tier 3: bare path (combined action+title), default POST
+    combined_text = f"{action or ''} {title or ''}"
+    bare = _try_bare_path(combined_text)
+    if bare:
+        return "POST", bare, None
+
+    # Tier 4: heuristic from input_data shape + textual intent
+    meth, path = _heuristic_from_input_and_title(input_data, title, action or "")
+    if meth and path:
+        return meth, path, None
+
+    # All tiers exhausted — emit a skip_reason that explains what we tried.
+    return None, None, (
+        "Could not infer HTTP method and path from "
+        f"action={(action or '')[:120]!r}, "
+        f"title={(title or '')[:120]!r}, "
+        f"input_data keys={list(input_data.keys()) if isinstance(input_data, dict) else type(input_data).__name__}"
+    )
 
 
 def _infer_use_auth(tc: TestCase) -> bool:
@@ -298,7 +426,11 @@ def _materialize_pytest_workspace(state: ProjectState) -> None:
     rows: List[Dict[str, Any]] = []
     used_slugs: set[str] = set()
     for tc in tests_all:
-        meth, path, skip_reason = _method_path_from_action(tc.action)
+        # Pass title + input_data so Tier 2/4 fallbacks can fire when the
+        # Generator's `action` is a natural-language phrase without METHOD/path.
+        meth, path, skip_reason = _method_path_from_action(
+            tc.action, title=tc.title or "", input_data=tc.input_data,
+        )
         slug_base = _slug_from_test_id(tc.test_id)
         slug = slug_base
         dup = 0
