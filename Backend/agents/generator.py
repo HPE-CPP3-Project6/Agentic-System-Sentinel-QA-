@@ -616,66 +616,9 @@ For every TestCase:
    If a test truly has no precondition (e.g. anonymous health check), emit
    `["none"]`. An EMPTY LIST is not allowed — tests must declare their state
    dependencies explicitly.
-
-3a. `action` field FORMAT — MANDATORY:
-    Every `action` MUST start with the literal HTTP method and concrete path
-    of the endpoint under test. The Security+Compiler regex extracts these
-    tokens to materialize an httpx call. An action without `METHOD /path` is
-    SKIPPED at pytest runtime — it provides ZERO signal to the heal loop and
-    pollutes the suite with pytest.skip() calls.
-
-    Shape: `<METHOD> <concrete-path> — <imperative phrase>`
-
-    GOOD:
-      "POST /login with 1005-char username"
-      "POST /register valid credentials"
-      "GET /tasks/123 as authenticated user"
-      "DELETE /tasks/42 by a non-owner user"
-      "PATCH /tasks/7 with SQL injection in description field"
-    BAD (will be skipped):
-      "Attempt to log in with bad credentials"     ✗ no METHOD/path
-      "Register a new user account"                ✗ no METHOD/path
-      "User logs in successfully"                  ✗ no METHOD/path
-
-    Concrete path means:
-      - inline literal IDs / placeholders (`/tasks/123`, `/users/me`),
-        NEVER `/tasks/{task_id}` (curly braces are not handled by the runtime).
-      - no trailing slash unless the route under test actually requires it.
-
-    If the requirement targets multiple endpoints, emit ONE test per endpoint
-    with the appropriate METHOD /path in each — do NOT compress to a single
-    natural-language action like "Register then log in".
-
 4. Technical assertions (populate ALL applicable fields):
      - `expected_status_code`: a SINGLE integer (emit separate tests for
        multiple possible statuses; no arrays)
-
-       ====== FRAMEWORK STATUS-CODE CONVENTIONS — DO NOT DEVIATE ======
-       This codebase is FastAPI + Pydantic. Pick the status the FRAMEWORK
-       actually returns, NOT what feels "more right":
-
-         200 / 201   success (read / create)
-         204         success with no body (delete)
-         400         malformed JSON, app-level rejection, custom HTTPException
-         401         missing / invalid bearer token / OAuth2 password-grant fail
-         403         authenticated but lacks permission for THIS resource
-         404         resource not found (or hidden by policy)
-         409         conflict (duplicate unique key, version mismatch)
-         413         payload exceeds Content-Length limit before parsing
-         422         **Pydantic field-level validation failed**. This includes
-                     EmailStr rejecting bad emails, constr violating
-                     min_length / max_length / regex, conint out of range,
-                     missing required fields, type-coercion failures.
-
-       DO NOT emit `expected_status_code: 400` for a test whose only failure
-       mechanism is Pydantic validation. The framework returns 422 — your
-       test will fail on the wrong line and the Healer will be tempted to
-       remap 422→400 with a custom exception handler, which BREAKS the
-       framework's contract elsewhere. If the failure is "Pydantic rejects
-       this input", the correct expectation is 422. Use 400 only when the
-       app explicitly `raise HTTPException(status_code=400, ...)`.
-       =================================================================
-
      - `expected_json_keys`: list, grounded in the retrieved response schema
      - `forbidden_response_content`: strings that MUST NOT appear in the
        response (e.g. "SQL", "stack trace", "bcrypt", "hashed_password",
