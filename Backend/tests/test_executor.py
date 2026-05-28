@@ -334,18 +334,19 @@ def test_executor_metadata_lists_unsafe_patches_when_heal_emits_backdoor(monkeyp
     monkeypatch.setattr(exec_mod, "get_local_llm", lambda **kw: None)
 
     # Stub _heal to return a backdoor-style patch directly — we're testing the
-    # surfacing, not the LLM call.
+    # surfacing, not the LLM call. Safety warnings are encoded into
+    # bug_explanation with the `[UNSAFE-PATCH-FLAG] ...` prefix; _patch_safety_warning
+    # extracts them, and executor_node propagates to metadata.
     def fake_heal(tc, log, llm, *, prior_patches=None, heal_attempt=None):
+        fix = 'if email == "test@example.com": return seeded_user'
+        sw = exec_mod._validate_patch_safety(fix, "auth.py")
+        bug_exp = f"{exec_mod._UNSAFE_PREFIX}{sw}\nbackdoor-style stub" if sw else "x"
         return Patch(
             target_file="auth.py",
-            bug_explanation="x",
-            suggested_fix='if email == "test@example.com": return seeded_user',
+            bug_explanation=bug_exp,
+            suggested_fix=fix,
             related_test_ids=[tc.test_id],
             owasp_category="A04:2021",
-            heal_attempt=heal_attempt,
-            safety_warning=exec_mod._validate_patch_safety(
-                'if email == "test@example.com": return seeded_user', "auth.py",
-            ),
         )
     monkeypatch.setattr(exec_mod, "_heal", fake_heal)
 
@@ -387,11 +388,13 @@ def test_executor_dedup_replaces_prior_cycle_patch_in_state(monkeypatch):
         counter["n"] += 1
         return Patch(
             target_file="auth.py",
-            bug_explanation=f"hypothesis v{counter['n']}",
+            # Encode the cycle into bug_explanation so the test can assert
+            # which cycle's patch won the dedup (Patch schema has no
+            # `heal_attempt` field of its own).
+            bug_explanation=f"[CYCLE={heal_attempt}] hypothesis v{counter['n']}",
             suggested_fix=f"patch_v{counter['n']}",
             related_test_ids=[tc.test_id],
             owasp_category="A07:2021",
-            heal_attempt=heal_attempt,
         )
     monkeypatch.setattr(exec_mod, "_heal", fake_heal)
 
@@ -410,10 +413,10 @@ def test_executor_dedup_replaces_prior_cycle_patch_in_state(monkeypatch):
     executor_node(state, runner=failing_runner)
     assert len(state.suggested_patches) == 1
     assert state.suggested_patches[0].suggested_fix == "patch_v1"
-    assert state.suggested_patches[0].heal_attempt == 1
+    assert "[CYCLE=1]" in state.suggested_patches[0].bug_explanation
 
     # Cycle 2 (simulates the heal loop re-entering)
     executor_node(state, runner=failing_runner)
     assert len(state.suggested_patches) == 1, "cycle-2 patch must REPLACE cycle-1"
     assert state.suggested_patches[0].suggested_fix == "patch_v2"
-    assert state.suggested_patches[0].heal_attempt == 2
+    assert "[CYCLE=2]" in state.suggested_patches[0].bug_explanation

@@ -132,13 +132,15 @@ def test_warning_on_non_sensitive_file_is_still_emitted_but_not_escalated():
 
 
 def _patch(test_id: str, heal_attempt: int, fix: str = "x") -> Patch:
+    # heal_attempt is encoded into bug_explanation as a prefix instead of a
+    # schema field so we stay compatible with the canonical Patch model. The
+    # prefix is unique enough that test assertions can recover it.
     return Patch(
         target_file="auth.py",
-        bug_explanation="x",
+        bug_explanation=f"[CYCLE={heal_attempt}] x",
         suggested_fix=fix,
         related_test_ids=[test_id],
         owasp_category="A03:2021",
-        heal_attempt=heal_attempt,
     )
 
 
@@ -186,7 +188,9 @@ def test_dedup_replaces_prior_cycle_patch_for_same_test():
     deduped = _dedup_suggested_patches(cycle1, cycle2_same)
 
     assert len(deduped) == 1, "same (test, owasp) must collapse, not accumulate"
-    assert deduped[0].heal_attempt == 2, "latest cycle wins"
+    # Patch has no `heal_attempt` field — the _patch helper encodes the cycle
+    # into bug_explanation as `[CYCLE=N]`; assert the cycle marker survived.
+    assert "[CYCLE=2]" in deduped[0].bug_explanation, "latest cycle wins"
     assert deduped[0].suggested_fix == "v2"
 
 

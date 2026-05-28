@@ -128,7 +128,20 @@ def test_{{ tc.slug }}() -> None:
         else:
             pytest.skip("Unsupported HTTP method: " + str(method))
 
-    {% if tc.expected_status_code is not none %}
+    {% if tc.acceptable_status_codes %}
+    # Adversarial test — accept ANY status code that proves the attack was
+    # neutralized (see RESILIENCE_SIGNATURES). Hardcoding a single expected
+    # code makes the app look "vulnerable" whenever it correctly neutralizes
+    # via a different status (e.g. 401 on /login, 422 on /register).
+    _accept = {{ tc.acceptable_status_codes | tojson }}
+    assert response.status_code in _accept, (
+        "Adversarial test expected ANY of " + str(_accept)
+        + " (attack neutralized), got "
+        + str(response.status_code)
+        + " — excerpt: "
+        + response.text[:800]
+    )
+    {% elif tc.expected_status_code is not none %}
     assert response.status_code == {{ tc.expected_status_code }}, (
         "Expected status {{ tc.expected_status_code }}, got "
         + str(response.status_code)

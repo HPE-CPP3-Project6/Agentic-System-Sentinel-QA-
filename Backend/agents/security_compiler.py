@@ -251,6 +251,41 @@ def _infer_use_auth(tc: TestCase) -> bool:
     return True
 
 
+def _acceptable_status_codes_for_adversarial(tc: TestCase) -> List[int]:
+    """Resolve the FULL list of HTTP status codes that count as a SUCCESSFUL
+    NEUTRALIZATION for an adversarial test.
+
+    Background: `_mutate` currently sets `tc.expected_status_code` to a single
+    int — `RESILIENCE_SIGNATURES[key]["http_status"][0]` — which forces the
+    generated pytest to assert `status == <one code>`. The target app may
+    correctly neutralize an A03 payload with ANY of (400, 401, 422)
+    depending on which route the payload hits:
+        /login + bad creds → 401 (attack literal-stringed; auth lookup failed)
+        /register + bad email → 422 (Pydantic EmailStr rejected)
+        custom-validator app → 400 (explicit HTTPException)
+    Asserting `== 400` flips the resilient 401/422 responses to "vulnerable"
+    in the posture report. We observed 26 false-positive vulnerabilities
+    from exactly this gap (exec-demo-login-post_code-20260528_163728).
+
+    Returns the FULL list when the OWASP id maps to a known resilience
+    signature; otherwise returns `[tc.expected_status_code]` (single-code
+    fallback). Functional (non-adversarial) tests are NOT remapped — they
+    have specific expected outcomes the caller must preserve.
+    """
+    if not tc.is_adversarial or not tc.owasp_category:
+        return [tc.expected_status_code] if tc.expected_status_code is not None else []
+
+    short = tc.owasp_category.split(":", 1)[0].strip().upper()
+    key = _OWASP_TO_RESILIENCE_KEY.get(short)
+    if not key:
+        return [tc.expected_status_code] if tc.expected_status_code is not None else []
+
+    codes = list(RESILIENCE_SIGNATURES.get(key, {}).get("http_status") or [])
+    if not codes:
+        return [tc.expected_status_code] if tc.expected_status_code is not None else []
+    return [int(c) for c in codes]
+
+
 def _payload_python_literal(input_data: Any) -> str:
     """Build a safe `repr(...)` for embedding as `payload = ...` in generated tests."""
 
@@ -319,6 +354,16 @@ def _materialize_pytest_workspace(state: ProjectState) -> None:
                 "skip_reason": skip_reason,
                 "payload_literal": _payload_python_literal(tc.input_data),
                 "expected_status_code": tc.expected_status_code,
+                # Full set of "neutralized" status codes for adversarial tests
+                # (empty list for functional tests). When non-empty, the Jinja
+                # template asserts `status_code in [...]` instead of `==`.
+                # Without this the suite reports false-positive vulnerabilities
+                # whenever the app neutralizes via 401 (auth-route) or 422
+                # (Pydantic) instead of the single hardcoded code.
+                "acceptable_status_codes": (
+                    _acceptable_status_codes_for_adversarial(tc)
+                    if tc.is_adversarial else []
+                ),
                 "forbidden": list(tc.forbidden_response_content or []),
                 "is_adversarial": tc.is_adversarial,
                 "use_auth": _infer_use_auth(tc),

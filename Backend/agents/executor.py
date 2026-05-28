@@ -434,6 +434,27 @@ def _validate_patch_safety(suggested_fix: str, target_file: str) -> Optional[str
 # --------------------------------------------------------------------------- #
 
 
+_UNSAFE_PREFIX = "[UNSAFE-PATCH-FLAG] "
+
+
+def _patch_safety_warning(p: "Patch") -> Optional[str]:
+    """Recover the safety_warning (if any) from a Patch.
+
+    The Patch schema does NOT carry a `safety_warning` field — to stay
+    compatible with the canonical state model we encode the warning inside
+    `bug_explanation` with a fixed `[UNSAFE-PATCH-FLAG] ...\\n` prefix. This
+    helper extracts it back out so reviewers / metadata aggregators don't
+    have to grep strings.
+    """
+    text = p.bug_explanation or ""
+    if not text.startswith(_UNSAFE_PREFIX):
+        return None
+    # First line carries the warning; rest is the Healer's explanation.
+    first_nl = text.find("\n")
+    head = text if first_nl == -1 else text[:first_nl]
+    return head[len(_UNSAFE_PREFIX):].strip() or None
+
+
 def _format_prior_patches(patches: List[Patch], test_id: str, max_chars: int = 3000) -> str:
     """Render prior Patches that target this test as a compact prompt block.
 
@@ -447,10 +468,11 @@ def _format_prior_patches(patches: List[Patch], test_id: str, max_chars: int = 3
 
     blocks: List[str] = []
     for i, p in enumerate(prior, 1):
+        sw = _patch_safety_warning(p)
         head = (
             f"--- Prior attempt {i} "
-            f"(heal_attempt={p.heal_attempt}, owasp={p.owasp_category}, "
-            f"safety_warning={p.safety_warning or 'none'}) ---\n"
+            f"(owasp={p.owasp_category}, "
+            f"safety_warning={sw or 'none'}) ---\n"
             f"target_file: {p.target_file}\n"
             f"bug_explanation: {p.bug_explanation}\n"
             f"suggested_fix (truncated):\n{(p.suggested_fix or '')[:800]}"
@@ -518,20 +540,24 @@ def _heal(
 
     suggested_fix = str(data.get("suggested_fix", ""))
     target_file = str(data.get("target_file", "unknown"))
+    bug_explanation = str(data.get("bug_explanation", ""))
 
-    # If the Healer correctly opted out (R2/R3), still emit a Patch object
-    # so the artifact records that a review happened — bug_explanation will
-    # carry the "this test is wrong" rationale.
+    # Run the safety validator. Because the Patch schema does NOT carry a
+    # dedicated `safety_warning` field, we encode the warning inline into
+    # bug_explanation with a fixed prefix so:
+    #   1. reviewers see it at the top of the explanation,
+    #   2. `_patch_safety_warning(p)` can recover it later for metadata,
+    #   3. no schema migration is required.
     safety_warning = _validate_patch_safety(suggested_fix, target_file)
+    if safety_warning:
+        bug_explanation = f"{_UNSAFE_PREFIX}{safety_warning}\n{bug_explanation}"
 
     return Patch(
         target_file=target_file,
-        bug_explanation=str(data.get("bug_explanation", "")),
+        bug_explanation=bug_explanation,
         suggested_fix=suggested_fix,
         owasp_category=data.get("owasp_category") or tc.owasp_category,
         related_test_ids=[tc.test_id],
-        heal_attempt=heal_attempt,
-        safety_warning=safety_warning,
     )
 
 
@@ -718,27 +744,33 @@ def executor_node(
     )
 
     # Surface safety-flagged patches in metadata so reviewers / dashboards can
-    # spot them without re-scanning suggested_patches. Honest reporting: a
-    # backdoor-style proposal that got auto-flagged is more important than
-    # the count of "patches proposed".
-    flagged = [p for p in new_patches if p.safety_warning]
+    # spot them without re-scanning suggested_patches. The Patch schema doesn't
+    # carry a `safety_warning` field — `_patch_safety_warning` recovers the
+    # warning from the `[UNSAFE-PATCH-FLAG] ...` prefix `_heal` writes into
+    # `bug_explanation` when the validator fires.
+    flagged_pairs: List[Tuple[Patch, str]] = []
+    for p in new_patches:
+        sw = _patch_safety_warning(p)
+        if sw:
+            flagged_pairs.append((p, sw))
+
     state.metadata["security_posture"] = _security_posture(run_logs)
     state.metadata["last_run_summary"] = {
         "total": len(run_logs),
         "functional_failed": sum(1 for l in run_logs if not l.is_adversarial and l.passed is False),
         "vulnerabilities_found": sum(1 for l in run_logs if l.is_vulnerable),
         "patches_proposed": len(new_patches),
-        "patches_flagged_unsafe": len(flagged),
+        "patches_flagged_unsafe": len(flagged_pairs),
         "heal_attempt": state.heal_attempts,
     }
-    if flagged:
+    if flagged_pairs:
         state.metadata["unsafe_patch_warnings"] = [
             {
                 "test_id": (p.related_test_ids or [None])[0],
                 "target_file": p.target_file,
-                "warning": p.safety_warning,
+                "warning": warning,
             }
-            for p in flagged
+            for p, warning in flagged_pairs
         ]
     return state
 

@@ -238,25 +238,39 @@ AUTH_BYPASS_PATTERNS = {
 
 RESILIENCE_SIGNATURES = {
     "A03_INJECTION": {
-        "http_status": [400, 422],  # Client error
+        # 400 = app-level rejection; 422 = Pydantic field validation (EmailStr,
+        # constr, etc.) catches malformed input; 401 = the attack reached
+        # an auth route (e.g. /login) and the credentials simply didn't match
+        # because the payload was treated as a literal string — i.e. the
+        # injection was successfully NEUTRALIZED. Without 401 in this list,
+        # every SQLi/XSS/Command/NoSQL attempt against /login marks the app
+        # as "vulnerable" even when it correctly returned a generic 401.
+        # (Observed: exec-demo 2026-05-28 16:37 — 26 false-positive
+        # vulnerabilities all from this gap.)
+        "http_status": [400, 401, 422],
         "forbidden_keywords": ["SQL", "syntax error", "database error", "ORA-", "SQLSTATE"],
         "expected_behavior": "Input treated as literal string or rejected as invalid",
         "safe_response_example": '{"error": "Invalid input", "code": "VALIDATION_ERROR"}',
     },
     "A01_ACCESS_CONTROL": {
-        "http_status": [403, 404],  # Forbidden or Not Found
+        "http_status": [401, 403, 404],  # 401 added for unauthenticated cross-tenant attempts
         "forbidden_keywords": [],
         "expected_behavior": "Request denied or resource not revealed",
         "safe_response_example": '{"error": "Forbidden", "code": "UNAUTHORIZED"}',
     },
     "A07_AUTH_FAILURE": {
-        "http_status": [401, 403],
+        "http_status": [401, 403, 429],  # 429 added for rate-limited brute-force defence
         "forbidden_keywords": ["user exists", "user not found", "password incorrect", "account locked"],
         "expected_behavior": "Generic rejection without revealing account state",
         "safe_response_example": '{"error": "Invalid credentials"}',
     },
     "A04_INSECURE_DESIGN": {
-        "http_status": [200, 400],
+        # 401 added: an oversized credential payload against /login is
+        # correctly neutralized by the auth lookup failing — the test
+        # should NOT report this as "vulnerable" just because the status
+        # isn't a 400/413. 413 added because explicit Content-Length
+        # rejection is also a valid resilience outcome.
+        "http_status": [200, 400, 401, 413],
         "forbidden_keywords": ["stack trace", "debug", "internal error"],
         "expected_behavior": "No sensitive system information leaked",
         "safe_response_example": '{"error": "An error occurred. Please try again."}',
