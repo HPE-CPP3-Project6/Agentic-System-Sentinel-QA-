@@ -115,6 +115,7 @@ def run_pytest_generated_file(
                 passed=False if not tc.is_adversarial else None,
                 is_vulnerable=None,
                 resilient=None,
+                exploit_target=tc.exploit_target,
                 stderr=timeout_msg,
             )
             for tc in test_suite
@@ -127,6 +128,10 @@ def run_pytest_generated_file(
 
     logs: List[ExecutionLog] = []
     for tc in test_suite:
+        # NEW-2: propagate exploit_target onto every log so security_posture's
+        # by_exploit_target breakdown shows per-OWASP buckets instead of one
+        # giant "unknown" bucket. Demo-artifact bug was exactly this.
+        et = tc.exploit_target
         func_name = "test_" + slug_from_test_id(tc.test_id)
         if func_name not in cases:
             logs.append(
@@ -137,6 +142,7 @@ def run_pytest_generated_file(
                     passed=False if not tc.is_adversarial else None,
                     is_vulnerable=None,
                     resilient=None,
+                    exploit_target=et,
                     stderr=(
                         f"No JUnit entry for `{func_name}` "
                         f"(emit truncated, collect error, or slug drift). "
@@ -156,6 +162,7 @@ def run_pytest_generated_file(
                         is_adversarial=True,
                         is_vulnerable=False,
                         resilient=True,
+                        exploit_target=et,
                         stdout=detail[:2000] if detail else None,
                     )
                 )
@@ -166,6 +173,7 @@ def run_pytest_generated_file(
                         status="passed",
                         is_adversarial=False,
                         passed=True,
+                        exploit_target=et,
                         stdout=detail[:2000] if detail else None,
                     )
                 )
@@ -182,6 +190,7 @@ def run_pytest_generated_file(
                     passed=None,
                     is_vulnerable=None,
                     resilient=None,
+                    exploit_target=et,
                     stderr=("pytest skipped: " + detail)[:4000],
                 )
             )
@@ -194,6 +203,7 @@ def run_pytest_generated_file(
                         is_adversarial=True,
                         is_vulnerable=True,
                         resilient=False,
+                        exploit_target=et,
                         stderr=detail[:8000],
                     )
                 )
@@ -204,6 +214,7 @@ def run_pytest_generated_file(
                         status="failed",
                         is_adversarial=False,
                         passed=False,
+                        exploit_target=et,
                         stderr=detail[:8000],
                     )
                 )
@@ -216,6 +227,7 @@ def run_pytest_generated_file(
                     passed=False if not tc.is_adversarial else None,
                     is_vulnerable=None,
                     resilient=None,
+                    exploit_target=et,
                     stderr=detail[:8000],
                 )
             )

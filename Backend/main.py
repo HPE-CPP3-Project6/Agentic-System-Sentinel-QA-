@@ -25,6 +25,16 @@ import logging
 import sys
 from pathlib import Path
 
+# Windows cp1252 stdout cannot encode characters like ←/→/⚠ that downstream
+# helpers (phase_bridge.persistence, _print_summary) and LLM-printed
+# diagnostics use. Reconfigure BEFORE any heavy imports — without this,
+# phase_bridge_error fires on a print() during POST_CODE drift load and
+# drift_report ends up null (observed in exec-demo-login-post_code).
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(message)s",

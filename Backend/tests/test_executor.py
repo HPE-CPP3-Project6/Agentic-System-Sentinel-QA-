@@ -18,7 +18,7 @@ import pytest
 from agents import executor as exec_mod
 from agents import pytest_runner
 from agents.executor import RunnerResult, _security_posture, executor_node, needs_healing
-from state import ExecutionLog, ProjectState, TestCase
+from state import ExecutionLog, Patch, ProjectState, TestCase
 
 
 # --------------------------------------------------------------------------- #
@@ -265,3 +265,155 @@ def test_pytest_runner_handles_timeout(monkeypatch, tmp_path: Path):
     assert func_log.passed is False
     assert adv_log.is_vulnerable is None
     assert adv_log.resilient is None
+
+
+# --------------------------------------------------------------------------- #
+# NEW-2 — exploit_target propagation                                          #
+# --------------------------------------------------------------------------- #
+
+
+def test_pytest_runner_timeout_propagates_exploit_target(monkeypatch, tmp_path: Path):
+    """The demo-artifact bug: every log came back with exploit_target=None,
+    so security_posture's by_exploit_target only had one giant 'unknown'
+    bucket. The timeout path is the easiest to test deterministically."""
+    fake_py = tmp_path / "fake_tests.py"
+    fake_py.write_text("# placeholder pytest target\n")
+
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=args[0] if args else ["pytest"], timeout=1)
+
+    monkeypatch.setattr(pytest_runner.subprocess, "run", fake_run)
+
+    suite = [
+        TestCase(
+            test_id="SEC-A03-TC-1",
+            title="sqli",
+            action="POST /login",
+            expected_result="blocked",
+            is_adversarial=True,
+            exploit_target="A03:2021-Injection (SQLi)",
+        ),
+    ]
+    logs, rc, _, _ = pytest_runner.run_pytest_generated_file(suite, fake_py, timeout_sec=1)
+    assert rc == -1
+    assert logs[0].exploit_target == "A03:2021-Injection (SQLi)"
+
+
+# --------------------------------------------------------------------------- #
+# H2 — _default_runner emits explicit failure (no more silent ok=False)       #
+# --------------------------------------------------------------------------- #
+
+
+def test_default_runner_emits_explicit_failure_not_silent_ok_false():
+    """The previous stub returned ok=False with a generic message, which the
+    pipeline then logged as a normal test failure → heal loop on phantom bugs.
+    The new contract is: ok=False AND exception=RuntimeError, so _execute_single
+    routes it as status='error' and the artifact says clearly that no runner
+    was configured."""
+    tc = TestCase(test_id="TC-1", title="x", action="GET /x", expected_result="ok")
+    result = exec_mod._default_runner(tc)
+
+    assert result.ok is False
+    assert result.exception is not None
+    assert isinstance(result.exception, RuntimeError)
+    assert "no runner configured" in str(result.exception).lower()
+    # The message must explain how to fix it — silent stubs are user-hostile.
+    assert "SENTINEL_EXECUTOR_RUN_PYTEST" in result.stderr
+
+
+# --------------------------------------------------------------------------- #
+# NEW-5 + H8 — executor_node surfaces unsafe-patch warnings in metadata       #
+# --------------------------------------------------------------------------- #
+
+
+def test_executor_metadata_lists_unsafe_patches_when_heal_emits_backdoor(monkeypatch):
+    """When _heal emits a patch that the safety validator flags, the
+    executor's metadata must surface it in `unsafe_patch_warnings` AND
+    `last_run_summary.patches_flagged_unsafe`. This is the visibility layer
+    that lets reviewers reject backdoors at a glance."""
+    monkeypatch.setattr(exec_mod, "get_local_llm", lambda **kw: None)
+
+    # Stub _heal to return a backdoor-style patch directly — we're testing the
+    # surfacing, not the LLM call.
+    def fake_heal(tc, log, llm, *, prior_patches=None, heal_attempt=None):
+        return Patch(
+            target_file="auth.py",
+            bug_explanation="x",
+            suggested_fix='if email == "test@example.com": return seeded_user',
+            related_test_ids=[tc.test_id],
+            owasp_category="A04:2021",
+            heal_attempt=heal_attempt,
+            safety_warning=exec_mod._validate_patch_safety(
+                'if email == "test@example.com": return seeded_user', "auth.py",
+            ),
+        )
+    monkeypatch.setattr(exec_mod, "_heal", fake_heal)
+
+    state = ProjectState(
+        user_story="test",
+        test_suite=[
+            TestCase(test_id="TC-FAIL", title="t", action="POST /login",
+                     expected_result="ok"),
+        ],
+    )
+
+    # Failing runner so _heal gets called for our test
+    def failing_runner(tc):
+        return RunnerResult(ok=False, stderr="boom")
+
+    result = executor_node(state, runner=failing_runner)
+
+    summary = result.metadata.get("last_run_summary", {})
+    assert summary.get("patches_proposed") == 1
+    assert summary.get("patches_flagged_unsafe") == 1
+
+    warnings = result.metadata.get("unsafe_patch_warnings") or []
+    assert len(warnings) == 1
+    assert warnings[0]["test_id"] == "TC-FAIL"
+    assert warnings[0]["target_file"] == "auth.py"
+    assert "UNSAFE PATCH" in warnings[0]["warning"]
+
+
+def test_executor_dedup_replaces_prior_cycle_patch_in_state(monkeypatch):
+    """End-to-end: cycle 1 produces patch P1 for TC-1; cycle 2 produces P2 for
+    same TC-1 → state.suggested_patches has exactly ONE entry (the cycle-2 one).
+    """
+    monkeypatch.setattr(exec_mod, "get_local_llm", lambda **kw: None)
+
+    # Two distinct fakes so we can tell the cycles apart
+    counter = {"n": 0}
+
+    def fake_heal(tc, log, llm, *, prior_patches=None, heal_attempt=None):
+        counter["n"] += 1
+        return Patch(
+            target_file="auth.py",
+            bug_explanation=f"hypothesis v{counter['n']}",
+            suggested_fix=f"patch_v{counter['n']}",
+            related_test_ids=[tc.test_id],
+            owasp_category="A07:2021",
+            heal_attempt=heal_attempt,
+        )
+    monkeypatch.setattr(exec_mod, "_heal", fake_heal)
+
+    state = ProjectState(
+        user_story="test",
+        test_suite=[
+            TestCase(test_id="TC-1", title="t", action="POST /login",
+                     expected_result="ok"),
+        ],
+    )
+
+    def failing_runner(tc):
+        return RunnerResult(ok=False, stderr="boom")
+
+    # Cycle 1
+    executor_node(state, runner=failing_runner)
+    assert len(state.suggested_patches) == 1
+    assert state.suggested_patches[0].suggested_fix == "patch_v1"
+    assert state.suggested_patches[0].heal_attempt == 1
+
+    # Cycle 2 (simulates the heal loop re-entering)
+    executor_node(state, runner=failing_runner)
+    assert len(state.suggested_patches) == 1, "cycle-2 patch must REPLACE cycle-1"
+    assert state.suggested_patches[0].suggested_fix == "patch_v2"
+    assert state.suggested_patches[0].heal_attempt == 2

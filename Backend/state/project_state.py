@@ -98,6 +98,15 @@ class Patch(BaseModel):
     suggested_fix: str
     related_test_ids: List[str] = Field(default_factory=list)
     owasp_category: Optional[str] = None
+    # Which heal cycle produced this patch — pairs with ExecutionLog.heal_attempt.
+    # Lets consumers filter to "latest patch per failing test" and lets the
+    # dedup logic in executor_node replace stale patches instead of appending.
+    heal_attempt: Optional[int] = None
+    # Populated by _validate_patch_safety() when the suggested_fix matches
+    # one of the dangerous patterns (hardcoded test credentials, password-hash
+    # mutation, etc.). Reviewers MUST treat any non-None value as a block on
+    # auto-merge. The patch is still emitted (visible) — but flagged.
+    safety_warning: Optional[str] = None
 
 class DesignContract(BaseModel):
     requirement_id: str

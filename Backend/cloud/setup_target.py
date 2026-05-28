@@ -32,6 +32,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+import uuid
 from typing import Optional
 
 import httpx
@@ -50,7 +51,11 @@ def _env(name: str, default: Optional[str] = None, required: bool = False) -> st
 
 
 BASE_URL = _env("SENTINEL_BASE_URL", required=True).rstrip("/")
-EMAIL = _env("SENTINEL_TEST_USER_EMAIL", "sentinel-qa@example.com")
+# H7: randomize per-run email so concurrent Sentinel runs (Phase 2 per-PR
+# isolation) don't share the same identity against a single target. The
+# explicit override path still works for reproducible local debugging.
+_DEFAULT_EMAIL = f"sentinel-qa-{uuid.uuid4().hex[:8]}@example.com"
+EMAIL = _env("SENTINEL_TEST_USER_EMAIL", _DEFAULT_EMAIL)
 PASSWORD = _env("SENTINEL_TEST_USER_PASSWORD", "Sentinel-QA-Bootstrap-2026!")
 HEALTH_TIMEOUT_SEC = int(_env("SENTINEL_HEALTH_TIMEOUT_SEC", "60"))
 HEALTH_PATH = _env("SENTINEL_HEALTH_PATH", "/health")

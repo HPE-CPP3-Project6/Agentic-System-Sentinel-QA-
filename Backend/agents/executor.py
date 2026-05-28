@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -66,10 +67,27 @@ Runner = Callable[[TestCase], RunnerResult]
 
 
 def _default_runner(tc: TestCase) -> RunnerResult:
-    """Placeholder runner. Real deployments inject a Playwright-backed runner."""
+    """Default runner — explicit failure rather than silent ok=False fakery.
+
+    The pytest path is the canonical production runner (see executor_node ->
+    pytest_runner.run_pytest_generated_file). This stub only fires when:
+        - SENTINEL_EXECUTOR_RUN_PYTEST=0 disables the pytest path, AND
+        - the caller did NOT inject a custom runner=
+    Returning ok=False here previously caused EVERY test to log as a real
+    failure, which then routed the heal loop on phantom bugs and burned LLM
+    tokens. Emit a real RunnerResult.error so _execute_single rolls it up as
+    status='error' instead — `needs_healing` ignores error-status routed-to-heal
+    via the heal_attempt filter, and the artifact reflects the configuration
+    issue plainly.
+    """
     return RunnerResult(
         ok=False,
-        stderr=f"No runner configured; cannot execute {tc.test_id}.",
+        stderr=(
+            f"_default_runner is a no-op; cannot execute {tc.test_id}. "
+            "Either set SENTINEL_EXECUTOR_RUN_PYTEST=1 (default) so the pytest "
+            "runner takes over, or inject runner= when calling executor_node()."
+        ),
+        exception=RuntimeError("no runner configured"),
     )
 
 
@@ -231,20 +249,59 @@ def _execute_single(tc: TestCase, runner: Runner) -> ExecutionLog:
 
 HEALER_SYSTEM_PROMPT = """You are Agent D — The Healer, an AIOps engineer for HPE's
 Sentinel-QA pipeline. A test has just failed OR an OWASP exploit succeeded against
-the application under test. You must propose a minimal, targeted code patch.
+the application under test. You must propose a minimal, targeted, SAFE code patch.
 
-Rules:
-1. Root-cause the failure using the Error Log, the Failed Test Case, and the
-   Source Context below. Do NOT suggest silencing the test or weakening the assertion.
-2. For security failures, the fix MUST defeat the attacker class (e.g.,
-   parameterised queries for SQLi, output encoding + CSP for XSS, allow-lists
-   for SSRF). A fix that merely filters the one literal payload is not acceptable.
-3. Output STRICT JSON — no prose, no markdown fences:
+============================================================
+HARD RULES — VIOLATIONS ARE REJECTED AT POST-PROCESS
+============================================================
 
+R1. ROOT-CAUSE THE PRODUCTION CODE, NOT THE TEST.
+    Use the Error Log + Failed Test Case + Source Context to fix the real
+    cause. Do NOT weaken the assertion. Do NOT silence the test.
+
+R2. NEVER PATCH PRODUCTION TO SATISFY A MISSING TEST FIXTURE.
+    If the test expects a specific user / row / token to exist, the FIX is
+    a separate seed / fixture / migration file — NOT a conditional inside
+    `auth.py`, `models.py`, or any production module. Specifically forbidden:
+        - `if email == "test@example.com" and password == "...": create_user(...)`
+        - `if user is None: user.hashed_password = hash_password(test_password)`
+        - any hardcoded email / password / token / API-key literal in
+          authentication, authorization, or persistence code paths.
+    If the only way to make a test pass is to inject a fixture into prod
+    code, the TEST is wrong — explain that in `bug_explanation` and emit
+    an empty suggested_fix (the post-processor will record this as a
+    "fixture-needed" note instead of a patch).
+
+R3. NEVER OVERRIDE A FRAMEWORK'S STANDARD VALIDATION CONTRACT TO MATCH AN
+    INCORRECT TEST ASSERTION.
+    FastAPI/Pydantic returns 422 Unprocessable Entity for field-level
+    validation failures (EmailStr, constr, min_length, regex). 400 Bad
+    Request is reserved for malformed JSON or app-level rejections. If a
+    test asserts `expected_status_code == 400` but the framework correctly
+    returns 422 for the input, that is the test's bug — propose NOTHING
+    rather than adding a custom exception handler to remap 422 -> 400.
+
+R4. SECURITY FIXES MUST DEFEAT THE ATTACKER CLASS, NOT THE LITERAL PAYLOAD.
+    A03 SQLi  → parameterised queries, not regex blocklists of `;` / `--`.
+    A03 XSS   → output encoding + CSP, not blocklists of `<script>`.
+    A07 brute → rate-limit + lockout, not "if attempts > 100: deny".
+    A blocklist that catches the one payload but lets variants through is
+    not acceptable — name the GENERAL mitigation explicitly.
+
+R5. RESPECT PREVIOUSLY-PROPOSED PATCHES (see "Prior patch attempts" below).
+    If a prior cycle proposed a patch for this same test that did NOT
+    resolve the failure, propose a DIFFERENT approach — diagnose why the
+    prior attempt failed, then change strategy (different file / different
+    layer / different mitigation class). Do NOT re-emit a near-identical
+    patch.
+
+============================================================
+OUTPUT — STRICT JSON, no prose, no markdown fences
+============================================================
 {{
-  "target_file": "<path from source context, best guess>",
-  "bug_explanation": "<1-3 sentences on why the code fails this test>",
-  "suggested_fix": "<the replacement code block, ready to paste>",
+  "target_file": "<path from source context, or empty string if no patch is safe>",
+  "bug_explanation": "<1-3 sentences. If the TEST is wrong (R2 / R3), explain that here and leave suggested_fix empty>",
+  "suggested_fix": "<replacement code block ready to paste, OR empty string when no safe patch exists>",
   "owasp_category": "<Axx:2021-... or null>"
 }}
 """
@@ -266,12 +323,144 @@ Telemetry:
 {trace}
   console_logs: {console_logs}
 
+Prior patch attempts for THIS test in earlier heal cycles (if any):
+----- BEGIN PRIOR PATCHES -----
+{prior_patches}
+----- END PRIOR PATCHES -----
+
 Source context (retrieved via RAG):
 ----- BEGIN SOURCE CONTEXT -----
 {source_context}
 ----- END SOURCE CONTEXT -----
 
 Emit JSON only."""
+
+
+# --------------------------------------------------------------------------- #
+# Patch safety validator (NEW-5 — guardrails against backdoor patches)        #
+# --------------------------------------------------------------------------- #
+
+# Patterns that have historically appeared in unsafe Healer output. These are
+# regex shapes — not literal blocklists of the values themselves — so the
+# detector catches variants (different test emails, different password
+# literals) without being fooled by minor token reshuffling.
+_DANGEROUS_PATCH_PATTERNS: List[Tuple[str, "re.Pattern[str]"]] = []
+
+
+def _compile_patterns() -> None:
+    """Lazy-compile so module-import cost stays tiny."""
+    import re as _re
+    if _DANGEROUS_PATCH_PATTERNS:
+        return
+    _DANGEROUS_PATCH_PATTERNS.extend([
+        # Email literal compared inside auth/validation code:
+        #     if email == "test@example.com": ...
+        #     if form.username == 'admin@admin.com': ...
+        ("hardcoded_email_compare",
+         _re.compile(r'(?i)(email|username)\s*==?\s*[\'"][^\'"\s]+@[^\'"\s]+[\'"]')),
+
+        # Password literal in a compare:
+        #     if password == "Password123": ...
+        ("hardcoded_password_compare",
+         _re.compile(r'(?i)(password|passwd|pwd)\s*==?\s*[\'"][^\'"\s]{4,}[\'"]')),
+
+        # In-line creation of a User with a hardcoded password literal:
+        #     User(email=..., hashed_password=hash_password("Password123"))
+        ("inline_user_creation_with_literal",
+         _re.compile(r'(?is)\b(User|UserCreate)\s*\([^)]{0,200}hash(_?password)?\s*\(\s*[\'"][^\'"]{4,}[\'"]')),
+
+        # Silent password mutation — overwriting a stored hash to make a test
+        # pass. This is the exact pattern from TC-REQ-004-01 in the demo
+        # artifact: `user.hashed_password = hash_password(password)`.
+        ("silent_password_overwrite",
+         _re.compile(r'(?i)\.\s*hashed_password\s*=\s*hash_password\s*\(')),
+
+        # Test marker leaking into prod source (TEST-ONLY, TEST_USER, etc.).
+        ("test_marker_in_prod_code",
+         _re.compile(r'(?i)\b(test[-_]?(only|user|fixture|hook|backdoor)|FOR_TEST)\b')),
+
+        # API-key / token literals embedded in patch text.
+        ("hardcoded_token_or_key",
+         _re.compile(r'(?i)\b(api[_-]?key|secret[_-]?key|bearer)\s*=\s*[\'"][A-Za-z0-9_\-]{16,}[\'"]')),
+
+        # Custom 422 -> 400 exception handler — the exact framework-override
+        # anti-pattern from the demo artifact. Match a Pydantic
+        # RequestValidationError handler that returns HTTP_400_BAD_REQUEST.
+        ("pydantic_422_to_400_override",
+         _re.compile(r'(?is)RequestValidationError.*?HTTP_400_BAD_REQUEST', _re.DOTALL)),
+    ])
+
+
+def _validate_patch_safety(suggested_fix: str, target_file: str) -> Optional[str]:
+    """Return a human-readable warning if the patch matches a dangerous pattern.
+
+    Returns None if the patch passes all checks. Returning a string does NOT
+    drop the patch — the patch is still surfaced in state.suggested_patches,
+    but its `safety_warning` field is populated so reviewers (and any future
+    auto-merge tooling) can refuse it.
+
+    The hard rules in the Healer prompt are the first line of defense; this
+    function is the deterministic backstop for when the LLM ignores them.
+    """
+    _compile_patterns()
+    if not suggested_fix or not suggested_fix.strip():
+        return None  # empty fix is the Healer correctly opting out; not unsafe
+
+    warnings: List[str] = []
+    for name, pat in _DANGEROUS_PATCH_PATTERNS:
+        m = pat.search(suggested_fix)
+        if m:
+            snippet = m.group(0)
+            if len(snippet) > 120:
+                snippet = snippet[:120] + "..."
+            warnings.append(f"{name}: matched `{snippet}`")
+
+    # Auth/config files are particularly sensitive — escalate any warning
+    # that fires there.
+    sensitive_paths = ("auth.py", "config.py", "security.py", "settings.py")
+    target_lc = (target_file or "").lower()
+    if warnings and any(p in target_lc for p in sensitive_paths):
+        return (
+            "UNSAFE PATCH (auth/config target) — DO NOT AUTO-MERGE. "
+            + " | ".join(warnings)
+        )
+    if warnings:
+        return "UNSAFE PATCH — review required. " + " | ".join(warnings)
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# Prior-patch awareness (H8) — feed the Healer what it already tried         #
+# --------------------------------------------------------------------------- #
+
+
+def _format_prior_patches(patches: List[Patch], test_id: str, max_chars: int = 3000) -> str:
+    """Render prior Patches that target this test as a compact prompt block.
+
+    Keeps the prompt under a token budget. If no prior patches exist, returns
+    "(none — this is the first heal attempt for this test)" so the LLM
+    doesn't see a confusing empty block.
+    """
+    prior = [p for p in patches if test_id in (p.related_test_ids or [])]
+    if not prior:
+        return "(none — this is the first heal attempt for this test)"
+
+    blocks: List[str] = []
+    for i, p in enumerate(prior, 1):
+        head = (
+            f"--- Prior attempt {i} "
+            f"(heal_attempt={p.heal_attempt}, owasp={p.owasp_category}, "
+            f"safety_warning={p.safety_warning or 'none'}) ---\n"
+            f"target_file: {p.target_file}\n"
+            f"bug_explanation: {p.bug_explanation}\n"
+            f"suggested_fix (truncated):\n{(p.suggested_fix or '')[:800]}"
+        )
+        blocks.append(head)
+
+    rendered = "\n\n".join(blocks)
+    if len(rendered) > max_chars:
+        rendered = rendered[:max_chars] + "\n... (truncated)"
+    return rendered
 
 
 def _parse_patch_json(raw: str) -> Dict[str, object]:
@@ -284,12 +473,21 @@ def _parse_patch_json(raw: str) -> Dict[str, object]:
     return json.loads(text)
 
 
-def _heal(tc: TestCase, log: ExecutionLog, llm) -> Optional[Patch]:
+def _heal(
+    tc: TestCase,
+    log: ExecutionLog,
+    llm,
+    *,
+    prior_patches: Optional[List[Patch]] = None,
+    heal_attempt: Optional[int] = None,
+) -> Optional[Patch]:
     rag_query = f"{tc.action} {tc.title} {' '.join(tc.source_refs)}".strip()
     snippets = query_source_context(rag_query, n_results=5)
     source_context = (
         "\n\n---\n\n".join(snippets) if snippets else "(no indexed source available)"
     )
+
+    prior_block = _format_prior_patches(prior_patches or [], tc.test_id)
 
     prompt = ChatPromptTemplate.from_messages(
         [("system", HEALER_SYSTEM_PROMPT), ("user", HEALER_USER_PROMPT)]
@@ -308,6 +506,7 @@ def _heal(tc: TestCase, log: ExecutionLog, llm) -> Optional[Patch]:
             "stderr": log.stderr or "",
             "trace": log.trace or "(none)",
             "console_logs": "\n".join(log.console_logs) or "(none)",
+            "prior_patches": prior_block,
             "source_context": source_context,
         }
     )
@@ -317,13 +516,47 @@ def _heal(tc: TestCase, log: ExecutionLog, llm) -> Optional[Patch]:
     except (json.JSONDecodeError, ValueError):
         return None
 
+    suggested_fix = str(data.get("suggested_fix", ""))
+    target_file = str(data.get("target_file", "unknown"))
+
+    # If the Healer correctly opted out (R2/R3), still emit a Patch object
+    # so the artifact records that a review happened — bug_explanation will
+    # carry the "this test is wrong" rationale.
+    safety_warning = _validate_patch_safety(suggested_fix, target_file)
+
     return Patch(
-        target_file=str(data.get("target_file", "unknown")),
+        target_file=target_file,
         bug_explanation=str(data.get("bug_explanation", "")),
-        suggested_fix=str(data.get("suggested_fix", "")),
+        suggested_fix=suggested_fix,
         owasp_category=data.get("owasp_category") or tc.owasp_category,
         related_test_ids=[tc.test_id],
+        heal_attempt=heal_attempt,
+        safety_warning=safety_warning,
     )
+
+
+def _dedup_suggested_patches(existing: List[Patch], new: List[Patch]) -> List[Patch]:
+    """Replace any prior Patch that targets the same test+owasp with the new one.
+
+    Keeps `state.suggested_patches` honest across heal cycles: when cycle 2
+    proposes a new patch for `TC-REQ-004-01`, the cycle-1 patch for the same
+    test is replaced rather than appended. Without this dedup the artifact
+    accumulates duplicates (observed: 16 cycle-2 patches accumulated to 31
+    total in exec-demo-login-post_code).
+
+    Identity tuple: (sorted related_test_ids, owasp_category). Two patches
+    that disagree on owasp_category for the same test are kept separately —
+    they represent distinct hypotheses about the failure.
+    """
+    def key(p: Patch) -> Tuple[Tuple[str, ...], Optional[str]]:
+        return (tuple(sorted(p.related_test_ids or [])), p.owasp_category)
+
+    by_key: Dict[Tuple[Tuple[str, ...], Optional[str]], Patch] = {}
+    for p in existing:
+        by_key[key(p)] = p
+    for p in new:
+        by_key[key(p)] = p  # overwrites any prior cycle's patch for same identity
+    return list(by_key.values())
 
 
 # --------------------------------------------------------------------------- #
@@ -457,6 +690,9 @@ def executor_node(
     # Heal pass — runs for BOTH the pytest path and the injected-runner path.
     # run_logs is aligned 1:1 with state.test_suite in either branch (the pytest
     # runner emits one log per TestCase in order; so does the stub loop above).
+    # H8: we pass the existing state.suggested_patches in so _heal can show the
+    # Healer LLM what was tried (and failed) in prior cycles — stops it from
+    # re-proposing near-identical patches each iteration.
     for tc, log in zip(state.test_suite, run_logs):
         needs_patch = (
             (not tc.is_adversarial and log.passed is False)
@@ -464,20 +700,46 @@ def executor_node(
             or log.status == "error"
         )
         if needs_patch:
-            patch = _heal(tc, log, llm)
+            patch = _heal(
+                tc, log, llm,
+                prior_patches=list(state.suggested_patches),
+                heal_attempt=state.heal_attempts,
+            )
             if patch is not None:
                 new_patches.append(patch)
 
     state.logs.extend(run_logs)
-    state.suggested_patches.extend(new_patches)
+    # NEW-3 + H3: dedup by (related_test_ids, owasp) so cycle 2's patch for
+    # the same failing test REPLACES the cycle 1 patch rather than being
+    # appended next to it. Demo-artifact bug: 16 cycle-2 patches accumulated
+    # to 31 total because of the prior naive extend.
+    state.suggested_patches = _dedup_suggested_patches(
+        list(state.suggested_patches), new_patches,
+    )
+
+    # Surface safety-flagged patches in metadata so reviewers / dashboards can
+    # spot them without re-scanning suggested_patches. Honest reporting: a
+    # backdoor-style proposal that got auto-flagged is more important than
+    # the count of "patches proposed".
+    flagged = [p for p in new_patches if p.safety_warning]
     state.metadata["security_posture"] = _security_posture(run_logs)
     state.metadata["last_run_summary"] = {
         "total": len(run_logs),
         "functional_failed": sum(1 for l in run_logs if not l.is_adversarial and l.passed is False),
         "vulnerabilities_found": sum(1 for l in run_logs if l.is_vulnerable),
         "patches_proposed": len(new_patches),
+        "patches_flagged_unsafe": len(flagged),
         "heal_attempt": state.heal_attempts,
     }
+    if flagged:
+        state.metadata["unsafe_patch_warnings"] = [
+            {
+                "test_id": (p.related_test_ids or [None])[0],
+                "target_file": p.target_file,
+                "warning": p.safety_warning,
+            }
+            for p in flagged
+        ]
     return state
 
 
