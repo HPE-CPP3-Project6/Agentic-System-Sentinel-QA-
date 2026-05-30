@@ -37,6 +37,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from langchain_core.prompts import ChatPromptTemplate
 
+from agents.suite_summary import build_test_suite_summary
 from database import query_source_context
 from state import ExecutionLog, Patch, ProjectState, TestCase
 from utils import LLMInvocationError, get_local_llm, invoke_with_retry
@@ -927,6 +928,11 @@ def executor_node(
         ]
 
     state.metadata["security_posture"] = _security_posture(run_logs)
+    state.metadata["test_suite_summary"] = build_test_suite_summary(
+        list(state.test_suite),
+        run_logs,
+        surface_map=state.surface_map or None,
+    )
     # Stage 1 (Cursor merged priority list) — explicit suite quality gate.
     # Lifted to a top-level artifact field by main._dump_artifact so a
     # release-gate CI can fail the pipeline on NO_TESTS_GENERATED /

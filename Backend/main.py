@@ -205,6 +205,7 @@ def _dump_artifact(final: ProjectState, mode: str, story_key: str) -> Path:
         # Surfaced here (NOT just inside metadata) so reviewers don't need
         # to grep nested keys to know whether the run is trustworthy.
         "suite_quality": final.metadata.get("suite_quality"),
+        "test_suite_summary": final.metadata.get("test_suite_summary"),
         "heal_attempts": final.heal_attempts,
         "validated_requirements": [r.model_dump() for r in final.validated_requirements],
         "security_risks": [r.model_dump() for r in final.security_risks],
@@ -268,6 +269,30 @@ def _print_summary(final: ProjectState, mode: str) -> None:
             print(f"  - [{s.owasp_id}] {s.instruction}")
 
     print(f"\nTEST SUITE: {len(final.test_suite)}")
+    summary = final.metadata.get("test_suite_summary")
+    if summary and summary.get("by_category"):
+        print("  By category (planned / executed / passed / failed / skipped / error):")
+        order = summary.get("category_order") or list(summary["by_category"].keys())
+        for cat in order:
+            bucket = summary["by_category"].get(cat)
+            if not bucket:
+                continue
+            line = (
+                f"    {cat:18s}  planned={bucket['planned']:3d}  "
+                f"executed={bucket.get('executed', 0):3d}  "
+                f"passed={bucket.get('passed', 0):3d}  "
+                f"failed={bucket.get('failed', 0):3d}  "
+                f"skipped={bucket.get('skipped', 0):3d}  "
+                f"error={bucket.get('error', 0):3d}"
+            )
+            if cat == "security" and (
+                bucket.get("resilient") or bucket.get("vulnerable")
+            ):
+                line += (
+                    f"  resilient={bucket.get('resilient', 0):3d}  "
+                    f"vulnerable={bucket.get('vulnerable', 0):3d}"
+                )
+            print(line)
     print(f"COVERAGE GAPS: {len(final.coverage_gaps)}")
     print(f"SUGGESTED PATCHES: {len(final.suggested_patches)}   <-- headline metric")
     posture = final.metadata.get("security_posture")

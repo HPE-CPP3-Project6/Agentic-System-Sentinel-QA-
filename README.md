@@ -1,171 +1,313 @@
-# Sentinel-QA (HPE Project)
+# Sentinel-QA
 
-**Sentinel-QA** is a LangGraph-based pipeline that turns a **user story** and **acceptance criteria** into **grounded test cases** and **security-oriented adversarial variants**, using **retrieval-augmented generation (RAG)** over your application’s source code. A shared **Pydantic** state object flows through every node so each agent reads and writes structured fields (requirements, risks, tests, execution logs, patches).
+**Agentic QA pipeline for HPE-style API security and functional attestation.**  
+Given a user story, acceptance criteria, and an indexed codebase, Sentinel-QA produces **grounded test cases**, **OWASP-aligned adversarial variants**, **runnable pytest**, and a **categorized execution report** — with honest **coverage gaps** when the spec outruns the code.
 
-The project targets a **FastAPI + SQLAlchemy + React** style app (often mirrored under `Backend/repo_cache/` for indexing). The **Generator** is designed to cite real files and line ranges from ChromaDB chunks; the **Security+Compiler** agent (`security_compiler`) mutates functional tests using a payload library keyed to OWASP categories the **Critic** actually flagged, and will materialize runnable pytest files for the Executor (see `Backend/docs/SECURITY_COMPILER_IMPLEMENTATION_PLAN.md`).
+The reference application under test is [**Smart Task Manager**](Backend/repo_cache/README.md) (FastAPI + SQLAlchemy + React), vendored under `Backend/repo_cache/`. A separate **React reviewer UI** is in development; see [`sentinel-qa-architecture.md`](sentinel-qa-architecture.md) for the planned SPA + API shim. **This repository is the LangGraph backend** (agents, RAG, compiler, executor).
 
 ---
 
-## Architecture at a glance
+## What it does (one paragraph)
+
+1. **Critic** — turns prose ACs into atomic requirements, ambiguity scores, and OWASP-linked risks.  
+2. **Surface Resolver** — binds each requirement to a real code surface (`BACKEND_API`, `NOT_IMPLEMENTED`, …) and a **defense kind** for inverted security stories.  
+3. **Generator** — RAG over ChromaDB; emits `test_suite` + `coverage_gaps` with file citations.  
+4. **Security+Compiler** — clones functional tests into payload-driven adversarial cases; writes `test_sentinel_api_generated.py`.  
+5. **Executor** — runs pytest against a live API (`SENTINEL_BASE_URL`); records verdicts; optional **heal loop** back to Generator; publishes **security posture** and **test suite summary by category**.
+
+---
+
+## Pipeline (POST_CODE)
 
 ```mermaid
 flowchart LR
-  subgraph inputs [Inputs]
-    US[User story]
-    AC[Acceptance criteria]
-    SRC[Indexed source tree]
+  subgraph in [Inputs]
+    ST[User story + ACs]
+    IDX[ChromaDB index of repo_cache]
   end
 
-  subgraph rag [RAG layer]
-    ING[Ingest + AST chunking]
-    CHR[ChromaDB code_sources]
-    ING --> CHR
+  subgraph graph [LangGraph — Backend/main.py]
+    C[Critic]
+    S[Surface Resolver]
+    G[Generator]
+    SC[Security+Compiler]
+    E[Executor / Healer]
+    C --> S --> G --> SC --> E
+    E -->|needs_healing| G
+    E --> END([Artifact JSON])
   end
 
-  subgraph graph [LangGraph pipeline]
-    A[Critic]
-    B[Generator]
-    C[Security+Compiler]
-    D[Executor / Healer]
-    A --> B
-    B --> C
-    C --> D
-    D -->|heal| B
-    D -->|end| END([END])
-  end
-
-  SRC --> ING
-  CHR --> B
-  AC --> A
-  US --> A
+  ST --> C
+  IDX --> S
+  IDX --> G
 ```
 
-- **Full graph** (`Backend/main.py`): **Critic → Generator → Security+Compiler → Executor**, with a conditional edge from **Executor** back to **Generator** when healing is needed (`needs_healing`).
-- **Two-agent smoke** (`Backend/run_critic_generator.py`): **Critic → Generator** only (no Security+Compiler / Executor), useful for fast iteration and LLM cost control.
-- **Three-agent smoke** (`Backend/run_three_agents.py`): **Critic → Generator → Security+Compiler** — same as above plus Jinja/pytest file under `workspace/runs/…` (needs `httpx`, `Jinja2`; API only required if you later `pytest` the file).
+| Mode | Command | What runs |
+|------|---------|-----------|
+| **POST_CODE** (default) | `python main.py post_code <story>` | Full graph: generate, compile, execute, heal (if configured). Requires Chroma ingest + live API for meaningful execution. |
+| **PRE_CODE** | `python main.py --mode pre_code <story>` | Critic through Compiler; **no pytest execution**. Saves a Phase-1 snapshot for later drift comparison. |
+
+**Entry point:** `Backend/main.py` only. Story keys come from `Backend/samples/sample_stories.py`.
+
+```bash
+cd Backend
+python main.py --mode post_code search
+python main.py lifecycle          # post_code is default
+```
 
 ---
 
-## Repository layout
+## Sample stories
 
-| Path | Role |
-|------|------|
-| `Backend/main.py` | Compiles and runs the **four-node** graph (organization sample by default). |
-| `Backend/run_critic_generator.py` | **Critic → Generator** entry point with CLI (`--story`, sample keys). |
-| `Backend/run_three_agents.py` | **Critic → Generator → Security+Compiler** (no Executor); prints compiler metadata and generated pytest path. |
-| `Backend/agents/` | **critic.py**, **generator.py**, **security_compiler.py**, **executor.py** — LangGraph node functions. |
-| `Backend/state/` | **Pydantic** models: `ProjectState`, `ValidatedRequirement`, `TestCase`, `SecurityRisk`, `CoverageGap`, `ExecutionLog`, `Patch`. |
-| `Backend/database/` | **vector_store.py** (Chroma + embeddings + RAG modes), **ast_chunker.py**, **ingest.py**, **reranker.py**, **github_sync.py**. |
-| `Backend/utils/` | **llm.py** (Vertex AI / Gemini + retries), **payloads.py**, **boundaries.py**, etc. |
-| `Backend/bootstrap.py` | Single place to set **CHROMA_HOME**, **HF_HOME**, ONNX and sentence-transformers caches before heavy imports. |
-| `Backend/samples/` | Bundled sample stories used by `main.py` and `run_critic_generator.py`. |
-| `Backend/repo_cache/` | Typical clone target for the app under test (when using Git sync or manual copy). |
-| `outputs/` | Optional local transcripts; directory is gitignored. |
+| Key | Story ID | Intent |
+|-----|----------|--------|
+| `filter` | US-001 | Functional — client-side filter behavior |
+| `lifecycle` | LIFE-001 | **State-transition** — CRUD + soft-delete on `/tasks/{task_id}` |
+| `org` | ORG-001 | Functional — organization create (often thin / not in app) |
+| `login` | AUTH-001 | Security anti-patterns → defense confirmation (A07, A03) |
+| `search` | SEARCH-001 | Injection / search surface (A03) |
+| `perms` | AUTHZ-001 | IDOR / access control (A01) — see [known limits](#known-limitations) |
+| `ratelimit` | RATELIMIT-001 | Rate limit story (often honest empty in repo_cache) |
+| `dataexport` | DATAEXP-001 | Data exposure anti-patterns |
+| `taskshare` | TASK-002 | Public share links (often `NOT_IMPLEMENTED`) |
+
+Default CLI story: `taskshare`.
 
 ---
 
-## How it works (end to end)
+## Quick start
 
-### 1. Index the codebase (RAG)
+### 1. Prerequisites
 
-Before the **Generator** can ground tests in real code, chunks must exist in ChromaDB:
+- **Python 3.10+**
+- **Google Cloud** project with Vertex AI enabled
+- **ADC:** `gcloud auth application-default login` (or `GOOGLE_APPLICATION_CREDENTIALS`)
+- For execution: **target API** running (see [Run the app under test](#run-the-app-under-test))
 
-1. Ensure dependencies and env (see [Setup](#setup)).
-2. From `Backend/`:
+### 2. Install (Backend)
 
-   ```bash
-   python -m database.ingest path/to/source/root --reset
-   ```
+```powershell
+cd Backend
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
+pip install "tree-sitter>=0.23.0" "tree-sitter-language-pack>=0.4.0"
+```
 
-   - **AST-aware chunking** (`tree-sitter` + `tree-sitter-language-pack`) splits Python / JS / JSX / TS / TSX on syntactic boundaries when grammars are available; otherwise the pipeline falls back to line-based chunking.
-   - Embeddings use **Jina code embeddings** (configurable via env); vectors persist under `chroma_data/` (or `CHROMA_PERSIST_DIR`).
+AST chunking **requires** `tree-sitter-language-pack`. Without it, ingest silently falls back to line-based chunks (worse citations).
 
-Optional: **`database/github_sync.py`** can keep `repo_cache` in sync with a remote repository for continuous indexing.
+### 3. Configure environment
 
-### 2. Run the graph
+```powershell
+copy .env.example .env
+```
 
-- **Smoke (two agents):**
+Minimum:
 
-  ```bash
-  cd Backend
-  python run_critic_generator.py
-  python run_critic_generator.py --story org
-  ```
+| Variable | Purpose |
+|----------|---------|
+| `VERTEX_AI_PROJECT_ID` | GCP project (no default — fail-fast if missing) |
+| `VERTEX_AI_LOCATION` | e.g. `us-central1` or `global` for preview models |
+| `SENTINEL_LLM_MODEL` | Optional; default `gemini-2.5-flash` |
 
-- **Full pipeline (four agents):**
+For **POST_CODE execution**:
 
-  ```bash
-  cd Backend
-  python main.py
-  ```
+| Variable | Purpose |
+|----------|---------|
+| `SENTINEL_BASE_URL` | Live API origin, e.g. `http://127.0.0.1:8000` |
+| `SENTINEL_TEST_BEARER_TOKEN` | JWT from `POST /login` or `POST /register` |
+| `SENTINEL_EXECUTOR_RUN_PYTEST` | `1` (default) to run generated pytest; `0` to skip |
+| `SENTINEL_COMPILER_MAX_TESTS_PER_FILE` | Cap compiled tests (default `80`; use `25` for demos) |
 
-`ProjectState` is created with `user_story`, `acceptance_criteria`, and optional `story_title` / `story_id` / `module`, then passed to `graph.invoke(...)`.
+Full list: [`Backend/.env.example`](Backend/.env.example).
 
-### 3. What each agent does
+### 4. Index the codebase (RAG)
 
-| Agent | Module | Responsibility |
-|-------|--------|----------------|
-| **Critic** | `agents/critic.py` | Normalizes the story into **`validated_requirements`** (IDs, ambiguity scores, OWASP tags, atomic acceptance criteria) and emits **`security_risks`** (OWASP-linked rationale). Uses the LLM; does not run RAG over source code. |
-| **Generator** | `agents/generator.py` | For each requirement, calls **`query_source_context`** (Chroma multi-query + route intent) to build a vertical slice (router, schema, model, frontend, API client snippets). Invokes the LLM to produce **`test_suite`** entries and **`coverage_gaps`** where the spec outruns retrieved code. |
-| **Security+Compiler** | `agents/security_compiler.py` | Does **not** invent new OWASP risks. Expands **`is_adversarial=True`** cases from Critic risks + **`get_payloads`**, then writes **`workspace/runs/run_<timestamp>_utc/test_sentinel_api_generated.py`** (Jinja2 + **httpx** against **`SENTINEL_BASE_URL`**) after a **`py_compile`** gate. See `Backend/docs/SECURITY_COMPILER_IMPLEMENTATION_PLAN.md`. |
-| **Executor / Healer** | `agents/executor.py` | Intended to **run** each test (HTTP/browser), record **`ExecutionLog`**, classify pass/fail vs resilient/vulnerable for adversarial cases, and optionally propose **`Patch`** objects via LLM + RAG on failure. Today ships with a **`_default_runner`** stub that does not execute a real app — replace with a Playwright/httpx runner for production. |
+From `Backend/`:
 
-**Heal loop:** `needs_healing` routes back to **Generator** when failures or vulnerabilities exceed policy, subject to `heal_attempts` / `max_heal_attempts` on `ProjectState`.
+```powershell
+python -m database.ingest repo_cache --reset
+```
 
-### 4. Retrieval modes (`SENTINEL_RAG_MODE`)
+- **AST chunking** (Python, JS, JSX, TS, TSX) when tree-sitter is installed; else line-based fallback.  
+- Embeddings: **Jina code embeddings** → `chroma_data/` (or `CHROMA_PERSIST_DIR`).  
+- Optional sync: `database/github_sync.py` for remote repo → `repo_cache/`.
 
-Controlled in **`database/vector_store.py`** via `resolve_rag_mode()`:
+### 5. Run the app under test
 
-| Mode | Behavior |
+In a second terminal:
+
+```powershell
+cd Backend\repo_cache
+python -m venv venv
+.\venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+uvicorn main:app --reload --port 8000
+```
+
+Obtain a token (example):
+
+```powershell
+curl -X POST http://127.0.0.1:8000/register -H "Content-Type: application/json" -d "{\"email\":\"demo@example.com\",\"password\":\"Secret1\"}"
+```
+
+Paste `access_token` into `Backend/.env` as `SENTINEL_TEST_BEARER_TOKEN`.
+
+### 6. Run Sentinel-QA
+
+```powershell
+cd Backend
+$env:SENTINEL_RAG_MODE = "standard"
+python main.py --mode post_code search
+```
+
+Wall time is often **10–25 minutes** per story (LLM + pytest + optional heal). Use `SENTINEL_COMPILER_MAX_TESTS_PER_FILE=25` for faster demos.
+
+---
+
+## RAG modes (`SENTINEL_RAG_MODE`)
+
+| Mode | Use when |
 |------|----------|
-| **`standard`** (default) | Multi-query expansion into labeled buckets (router, schema, model, frontend, API client). No cross-encoder reranker. Balanced for daily use. |
-| **`naive`** | Single merged query; fast, but buckets used by coverage-gap logic are empty by design — can produce **misleading coverage-gap noise** unless you know why. |
-| **`full`** | Multi-query + optional cross-encoder reranker; highest retrieval cost (especially on CPU). |
+| **`standard`** (default) | Daily runs — multi-query retrieval into labeled buckets (router / schema / model / frontend / api_client). |
+| **`naive`** | Fast smoke only — **do not trust coverage-gap output** (empty buckets look like misses). |
+| **`full`** | Evaluation — adds cross-encoder reranker; very slow on CPU. |
 
-See **`Backend/.env.example`** for all tunables (embed batch size, reranker flags, Chroma paths, Vertex settings).
+---
+
+## Agents (responsibilities)
+
+| # | Agent | Module | Output |
+|---|--------|--------|--------|
+| 1 | **Critic** | `agents/critic.py` | `validated_requirements`, `security_risks`, ambiguity flags |
+| 1.5 | **Surface Resolver** | `agents/surface_resolver.py` | `surface_map` — per-REQ `SurfaceState`, endpoints, `threat_class`, `defense_kind` |
+| 2 | **Generator** | `agents/generator.py` | `test_suite`, `coverage_gaps`; Rule 11 binds tests to `surface_map` |
+| 3 | **Security+Compiler** | `agents/security_compiler.py` | Adversarial `TestCase` rows + `workspace/runs/.../test_sentinel_api_generated.py` |
+| 4 | **Executor** | `agents/executor.py` | `logs`, `suggested_patches`, `metadata` (posture, suite quality, **test_suite_summary**) |
+
+**Heal loop:** `needs_healing` → Generator when functional failures, vulnerabilities, or errors remain and heal budget allows (`heal_attempts` / `max_heal_attempts` on `ProjectState`).
+
+---
+
+## Layer A — Surface map and defenses
+
+Stories that describe **insecure** behavior are translated into **defense-confirming** tests:
+
+| `ThreatClass` | Meaning |
+|---------------|---------|
+| `DEFENSIVE_NORMAL` | Test the feature as specified |
+| `DEFENSIVE_INVERTED` | Story asks for bad behavior; test that the **inverse** defense holds |
+| `NON_FUNCTIONAL` | Cross-cutting; often `NEEDS_CLARIFICATION` |
+
+| `DefenseKind` | Typical assertion shape |
+|---------------|-------------------------|
+| `INPUT_REJECTION` | 4xx on bad input |
+| `OUTPUT_REDACTION` | 200 + forbidden fields absent |
+| `IMPLICIT_FILTER` | 200 + peer data not leaked (404 on IDOR) |
+| `ERROR_SANITIZATION` | No stack/SQL in errors |
+| `TRANSPORT` | HTTPS / redirect policy |
+
+Generator **Rule 11** drops tests that target paths outside the bound surface (honest abstention vs proxy noise).
+
+---
+
+## Test design and categorization
+
+Tests carry **`test_category`** on each `TestCase`:
+
+| Category | Role |
+|----------|------|
+| `positive` | Happy path / expected success |
+| `negative` | Validation / controlled failure |
+| `boundary` | BVA-style limits (`boundaries.py`, `boundary_value_used`) |
+| `state_transition` | Multi-step workflows (`workflow_steps` in pytest template) |
+| `security` | Adversarial / OWASP (`is_adversarial`, payloads from `utils/payloads.py`) |
+
+After execution, **`test_suite_summary`** rolls up planned vs executed counts per category, plus **`by_owasp`** and **`by_defense_kind`** — surfaced in the JSON artifact and CLI (for reviewer UI tabs).
+
+**Enterprise technique labels** (`test_technique`: equivalence partition, decision table, …) are roadmap; categories above are what the pipeline emits today.
+
+---
+
+## Output artifacts
+
+Each POST_CODE run writes:
+
+**`outputs/exec-demo-<story>-post_code-<timestamp>.json`** (repo root, gitignored)
+
+| Top-level field | Meaning |
+|-----------------|--------|
+| `suite_quality` | Release gate: `ATTESTABLE`, `INSUFFICIENT`, `NO_TESTS_GENERATED`, `ALL_SKIPPED`, `NO_RISKS_PREDICTED` |
+| `test_suite_summary` | **By category / OWASP / defense_kind** + slim `tests_by_category` drill-down |
+| `validated_requirements` | Critic output |
+| `security_risks` | OWASP mapping |
+| `test_suite_size` | Total tests after compiler |
+| `coverage_gaps` | Spec claims not grounded in code |
+| `logs_summary` | Final heal cycle only (passed / failed / error / skipped) |
+| `drift_report` | PRE_CODE vs POST_CODE diff when Phase-1 snapshot exists |
+| `metadata` | `security_posture`, pytest paths, compiler caps, quarantined patches, … |
+
+**Generated pytest:** `Backend/workspace/runs/run_<utc>/test_sentinel_api_generated.py` (gitignored).
+
+**Phase bridge:** `Backend/state/phase1_snapshots/` — PRE_CODE snapshots for drift on the next POST_CODE run.
 
 ---
 
 ## Shared state (`ProjectState`)
 
-The graph is typed on **`ProjectState`** (`Backend/state/project_state.py`). Important fields:
+Defined in [`Backend/state/project_state.py`](Backend/state/project_state.py).
 
-- **Inputs:** `user_story`, `acceptance_criteria`, `story_title`, `story_id`, `module`
-- **Critic output:** `validated_requirements`, `security_risks`
-- **Generator output:** `test_suite`, `coverage_gaps`
-- **Security+Compiler output:** extends `test_suite` with adversarial cases (and, when implemented, writes generated test files to `workspace/`)
-- **Executor output:** `logs` (`ExecutionLog`), `suggested_patches` (`Patch`), `metadata` (e.g. security posture), `heal_attempts`
+Key fields: `user_story`, `acceptance_criteria`, `surface_map`, `test_suite`, `coverage_gaps`, `logs`, `suggested_patches`, `heal_attempts`, `metadata`.
 
-Each **`TestCase`** includes human-readable `action` / `expected_result`, structured expectations (`expected_status_code`, `expected_json_keys`, …), **`source_refs`** (file:line citations from RAG), and adversarial fields (`is_adversarial`, `payload`, `owasp_category`, …).
+Each **`TestCase`** includes `action`, `input_data`, `expected_status_code`, `source_refs`, `test_category`, optional `workflow_steps`, and adversarial fields (`payload`, `owasp_category`, `bound_method`, `bound_path`, …).
+
+Each **`ExecutionLog`** includes `status`, `verdict` (`resilient` / `vulnerable` / `off_target` / `inconclusive` / `n/a`), and legacy `passed` / `is_vulnerable` for dashboards.
 
 ---
 
-## Setup
+## Repository layout
 
-1. **Python** 3.10+ recommended (matches `tree-sitter-language-pack` wheel support in docs).
-
-2. **Install dependencies** (from `Backend/`):
-
-   ```bash
-   python -m venv .venv
-   .venv\Scripts\activate   # Windows
-   pip install -r requirements.txt
-   ```
-
-3. **Configure Vertex AI** (required for Critic / Generator / Executor LLM paths):
-
-   - Copy **`Backend/.env.example`** → **`.env`** and set at least:
-     - `VERTEX_AI_PROJECT_ID`
-     - `VERTEX_AI_LOCATION` (e.g. `global` for some Gemini 3.x preview models — follow Google’s docs for your chosen model)
-   - Authenticate with **Application Default Credentials**, e.g. `gcloud auth application-default login`, or set `GOOGLE_APPLICATION_CREDENTIALS` to a service account JSON file.
-
-4. **Index source** (see §1 above).
-
-5. **Logging:** `run_critic_generator.py` calls `logging.basicConfig`; override verbosity with `SENTINEL_LOG_LEVEL` (e.g. `INFO`, `WARNING`).
+```
+HPE Project/
+├── README.md                          # This file
+├── sentinel-qa-architecture.md        # Planned React reviewer UI (separate track)
+├── docs/
+│   └── design-notes/
+│       └── idor-path-template-tests.md
+├── outputs/                           # Run artifacts (gitignored)
+└── Backend/
+    ├── main.py                        # LangGraph entry + artifact dump
+    ├── bootstrap.py                   # CHROMA_HOME / HF cache setup
+    ├── .env.example
+    ├── requirements.txt
+    ├── pyproject.toml                 # ruff + pytest
+    ├── agents/
+    │   ├── critic.py
+    │   ├── surface_resolver.py
+    │   ├── generator.py
+    │   ├── security_compiler.py
+    │   ├── executor.py
+    │   ├── pytest_runner.py
+    │   ├── suite_summary.py           # Categorized rollup for artifacts
+    │   └── templates/pytest_api.jinja2
+    ├── state/                         # Pydantic models
+    ├── database/                      # ingest, vector_store, ast_chunker, reranker
+    ├── samples/sample_stories.py      # CLI story registry
+    ├── utils/                         # llm, payloads, boundaries, placeholders
+    ├── phase_bridge/                    # Phase-1 snapshots + drift_report
+    ├── repo_cache/                    # App under test (FastAPI + React)
+    ├── tests/                         # Unit tests
+    ├── workspace/                     # Generated pytest runs (gitignored)
+    ├── chroma_data/                   # Vector DB (gitignored)
+    └── cloud/                         # Docker / publish helpers (optional)
+```
 
 ---
 
-## Linting and tests
+## Development
+
+### Lint and test
 
 From `Backend/`:
 
@@ -174,6 +316,33 @@ ruff check .
 pytest
 ```
 
-`pyproject.toml` configures **ruff** and **pytest** (`testpaths = ["tests"]`). Add a `tests/` package when you introduce automated tests.
+CI (`.github/workflows/ci.yml`): **ruff** on `main`, then **pytest** with cached pip/HF models.
+
+### Logging
+
+`SENTINEL_LOG_LEVEL` (e.g. `INFO`, `WARNING`). Pipeline uses `logging` with timestamps in `main.py`.
 
 ---
+
+## Known limitations
+
+| Area | Status |
+|------|--------|
+| **IDOR / two-user fixtures** | `perms` may report `INSUFFICIENT` — path templates need peer task seeding. Design: [`docs/design-notes/idor-path-template-tests.md`](docs/design-notes/idor-path-template-tests.md). |
+| **Pinpoint line citations** | Range buckets (`schemas.py:50-86`) are reliable; single-line refs in LLM prose may drift ±few lines. |
+| **Heal loop cost** | Retries Generator; cap `max_heal_attempts` and compiler size for demos. |
+| **Resilience %** | Excludes skipped/errored adversarial tests from denominator — read `errored` in posture. |
+| **Features absent in app** | `org`, `ratelimit`, `taskshare` often yield honest empty or thin suites — by design. |
+| **Reviewer UI** | Not in this repo; backend JSON contract is stable for [`sentinel-qa-architecture.md`](sentinel-qa-architecture.md). |
+
+---
+
+## Security note
+
+Payloads in `utils/payloads.py` are **canonical test strings** for authorized security evaluation in isolated environments. Do not point Sentinel at production systems without scope and approval.
+
+---
+
+## License / attribution
+
+HPE internship / academic project context. Smart Task Manager sample app lives under `Backend/repo_cache/` with its own README.

@@ -1349,6 +1349,22 @@ def _normalize_test_case_payload(
     # When the requirement has no OWASP mapping, we leave owasp_category None
     # rather than fabricate one.
     test_cat = (normalized.get("test_category") or "").strip().lower()
+    if test_cat not in ("positive", "negative", "boundary", "security", "state_transition"):
+        if normalized.get("is_adversarial"):
+            test_cat = "security"
+        elif len(workflow_steps) >= 2:
+            test_cat = "state_transition"
+        elif (normalized.get("boundary_value_used") or "").strip():
+            test_cat = "boundary"
+        else:
+            esc = normalized.get("expected_status_code")
+            if esc is not None and int(esc) >= 400:
+                test_cat = "negative"
+            elif esc is not None and int(esc) < 400:
+                test_cat = "positive"
+            else:
+                test_cat = "uncategorized"
+        normalized["test_category"] = test_cat
     if test_cat == "state_transition":
         normalized["is_adversarial"] = False
         if len(workflow_steps) >= 2 and normalized.get("expected_status_code") is None:

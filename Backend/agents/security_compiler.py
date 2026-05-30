@@ -786,6 +786,7 @@ def _mutate(
         covered_requirement_id=base.covered_requirement_id,
         covered_acceptance_criterion=base.covered_acceptance_criterion,
         source_refs=list(base.source_refs),
+        test_category="security",
         is_adversarial=True,
         owasp_category=risk.owasp_id,
         payload=payload.value,
