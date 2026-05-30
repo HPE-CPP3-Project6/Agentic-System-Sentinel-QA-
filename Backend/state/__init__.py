@@ -8,6 +8,16 @@ from .project_state import (
     Patch,
     DesignContract,
     SecurityChecklistItem,
+    # Layer A — SurfaceMap types
+    SurfaceState,
+    ThreatClass,
+    DefenseKind,
+    Verdict,
+    BackendEndpoint,
+    FrontendSurface,
+    ACOverride,
+    SurfaceBinding,
+    _legacy_fields_from_verdict,
 )
 __all__ = [
     "ProjectState",
@@ -19,4 +29,13 @@ __all__ = [
     "Patch",
     "DesignContract",
     "SecurityChecklistItem",
+    "SurfaceState",
+    "ThreatClass",
+    "DefenseKind",
+    "Verdict",
+    "BackendEndpoint",
+    "FrontendSurface",
+    "ACOverride",
+    "SurfaceBinding",
+    "_legacy_fields_from_verdict",
 ]

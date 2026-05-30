@@ -420,3 +420,40 @@ def test_executor_dedup_replaces_prior_cycle_patch_in_state(monkeypatch):
     assert len(state.suggested_patches) == 1, "cycle-2 patch must REPLACE cycle-1"
     assert state.suggested_patches[0].suggested_fix == "patch_v2"
     assert "[CYCLE=2]" in state.suggested_patches[0].bug_explanation
+
+
+def test_heal_survives_vertex_connection_error(monkeypatch):
+    """A transient Vertex/network fault during _heal must not abort the graph.
+
+    Observed: POST_CODE reached executor after pytest, then crashed on
+    RemoteDisconnected inside chain.invoke with no retry wrapper.
+    """
+    from unittest.mock import MagicMock
+
+    from utils import LLMInvocationError
+
+    fake_llm = MagicMock()
+
+    def boom(*_args, **_kwargs):
+        raise ConnectionError("Remote end closed connection without response")
+
+    monkeypatch.setattr(exec_mod, "invoke_with_retry", boom)
+
+    tc = TestCase(test_id="TC-1", title="t", action="POST /login", expected_result="ok")
+    log = ExecutionLog(test_id="TC-1", status="failed", passed=False)
+    errors: list = []
+
+    patch = exec_mod._heal(tc, log, llm=fake_llm, heal_llm_errors=errors)
+
+    assert patch is None
+    assert len(errors) == 1
+    assert "ConnectionError" in errors[0]["error"]
+
+    # LLMInvocationError path (retries exhausted)
+    def boom_llm(*_args, **_kwargs):
+        raise LLMInvocationError("failed after 3 attempts", cause=ConnectionError("x"))
+
+    monkeypatch.setattr(exec_mod, "invoke_with_retry", boom_llm)
+    errors.clear()
+    assert exec_mod._heal(tc, log, llm=fake_llm, heal_llm_errors=errors) is None
+    assert errors[0]["cause"] is not None

@@ -7,10 +7,114 @@
 from __future__ import annotations
 
 import os
+import uuid
 from pathlib import Path
 
 import httpx
 import pytest
+
+
+# P1-7 (Cursor) — kill 409-duplicate-email fixture pollution.
+#
+# Background: prior generated pytest hardcoded literal emails like
+# `test_user_sql_wildcard@example.com` in /register payloads. The first run
+# created the user; subsequent runs got 409 Conflict and reported the test
+# as failed (and the executor flipped it to "vulnerable" before the P0-1 fix).
+# In exec-demo-login-post_code-20260528_195120 this was the last residual
+# pytest failure — a fixture-pollution false positive, not an app bug.
+#
+# This helper substitutes the email/username field in a payload with a
+# fresh UUID-suffixed address ONLY for tests where uniqueness is the
+# intent (functional /register and adversarial /register tests where the
+# attack payload sits in a non-email field). Login tests keep their
+# literal email so the lookup still hits the registered user. Tests that
+# intentionally embed the attack vector in the email field (SQLi-as-email,
+# XSS-as-email) are detected and left alone — randomising the email would
+# destroy the attack payload.
+_EMAIL_KEYS = ("email", "username", "user_email", "useremail")
+_ATTACK_SIGILS = ("'", "--", "<", ">", "/*", "*/", "${", "{$", "OR 1", "../", "..\\")
+
+
+def _payload_email_field(payload):
+    if isinstance(payload, dict):
+        for k in _EMAIL_KEYS:
+            if k in payload and isinstance(payload[k], str):
+                return k
+    return None
+
+
+def _looks_like_attack_payload(value: str) -> bool:
+    """True iff the value already carries an attack signature — leave it alone."""
+    if not isinstance(value, str):
+        return False
+    return any(sig in value for sig in _ATTACK_SIGILS)
+
+
+def _maybe_randomise_email(payload, *, path: str, is_adversarial: bool):
+    """Return a (possibly modified) shallow-copy of payload with a unique email.
+
+    Only fires when:
+      - path ends with /register (creates a row keyed on email), AND
+      - the email-like field's existing value does NOT itself look like an
+        attack payload (otherwise we'd be neutering the test).
+
+    Login tests do NOT get rewritten — the literal email is the lookup key.
+    """
+    if not isinstance(payload, dict):
+        return payload
+    if not path.endswith("/register"):
+        return payload
+    field = _payload_email_field(payload)
+    if field is None:
+        return payload
+    original = payload[field]
+    if _looks_like_attack_payload(original):
+        return payload  # attack lives in this field — preserve it verbatim
+    new_payload = dict(payload)
+    new_payload[field] = f"sentinel-{uuid.uuid4().hex[:12]}@example.com"
+    return new_payload
+
+
+# Stage-2 follow-up (login fixture coordination).
+#
+# Background: P1-7 randomises /register email per run so subsequent runs
+# don't 409 on the same identity. Side effect: functional /login tests that
+# hardcoded `test@example.com` now hit "user not found" because /register
+# no longer seeds that specific identity. Observed in
+# exec-demo-login-post_code-20260528_202228 — 2 of 3 functional_failed
+# entries were "user does not exist" Healer opt-outs.
+#
+# Fix: before a functional /login test fires, idempotently POST /register
+# with the same credentials. 201 = freshly created; 409 = already exists;
+# either way the subsequent login finds the user. Adversarial /login tests
+# (SQLi/XSS-in-credentials) skip this bootstrap — Pydantic EmailStr would
+# reject the attack payload anyway, and we want to see how the login route
+# itself handles the malicious input.
+def _ensure_credential(payload, *, path: str, is_adversarial: bool) -> None:
+    """Idempotently register the credential pair before a functional /login.
+
+    Best-effort — silent on every failure mode (already-exists, network
+    glitch, Pydantic rejecting a non-email username, etc.). The test that
+    follows is the source of truth for the actual login behaviour.
+    """
+    if is_adversarial:
+        return
+    if not path.endswith("/login"):
+        return
+    if not isinstance(payload, dict):
+        return
+    # OAuth2PasswordRequestForm sends `username` (carrying the email).
+    email = payload.get("username") or payload.get("email")
+    password = payload.get("password") or payload.get("passwd") or payload.get("pwd")
+    if not (email and password):
+        return
+    if _looks_like_attack_payload(str(email)) or _looks_like_attack_payload(str(password)):
+        return  # do NOT register the attack value — preserves login-route test
+    try:
+        with httpx.Client(base_url=BASE_URL, timeout=10.0, follow_redirects=False) as _client:
+            _client.post("/register", json={"email": email, "password": password})
+    except Exception:
+        pass  # swallowed by design — the actual test follows
 
 try:
     from dotenv import load_dotenv
@@ -103,55 +207,80 @@ def test_{{ tc.slug }}() -> None:
     path = {{ tc.path | tojson }}
     payload = {{ tc.payload_literal }}
     assert isinstance(payload, (dict, list)), "payload must be dict or list for httpx"
+    # P1-7: randomise the email on /register-class tests so subsequent runs
+    # don't 409 on the same identity. Skipped if the payload's email field
+    # already carries an attack signature (preserves the exploit vector).
+    payload = _maybe_randomise_email(
+        payload, path=path, is_adversarial={{ "True" if tc.is_adversarial else "False" }}
+    )
+    # Stage-2 follow-up: idempotent pre-register for functional /login tests
+    # so the credential exists before the login attempt. Adversarial /login
+    # tests bypass this (we want to see how the route handles attack values).
+    _ensure_credential(
+        payload, path=path, is_adversarial={{ "True" if tc.is_adversarial else "False" }}
+    )
 
     m = method.upper()
+    # P0-3: when repeat_count > 1, every request + assertion runs N times so
+    # rate-limit / brute-force ACs (REQ-002's "100 failed login attempts, no
+    # lockout") actually exercise N iterations. Single-shot when repeat_count == 1.
+    _repeat_n = {{ tc.repeat_count | default(1) }}
+    _observed_statuses: list[int] = []
+    _last_response_text: str = ""
     with httpx.Client(
         base_url=BASE_URL,
         timeout=120.0,
         follow_redirects=True,
         headers=headers,
     ) as client:
-        if m == "GET":
-            if not isinstance(payload, dict):
-                pytest.skip("GET with non-dict payload is not generated for this harness")
-            response = client.request("GET", path, params=payload)
-        elif m in ("POST", "PUT", "PATCH", "DELETE"):
-            is_form = False
-            if isinstance(payload, dict):
-                if payload.get("_content_type") == "application/x-www-form-urlencoded" or path == "/login":
-                    is_form = True
-            if is_form:
-                form_data = {k: v for k, v in payload.items() if k != "_content_type"}
-                response = client.request(m, path, data=form_data)
+        for _iter in range(_repeat_n):
+            if m == "GET":
+                if not isinstance(payload, dict):
+                    pytest.skip("GET with non-dict payload is not generated for this harness")
+                response = client.request("GET", path, params=payload)
+            elif m in ("POST", "PUT", "PATCH", "DELETE"):
+                is_form = False
+                if isinstance(payload, dict):
+                    if payload.get("_content_type") == "application/x-www-form-urlencoded" or path == "/login":
+                        is_form = True
+                if is_form:
+                    form_data = {k: v for k, v in payload.items() if k != "_content_type"}
+                    response = client.request(m, path, data=form_data)
+                else:
+                    response = client.request(m, path, json=payload)
             else:
-                response = client.request(m, path, json=payload)
-        else:
-            pytest.skip("Unsupported HTTP method: " + str(method))
+                pytest.skip("Unsupported HTTP method: " + str(method))
+            _observed_statuses.append(response.status_code)
+            _last_response_text = response.text
 
-    {% if tc.acceptable_status_codes %}
-    # Adversarial test — accept ANY status code that proves the attack was
-    # neutralized (see RESILIENCE_SIGNATURES). Hardcoding a single expected
-    # code makes the app look "vulnerable" whenever it correctly neutralizes
-    # via a different status (e.g. 401 on /login, 422 on /register).
-    _accept = {{ tc.acceptable_status_codes | tojson }}
-    assert response.status_code in _accept, (
-        "Adversarial test expected ANY of " + str(_accept)
-        + " (attack neutralized), got "
-        + str(response.status_code)
-        + " — excerpt: "
-        + response.text[:800]
-    )
-    {% elif tc.expected_status_code is not none %}
-    assert response.status_code == {{ tc.expected_status_code }}, (
-        "Expected status {{ tc.expected_status_code }}, got "
-        + str(response.status_code)
-        + " — excerpt: "
-        + response.text[:800]
-    )
-    {% endif %}
-    {% if tc.forbidden %}
-    _assert_forbidden(response.text, {{ tc.forbidden | tojson }})
-    {% endif %}
+            {% if tc.acceptable_status_codes %}
+            # Adversarial test — accept ANY status that proves the attack was
+            # neutralized (see RESILIENCE_SIGNATURES). Hardcoding a single
+            # expected code makes the app look "vulnerable" whenever it
+            # correctly neutralizes via a different status (e.g. 401 on
+            # /login, 422 on /register). Every iteration must remain neutralized
+            # — a 200 emerging after 87 failed attempts proves a brute-force hit.
+            _accept = {{ tc.acceptable_status_codes | tojson }}
+            assert response.status_code in _accept, (
+                "Adversarial test expected ANY of " + str(_accept)
+                + " (attack neutralized), got "
+                + str(response.status_code)
+                + " at iteration " + str(_iter + 1) + "/" + str(_repeat_n)
+                + " — excerpt: "
+                + response.text[:800]
+            )
+            {% elif tc.expected_status_code is not none %}
+            assert response.status_code == {{ tc.expected_status_code }}, (
+                "Expected status {{ tc.expected_status_code }}, got "
+                + str(response.status_code)
+                + " at iteration " + str(_iter + 1) + "/" + str(_repeat_n)
+                + " — excerpt: "
+                + response.text[:800]
+            )
+            {% endif %}
+            {% if tc.forbidden %}
+            _assert_forbidden(response.text, {{ tc.forbidden | tojson }})
+            {% endif %}
     {% endif %}
 
 

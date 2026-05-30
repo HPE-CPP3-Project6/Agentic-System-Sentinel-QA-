@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -36,9 +36,11 @@ from state import (
     CoverageGap,
     DesignContract,
     ProjectState,
+    SurfaceBinding,
     TestCase,
     ValidatedRequirement,
 )
+from ._paths import _paths_match_any
 from utils import (
     LLMInvocationError,
     get_local_llm,
@@ -592,6 +594,223 @@ or handler file that would be required (e.g. "requires the handler for
 GET /tasks where `date_filter` is consumed; retrieved snippets do not
 include the query-construction line").
 
+## RULE 10 — STORY SCOPE DISCIPLINE (no off-story proxy tests)
+This rule fences the test suite to the routes / surfaces the STORY actually
+touches. It exists because prior runs emitted off-story adversarial tests as
+a "free coverage" hedge, which both inflated the suite size and produced
+verdicts about routes the story didn't own.
+
+### 10a — No auth-scaffolding proxy tests
+If the requirement under test does NOT mention authentication, registration,
+login, or session management, you are FORBIDDEN from emitting tests against
+`/register`, `/login`, `/logout`, `/refresh`, `/password-reset`, or any
+similar auth-scaffolding route — even as a "proxy" for testing the OWASP
+control the AC names.
+
+  Trigger conditions (any one disqualifies an auth-route test):
+    • Neither `action` nor any AC mentions auth, register, login, logout,
+      session, JWT, token, or password.
+    • The OWASP mapping is one of A01 (Broken Access Control) on a
+      NON-auth resource (e.g. tasks, projects, files), A03 in a
+      NON-credential input field, A04, A05, A08, A09.
+    • The retrieved source context does not include an auth router file
+      (no `auth_router.py`, no `login`/`register` endpoint definitions).
+
+  Allowed when:
+    • The requirement's `action` literally contains "login", "register",
+      "logout", "reset password", "refresh token", or
+    • At least one AC text describes credential, session, or token behavior.
+
+  Why: a story about "task sharing IDOR" producing tests for SQLi-on-
+  /register is non-grounded — the test exercises a different feature, and
+  any verdict (vulnerable / resilient) attaches to the wrong AC. Emit a
+  `coverage_gaps` entry naming the in-scope route you would need instead.
+
+### 10b — No backend-query tests when the feature is client-side only
+Reinforces RULE 8 with a structural test: if ALL of the following hold,
+you MUST NOT emit a backend SQLi / NoSQLi / command-injection test:
+
+  • The retrieved source context contains NO backend router that consumes
+    the user-supplied query field (no `@router.get` / `@app.get` /
+    `@router.post` handler for the path the AC names).
+  • The retrieved frontend context shows the query field is handled by
+    client-side filtering (e.g. `.filter(...)`, `useMemo` over a local
+    array, Array methods on data already fetched).
+  • No SQLAlchemy / ORM call in the retrieved context references the
+    field by name.
+
+  When all three hold:
+    • Pivot to a CLIENT-SIDE test per Rule 8 (DOM-based XSS, stored-XSS
+      via localStorage, prototype pollution) using Playwright assertions.
+    • Emit a `coverage_gaps` entry stating the absence of a backend
+      query path so the reviewer knows backend SQLi was deliberately not
+      tested ("no backend route consumes `search` per retrieved context;
+      filtering occurs client-side at TasksList.jsx:142 via .filter()").
+
+  Why: a `GET /tasks/?search=<SQLi>` test against an endpoint that does
+  not parse the field server-side returns 200 with normal results and the
+  prior classifier flagged it as exploited. The fix at the test layer
+  (Stage 2 per-route exploit semantics) handles the false positive but
+  the test itself was still wasted budget. Suppress it at the source.
+
+## RULE 11 — SURFACE MAP BINDING (HARD CONSTRAINT, SUPERSEDES RULE 10)
+
+The Surface Resolver (Agent 1.5) has already mapped this requirement to
+its testable surface in the codebase. The binding is BINDING STATE —
+not a hint, not a default. You cannot override it.
+
+The user prompt below carries a SURFACE BINDING block with:
+  - state: BACKEND_API | FRONTEND_ONLY | CLIENT_SIDE_ONLY |
+           NOT_IMPLEMENTED | NEEDS_CLARIFICATION
+  - backend_endpoints: list of (method, path) you MAY target
+  - frontend_surfaces: list of components (future Playwright track)
+  - rationale: WHY this binding was chosen — quote it in coverage_gaps
+  - grounding_refs: file:line evidence the Resolver relied on
+
+You receive this block ONLY when state == BACKEND_API. For all other
+states the Generator skips invoking you entirely; the upstream agent
+emits a coverage_gap with the Resolver's rationale. So if you are
+reading a SURFACE BINDING block, state IS BACKEND_API by construction.
+
+Hard rules when SURFACE BINDING is present:
+
+  • Every test's `action` MUST start with one of the bound endpoints in
+    the form "METHOD /path ...". E.g. if backend_endpoints lists
+    `{{"method": "GET", "path": "/tasks/"}}`, valid actions begin with
+    "GET /tasks/" or "GET /tasks". Tests against any other path are
+    INVALID OUTPUT and will be DROPPED by post-validation.
+
+  • Adversarial tests target the SAME bound endpoints. You may NOT
+    emit a SQLi-on-/register test as a "proxy" for testing a search
+    requirement bound to /tasks/. The Resolver already considered
+    cross-cutting paths and declined to bind them.
+
+  • If you genuinely believe the binding is wrong, emit a coverage_gap
+    with reason "RULE 11: binding disagreement — <evidence>" and the
+    operator can patch the binding via surface_overrides/<story>.json.
+    Do NOT silently emit off-binding tests.
+
+This rule is the typed contract version of Rule 10. Rule 10 was a
+prompt heuristic; Rule 11 is enforced by post-LLM validation. Off-
+binding tests are not passed through to the Compiler.
+
+## RULE 11b — ANTI-PATTERN TRANSLATION (when DEFENSIVE_INVERTED is set)
+
+The Surface Resolver's threat-class classifier may mark a requirement
+as DEFENSIVE_INVERTED. The story's narrator wrote anti-pattern language
+— the Critic flagged it as a security risk because the INVERSE
+(rejection / hiding / filtering) is the real defense. The Resolver
+located the defense and emitted a `defense_kind` telling you which
+test shape to emit.
+
+When the SURFACE BINDING block includes `defense_kind` and
+`defense_assertion`, your tests MUST verify the DEFENSE. The right
+test shape DEPENDS ON THE KIND. Do NOT force 4xx on every kind — kinds
+3/4/5 below succeed with 200 / 5xx by design.
+
+Universal rules for any DEFENSIVE_INVERTED test:
+  • test_category MUST be "security"
+  • is_adversarial MUST be true
+  • input_data exercises the anti-pattern (1000-char input, sqli
+    payload, peer-user id, error-inducing payload, etc.)
+  • coverage_rationale QUOTES the defense_assertion AND names the
+    defense mechanism found in the retrieved code
+  • Title frames the test as verifying the defense, NOT confirming the
+    anti-pattern
+
+Per-kind rules:
+
+### defense_kind = INPUT_REJECTION
+  Anti-pattern: "accept any length", "allow malformed input",
+                "unlimited retries", "no rate limit"
+  Defense: Pydantic validator, length cap, auth gate, rate-limiter
+  → expected_status_code in {{400, 401, 403, 422, 429}}
+  → forbidden_response_content includes leakage indicators:
+      ["Traceback", "psycopg2", "sqlite3.", "SQLSTATE",
+       "OperationalError"]
+  Example (login REQ-001):
+      title: "Reject 1000-char email at /register"
+      action: "POST /register with 1000-char email"
+      input_data: {{{{"email": "<STRING:len=1000>@x.com", "password": "Sentinel1!"}}}}
+      expected_status_code: 422
+
+### defense_kind = TRANSPORT
+  Anti-pattern: "transmit session token over HTTP", "no TLS required"
+  Defense: HTTPSRedirectMiddleware, HSTS header, Secure cookie flag
+  → expected_status_code in {{301, 302, 307, 308}}
+  → response_match_regex includes "Strict-Transport-Security" header
+    presence OR "Location: https://" pattern
+  Example (login REQ-004):
+      title: "GET /tasks/ over http:// redirects to https://"
+      expected_status_code: 301
+
+### defense_kind = OUTPUT_REDACTION
+  Anti-pattern: "show internal IDs / system fields / password hashes
+                in response", "display PII", "expose secrets"
+  Defense: response_model excludes field, by_alias, exclude_none,
+           serializer hides field
+  → expected_status_code = 200 (the request SUCCEEDS; defense is
+    that sensitive content is REDACTED)
+  → forbidden_response_content REQUIRED: list the specific keys
+    that the defense must strip
+      ["password_hash", "_password", "salt", "raw_password",
+       "deleted_at" if soft-delete is the defense]
+  Example (search REQ-002 "show internal IDs"):
+      title: "GET /tasks/ response does not leak password_hash"
+      action: "GET /tasks/ as authenticated user"
+      expected_status_code: 200
+      forbidden_response_content: ["password_hash", "hashed_password",
+                                    "salt"]
+
+### defense_kind = IMPLICIT_FILTER
+  Anti-pattern: "show records across all users", "see private items",
+                "list deleted entries"
+  Defense: ORM filter (Task.user_id == current_user.id),
+           soft-delete (deleted_at IS NULL), tenant scoping
+  → expected_status_code = 200 (request SUCCEEDS; defense is that
+    unauthorized rows are FILTERED OUT)
+  → forbidden_response_content includes IDs/titles of seed rows
+    belonging to OTHER users — those must NOT appear
+  → setup_fixtures MUST seed at least: (a) the test user, (b) a
+    DIFFERENT user's row, then assert the response does not contain
+    that other row
+  Example (search REQ-003 "show all users' records"):
+      title: "GET /tasks/ as user A does not return user B's tasks"
+      action: "GET /tasks/ as user A"
+      setup_fixtures: ["Seed user A and user B; seed task 'B-secret'
+                        owned by user B"]
+      expected_status_code: 200
+      forbidden_response_content: ["B-secret"]
+
+### defense_kind = ERROR_SANITIZATION
+  Anti-pattern: "display SQL query / database error / stack trace
+                to users", "verbose 500 messages"
+  Defense: global exception handler, generic 500 message, no DEBUG
+           in production
+  → expected_status_code in {{500, 503}}
+  → forbidden_response_content REQUIRED — list the SQL/stack tokens
+    that must NOT appear in the body:
+      ["Traceback", "psycopg2", "sqlite3.", "SQLSTATE",
+       "OperationalError", "ProgrammingError",
+       "near \\"--\\"", "unterminated", "psycopg2.errors"]
+  Example (search REQ-005 "leak SQL errors"):
+      title: "Invalid input does not leak SQL fragments in 500 body"
+      action: "POST /register with input that triggers DB error"
+      expected_status_code: 500
+      forbidden_response_content: ["Traceback", "psycopg2",
+                                    "sqlite3.", "SQLSTATE"]
+
+VIOLATION HANDLING:
+  • A test asserting `expected_status_code: 200` for an
+    INPUT_REJECTION binding (i.e. confirming the insecure behavior
+    works) will be DROPPED by post-validation.
+  • A test asserting `expected_status_code: 4xx` for an
+    OUTPUT_REDACTION or IMPLICIT_FILTER binding (i.e. mis-applying
+    rejection-kind logic to redaction-kind defenses) will be DROPPED.
+  • A test for ERROR_SANITIZATION asserting 200 (i.e. expecting the
+    error to be hidden) will be DROPPED — the error MUST surface;
+    only its details are scrubbed.
+
 ============================================================
 TEST GENERATION DISCIPLINE
 ============================================================
@@ -678,6 +897,8 @@ GENERATOR_USER_PROMPT = """Requirement under test:
   OWASP mapping: {owasp_mapping}
   Acceptance Criteria:
 {acceptance_criteria_block}
+
+{surface_binding_block}
 
 REQUIRED TEST GENERATION RATIO: ~20% Positive · ~35% Negative · ~20% Boundary · ~25% Security.
 
@@ -953,7 +1174,255 @@ def _normalize_test_case_payload(
     if "is_adversarial" in normalized:
         normalized["is_adversarial"] = bool(normalized["is_adversarial"])
 
+    # ------------------------------------------------------------------ #
+    # P0-4 (Cursor) — enforce contracts for security-category tests.     #
+    # ------------------------------------------------------------------ #
+    # The system prompt instructs the LLM that security tests must have
+    # is_adversarial=True with owasp_category set. The LLM doesn't reliably
+    # follow this — observed in exec-demo-login-post_code-20260528_170306
+    # where TC-REQ-002-01 ("100 failed login attempts") came back with
+    # is_adversarial=False and no owasp_category, so:
+    #   1. pytest_runner classified it as a functional test (vs adversarial),
+    #      meaning a passing "no rate limit" outcome logs as success rather
+    #      than confirming the story's stated weakness.
+    #   2. _acceptable_status_codes_for_adversarial fell through to single-int
+    #      semantics, producing `_accept = [200]` for tests that should accept
+    #      the full A07/A04 resilience list.
+    # This block re-asserts both contracts. It does NOT invent owasp_category
+    # — it inherits from the requirement's owasp_mapping (Critic's call).
+    # When the requirement has no OWASP mapping, we leave owasp_category None
+    # rather than fabricate one.
+    test_cat = (normalized.get("test_category") or "").strip().lower()
+    if test_cat == "security":
+        if not normalized.get("is_adversarial"):
+            normalized["is_adversarial"] = True
+        if not normalized.get("owasp_category"):
+            req_owasp = list(req.owasp_mapping or [])
+            if req_owasp:
+                normalized["owasp_category"] = req_owasp[0]
+        # Inherit exploit_target from owasp_category when absent — gives the
+        # security_posture's by_exploit_target bucket a meaningful key
+        # instead of the "unknown" leak.
+        if (
+            normalized.get("is_adversarial")
+            and normalized.get("owasp_category")
+            and not normalized.get("exploit_target")
+        ):
+            normalized["exploit_target"] = normalized["owasp_category"]
+
     return normalized
+
+
+# --------------------------------------------------------------------------- #
+# Layer A — SurfaceMap binding helpers (Rule 11)                              #
+# --------------------------------------------------------------------------- #
+
+
+# Method extraction regex used to read the LLM's emitted `action` and stamp
+# bound_method on the TestCase. Tolerant of casing.
+_ACTION_METHOD_RE = re.compile(r"\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\b", re.IGNORECASE)
+_ACTION_PATH_RE = re.compile(r"(/[A-Za-z0-9_\-./{}]*)")
+
+
+def _escape_template_braces(text: str) -> str:
+    """Escape `{` / `}` so ChatPromptTemplate does NOT interpret them as
+    variable placeholders.
+
+    Why: the Resolver's bound paths frequently contain FastAPI path-param
+    templates like `/tasks/{task_id}`. The Generator's ChatPromptTemplate
+    treats single `{name}` as a substitution slot; finding `{task_id}` in
+    the binding block causes a `KeyError: 'task_id'` at prompt-render
+    time and aborts test generation for that requirement (observed in
+    exec-demo-search-post_code-20260529_064454, where REQ-002 — the only
+    BACKEND_API binding — failed before any test was emitted, producing
+    a 0-test suite).
+
+    Same trick the Resolver's own prompt already uses for its example
+    schema (`{{task_id}}` instead of `{task_id}`). Apply at the boundary
+    where dynamic, LLM-derived text meets the f-string prompt template.
+    """
+    return text.replace("{", "{{").replace("}", "}}")
+
+
+def _render_surface_binding_block(binding: Optional[SurfaceBinding]) -> str:
+    """Render the BINDING block included in the user prompt for BACKEND_API.
+
+    Empty string for non-BACKEND_API states because the Generator does not
+    invoke the LLM for those — they emit coverage_gap deterministically.
+    Including this block is what Rule 11 references in-prompt; the
+    post-LLM validator below enforces it.
+
+    NOTE: the returned string passes through `_escape_template_braces`
+    before being substituted into the Generator's ChatPromptTemplate.
+    See `_escape_template_braces` for why.
+    """
+    if binding is None or binding.state != "BACKEND_API":
+        return ""
+    eps_lines = "\n".join(
+        f"    - {ep.method} {ep.path}"
+        + (f"  (handler: {ep.handler_file}"
+           + (f":{ep.handler_line}" if ep.handler_line else "")
+           + ")"
+           if ep.handler_file else "")
+        for ep in binding.backend_endpoints
+    ) or "    (none — bug; should not invoke generator)"
+    grounding = ", ".join(binding.grounding_refs) or "(none)"
+
+    # Refinement 1.1 — anti-pattern block carries defense_kind so the
+    # Generator picks the right test shape. Status-code rules differ per
+    # kind (INPUT_REJECTION → 4xx, TRANSPORT → 3xx, OUTPUT_REDACTION → 200
+    # + redaction list, IMPLICIT_FILTER → 200 + filtered list,
+    # ERROR_SANITIZATION → 5xx + scrubbed body). See Rule 11b in the
+    # system prompt for the full table.
+    anti_pattern_block = ""
+    if (
+        binding.threat_class == "DEFENSIVE_INVERTED"
+        and binding.defense_assertion
+        and binding.defense_kind
+    ):
+        kind_hint = {
+            "INPUT_REJECTION":    "expected_status_code in {400, 401, 403, 422, 429}; clean body",
+            "TRANSPORT":          "expected_status_code in {301, 302, 307, 308}; assert HTTPS/HSTS",
+            "OUTPUT_REDACTION":   "expected_status_code = 200; forbidden_response_content lists the keys defense must strip",
+            "IMPLICIT_FILTER":    "expected_status_code = 200; setup_fixtures seeds a peer row; forbidden_response_content asserts peer's data is absent",
+            "ERROR_SANITIZATION": "expected_status_code in {500, 503}; forbidden_response_content lists SQL/stack tokens that must NOT appear",
+        }.get(binding.defense_kind, "see Rule 11b for kind-specific rules")
+        anti_pattern_block = (
+            "\n"
+            "ANTI-PATTERN TRANSLATION (Rule 11b — HARD CONSTRAINT):\n"
+            f"  threat_class:      DEFENSIVE_INVERTED\n"
+            f"  defense_kind:      {binding.defense_kind}\n"
+            f"  anti_pattern:      {binding.anti_pattern_summary or '(not specified)'}\n"
+            f"  defense_assertion: {binding.defense_assertion}\n"
+            f"  test shape:        {kind_hint}\n"
+            "Your tests MUST verify the defense for this kind. Mismatched\n"
+            "status codes (e.g. 200 for INPUT_REJECTION, or 4xx for\n"
+            "OUTPUT_REDACTION) will be DROPPED by post-validation."
+        )
+
+    return (
+        "SURFACE BINDING (Rule 11 — HARD CONSTRAINT):\n"
+        f"  state: BACKEND_API\n"
+        f"  confidence: {binding.confidence}\n"
+        f"  rationale: {binding.rationale}\n"
+        f"  grounding: {grounding}\n"
+        f"  bound endpoints (you MAY emit tests against ONLY these):\n"
+        f"{eps_lines}\n"
+        + anti_pattern_block + "\n"
+        "All tests' `action` field MUST begin with one of the bound\n"
+        "endpoints in the form 'METHOD /path ...'. Any test against\n"
+        "another path will be DROPPED by post-validation."
+    )
+
+
+def _coverage_gap_for_non_backend(
+    req: ValidatedRequirement,
+    binding: SurfaceBinding,
+) -> CoverageGap:
+    """Build the deterministic coverage_gap emitted when state is not
+    BACKEND_API. The LLM is NOT invoked — Resolver's rationale is the
+    authoritative reason."""
+    state_msg = {
+        "FRONTEND_ONLY": "Surface is frontend-only (no logic to verify at the API layer)",
+        "CLIENT_SIDE_ONLY": "Surface is client-side only (logic in browser; no backend route to test)",
+        "NOT_IMPLEMENTED": "No surface for this requirement found in the codebase",
+        "NEEDS_CLARIFICATION": "Surface mapping needs stakeholder clarification",
+    }.get(binding.state, f"Surface state {binding.state} does not permit API tests")
+    grounding = ", ".join(binding.grounding_refs) or "(no grounding)"
+    return CoverageGap(
+        requirement_id=req.requirement_id,
+        acceptance_criterion=None,
+        reason=(
+            f"[Rule 11 / SurfaceMap] {state_msg}. "
+            f"Resolver rationale: {binding.rationale} "
+            f"Grounding: {grounding}"
+        ),
+    )
+
+
+_DEFENSE_KIND_STATUS_RULES = {
+    "INPUT_REJECTION":    ({400, 401, 403, 422, 429},   "INPUT_REJECTION requires 4xx (400/401/403/422/429)"),
+    "TRANSPORT":          ({301, 302, 307, 308},        "TRANSPORT requires 3xx redirect (301/302/307/308)"),
+    "OUTPUT_REDACTION":   ({200, 201},                  "OUTPUT_REDACTION requires 2xx — defense is body-level"),
+    "IMPLICIT_FILTER":    ({200, 201},                  "IMPLICIT_FILTER requires 2xx — defense scopes results"),
+    "ERROR_SANITIZATION": ({500, 502, 503, 504},        "ERROR_SANITIZATION requires 5xx — error surfaces, details scrubbed"),
+}
+
+# App-wide defenses don't bind to a specific URL path — the defense
+# (global exception handler, HTTPSRedirectMiddleware, CORS, HSTS) applies
+# across every route. For these the Resolver emits `path: "/"` as a
+# sentinel; the Generator may pick any concrete URL the defense will fire
+# against, and Rule 11 path-match becomes a no-op.
+_APP_WIDE_DEFENSE_KINDS = ("TRANSPORT", "ERROR_SANITIZATION")
+
+
+def _binding_is_app_wide(binding: SurfaceBinding) -> bool:
+    if binding.defense_kind not in _APP_WIDE_DEFENSE_KINDS:
+        return False
+    paths = {(ep.path or "").strip() for ep in binding.backend_endpoints}
+    # Sentinel: every bound endpoint is "/" (or empty) → app-wide.
+    return paths.issubset({"/", ""})
+
+
+def _validate_test_against_binding(
+    tc: TestCase,
+    binding: SurfaceBinding,
+) -> Tuple[bool, Optional[str], Optional[str], Optional[str]]:
+    """Return (ok, bound_method, bound_path, reason).
+
+    Inspects the emitted test's action/title/input_data via the same
+    _method_path_from_action 4-tier inference the Compiler will use. If the
+    inferred (method, path) hits one of the bound endpoints (via
+    path-template matching), the test is valid and bound_method/bound_path
+    can be stamped on the TestCase.
+
+    Rule 11b: for DEFENSIVE_INVERTED bindings, also enforce that the
+    emitted expected_status_code matches the allowed set for the
+    binding's defense_kind. A test asserting 200 for INPUT_REJECTION
+    (i.e. confirming the insecure path) or 422 for OUTPUT_REDACTION
+    (i.e. mis-applying rejection logic to a redaction defense) is
+    structurally wrong and gets dropped.
+    """
+    # Import here to avoid the circular import — security_compiler imports
+    # from this module's siblings.
+    from .security_compiler import _method_path_from_action
+
+    inferred_method, inferred_path, _err = _method_path_from_action(
+        tc.action or "",
+        title=tc.title or "",
+        input_data=tc.input_data,
+    )
+    if not inferred_path:
+        return (False, None, None,
+                "could not infer (method, path) from emitted test — Rule 11 cannot verify")
+    # App-wide defenses (ERROR_SANITIZATION, TRANSPORT) skip path-match —
+    # the defense applies to every route.
+    if not _binding_is_app_wide(binding):
+        bound_paths = [ep.path for ep in binding.backend_endpoints]
+        if not _paths_match_any(inferred_path, bound_paths):
+            return (False, inferred_method, inferred_path,
+                    f"test targets {inferred_method} {inferred_path} but binding allows "
+                    f"{[(ep.method, ep.path) for ep in binding.backend_endpoints]}")
+    method = (inferred_method or "POST").upper()
+
+    # Rule 11b — per-kind status code check.
+    if (
+        binding.threat_class == "DEFENSIVE_INVERTED"
+        and binding.defense_kind
+        and tc.expected_status_code is not None
+    ):
+        rule = _DEFENSE_KIND_STATUS_RULES.get(binding.defense_kind)
+        if rule is not None:
+            allowed, message = rule
+            if tc.expected_status_code not in allowed:
+                return (
+                    False, method, inferred_path,
+                    f"Rule 11b: defense_kind={binding.defense_kind} requires "
+                    f"expected_status_code in {sorted(allowed)}, got "
+                    f"{tc.expected_status_code}. {message}",
+                )
+
+    return (True, method, inferred_path, None)
 
 
 # --------------------------------------------------------------------------- #
@@ -965,6 +1434,7 @@ def _generate_for_requirement(
     llm,
     n_per_category: int = 15,
     pipeline_mode: str = "POST_CODE",
+    surface_binding_block: str = "",
 ) -> Tuple[Dict[str, Any], VerticalSliceContext | None, RouteIntent | None]:
 
     if pipeline_mode == "PRE_CODE":
@@ -1011,6 +1481,14 @@ def _generate_for_requirement(
             "acceptance_criteria_block": _format_acceptance_criteria(req.acceptance_criteria),
             "action": action,
             "source_context": source_context,
+            # Brace-escape: bound paths like /tasks/{task_id} contain literal
+            # braces that ChatPromptTemplate would otherwise interpret as
+            # substitution slots. See _escape_template_braces docstring.
+            "surface_binding_block": (
+                _escape_template_braces(surface_binding_block)
+                if surface_binding_block
+                else "(no surface binding — pre-Layer-A back-compat path)"
+            ),
         },
     )
     payload = parse_llm_json(response.content)
@@ -1088,8 +1566,29 @@ def generator_node(state: ProjectState) -> ProjectState:
 
     provider_failures: List[str] = []
 
+    rule11_dropped: List[Dict[str, Any]] = []
+    surface_map_skips: List[Dict[str, Any]] = []
+
     for _i, req in enumerate(state.validated_requirements, start=1):
         _tr = _t.perf_counter()
+
+        # ── Rule 11: SurfaceMap gate. Skip LLM for non-BACKEND_API states. ──
+        binding = state.surface_map.get(req.requirement_id) if state.surface_map else None
+        if binding is not None and binding.state != "BACKEND_API":
+            new_gaps.append(_coverage_gap_for_non_backend(req, binding))
+            surface_map_skips.append({
+                "requirement_id": req.requirement_id,
+                "state": binding.state,
+                "reason": binding.rationale,
+            })
+            logger.info(
+                "[generator] req %d/%d [%s] SKIPPED LLM (binding=%s)",
+                _i, len(state.validated_requirements), req.requirement_id, binding.state,
+            )
+            continue
+
+        binding_block = _render_surface_binding_block(binding)
+
         logger.info(
             "[generator] req %d/%d [%s] retrieving + invoking Vertex …",
             _i,
@@ -1097,7 +1596,9 @@ def generator_node(state: ProjectState) -> ProjectState:
             req.requirement_id,
         )
         try:
-            payload, vertical_slice, intent = _generate_for_requirement(req, llm)
+            payload, vertical_slice, intent = _generate_for_requirement(
+                req, llm, surface_binding_block=binding_block,
+            )
         except LLMInvocationError as exc:
             # All retries exhausted on a transient provider error (429, 503,
             # 504, 500, 409). Convert to a coverage_gap for THIS requirement
@@ -1186,7 +1687,7 @@ def generator_node(state: ProjectState) -> ProjectState:
         for idx, tc in enumerate(payload.get("test_cases", []), start=1):
             try:
                 normalized_tc = _normalize_test_case_payload(tc, req, idx, retrieved_refs)
-                new_tests.append(TestCase(**normalized_tc))
+                tc_obj = TestCase(**normalized_tc)
             except Exception as exc:
                 new_gaps.append(
                     CoverageGap(
@@ -1199,6 +1700,35 @@ def generator_node(state: ProjectState) -> ProjectState:
                     )
                 )
                 continue
+
+            # Rule 11 post-LLM validation: confirm the emitted test targets
+            # one of the bound endpoints. Stamp bound_method/bound_path so
+            # the Compiler can use them as source-of-truth (no inference)
+            # and the Classifier tier 0 can detect off-target at run time.
+            if binding is not None and binding.state == "BACKEND_API":
+                ok, bound_method, bound_path, reason = _validate_test_against_binding(
+                    tc_obj, binding,
+                )
+                if not ok:
+                    new_gaps.append(
+                        CoverageGap(
+                            requirement_id=req.requirement_id,
+                            acceptance_criterion=tc_obj.covered_acceptance_criterion,
+                            reason=f"[Rule 11 violation — test dropped] {reason}",
+                        )
+                    )
+                    rule11_dropped.append({
+                        "requirement_id": req.requirement_id,
+                        "test_title": tc_obj.title,
+                        "test_action": tc_obj.action,
+                        "reason": reason,
+                    })
+                    continue
+                tc_obj.bound_method = bound_method
+                tc_obj.bound_path = bound_path
+                tc_obj.bound_surface_state = "BACKEND_API"
+
+            new_tests.append(tc_obj)
 
         for gap in payload.get("coverage_gaps", []):
             gap.setdefault("requirement_id", req.requirement_id)
@@ -1217,4 +1747,8 @@ def generator_node(state: ProjectState) -> ProjectState:
     state.metadata["generator_retrieval"] = slice_summaries
     if provider_failures:
         state.metadata["generator_provider_failures"] = provider_failures
+    if rule11_dropped:
+        state.metadata["generator_rule11_dropped"] = rule11_dropped
+    if surface_map_skips:
+        state.metadata["generator_surface_map_skips"] = surface_map_skips
     return state

@@ -2,8 +2,154 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Literal, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field
+
+
+# Layer A — Surface Map types.
+#
+# A SurfaceMap is the typed contract between Critic and Generator about
+# WHICH testable surface each requirement maps to in the codebase. Before
+# Layer A every agent re-interpreted the story from raw text, which drove
+# the proxy-test / false-positive-vulnerability family of bugs. With the
+# SurfaceMap, the Resolver decides this ONCE per pipeline run, and the
+# Generator + Compiler + Classifier are bound to the decision.
+SurfaceState = Literal[
+    "BACKEND_API",          # implemented as a real backend endpoint
+    "FRONTEND_ONLY",        # rendered UI but no logic (e.g. static display)
+    "CLIENT_SIDE_ONLY",     # logic in browser (e.g. .filter() over local data)
+    "NOT_IMPLEMENTED",      # story names something with no surface in code
+    "NEEDS_CLARIFICATION",  # ambiguous — multiple plausible surfaces or contradiction
+]
+
+
+# Layer A — anti-pattern translation (Refinement 1).
+#
+# Stories often use anti-pattern language ("must accept any length", "must
+# allow unlimited retries", "must display sensitive data") — the narrator
+# is asking for insecure behavior. The Critic flags them as security risks
+# precisely because the INVERSE (rejection / enforcement / hiding) is the
+# defense. Without threat-class classification, the Resolver reads them
+# literally:
+#
+#   "Story wants no length limit; code has String(255); therefore
+#    NOT_IMPLEMENTED."
+#
+# That's true but useless. The right security test is "verify the app
+# safely rejects 1000-char input (422)" against the endpoint where the
+# defense lives. ThreatClass lets the Resolver bind those requirements to
+# the defense's endpoint and the Generator emit defense-confirming tests.
+ThreatClass = Literal[
+    "DEFENSIVE_NORMAL",     # ordinary feature; test the feature directly
+    "DEFENSIVE_INVERTED",   # anti-pattern story; test that the inverse defense holds
+    "NON_FUNCTIONAL",       # cross-cutting property assertion (→ NEEDS_CLARIFICATION)
+]
+
+
+# Layer A Refinement 1.1 — defense taxonomy.
+#
+# DEFENSIVE_INVERTED is too coarse on its own: the right test shape
+# depends on HOW the defense expresses itself. Forcing "expected_status_code
+# must be 4xx" universally (as the first version of Rule 11b did) made
+# output-redaction and implicit-filter defenses ungeneratable — the
+# Generator correctly refused to emit tests because 200 OK is the right
+# success status for "the body doesn't leak X" and "the filter hid Y".
+#
+# These five kinds cover the defenses observed across login/search/org/
+# filter/taskshare. The Generator's Rule 11b reads this field and applies
+# the right status-code and assertion rules per kind.
+DefenseKind = Literal[
+    "INPUT_REJECTION",     # 4xx + clean body. e.g. 422 on over-long input.
+    "TRANSPORT",           # 3xx + HSTS. e.g. http://→https:// redirect.
+    "OUTPUT_REDACTION",    # 200 + forbidden_response_content. e.g. response strips internal IDs.
+    "IMPLICIT_FILTER",     # 200 + assert filtered/empty. e.g. ownership filter, soft-delete.
+    "ERROR_SANITIZATION",  # 5xx + forbidden_response_content. e.g. generic 500, no SQL fragment.
+]
+
+
+# Verdict supersedes the legacy is_vulnerable/resilient pair on ExecutionLog.
+# The mapping in `_legacy_fields_from_verdict` keeps back-compat consumers
+# (drift_report, needs_healing, _security_posture) working unchanged.
+Verdict = Literal[
+    "resilient",            # adversarial test fired, app neutralized
+    "vulnerable",           # adversarial test fired, app exposed a real weakness
+    "off_target",           # test landed outside its bound surface — semantically null
+    "inconclusive",         # forbidden-content tier fired but cannot disambiguate
+    "n/a",                  # functional test, or no verdict applicable
+]
+
+
+def _legacy_fields_from_verdict(v: str):
+    """Translate a verdict into the legacy (is_vulnerable, resilient) pair.
+
+    Applied at ExecutionLog construction time by pytest_runner so legacy
+    consumers (drift_report builds `exploited` from is_vulnerable;
+    needs_healing reads is_vulnerable; _security_posture reads resilient)
+    keep working without per-consumer edits. Single source of truth for the
+    mapping — change here, the whole pipeline picks it up.
+    """
+    return {
+        "vulnerable":   (True,  False),
+        "resilient":    (False, True),
+        "off_target":   (False, None),    # not a vuln, not a resilience proof
+        "inconclusive": (None,  None),
+        "n/a":          (None,  None),
+    }[v]
+
+
+class BackendEndpoint(BaseModel):
+    """A concrete backend route that a requirement is bound to."""
+    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+    path: str                                   # e.g. "/tasks/" or "/tasks/{task_id}"
+    handler_file: str                           # e.g. "routers/task_router.py"
+    handler_line: Optional[int] = None
+    request_schema: Optional[str] = None        # e.g. "schemas.TaskCreate"
+    response_schema: Optional[str] = None       # e.g. "schemas.PaginatedTaskResponse"
+
+
+class FrontendSurface(BaseModel):
+    """A frontend component a requirement is bound to (UI track — Layer C)."""
+    component: str                              # e.g. "Dashboard"
+    file: str                                   # e.g. "frontend/src/components/Dashboard.jsx"
+    line: Optional[int] = None
+    behavior: str                               # 1-sentence: "client-side filter via .filter()"
+
+
+class ACOverride(BaseModel):
+    """Per-AC override when ACs within one REQ disagree on surface state.
+    Persisted by the Resolver; consulted by Day-2+ Generator. MVP ignores."""
+    acceptance_criterion: str
+    state: SurfaceState
+    backend_endpoints: List[BackendEndpoint] = Field(default_factory=list)
+    frontend_surfaces: List[FrontendSurface] = Field(default_factory=list)
+    rationale: str
+
+
+class SurfaceBinding(BaseModel):
+    """The binding for a single requirement_id — Resolver's output unit."""
+    requirement_id: str
+    state: SurfaceState
+    backend_endpoints: List[BackendEndpoint] = Field(default_factory=list)
+    frontend_surfaces: List[FrontendSurface] = Field(default_factory=list)
+    rationale: str                              # 1-2 sentences why this state was chosen
+    grounding_refs: List[str] = Field(default_factory=list)  # file:line evidence
+    confidence: Literal["high", "medium", "low"]
+    ac_overrides: List[ACOverride] = Field(default_factory=list)
+    # Layer A Refinement 1 — anti-pattern translation.
+    # `threat_class` defaults to None for back-compat with bindings from runs
+    # that pre-date this refinement. When populated:
+    #   - DEFENSIVE_INVERTED: `anti_pattern_summary` names the story's
+    #     insecure ask; `defense_assertion` describes what a defense-
+    #     confirming response looks like. Generator's Rule 11b consumes
+    #     these to emit "verify defense holds" tests instead of
+    #     "verify anti-pattern" tests.
+    #   - DEFENSIVE_NORMAL: ordinary feature. Both string fields may be None.
+    #   - NON_FUNCTIONAL: cross-cutting. Both string fields may be None;
+    #     state should be NEEDS_CLARIFICATION.
+    threat_class: Optional[ThreatClass] = None
+    anti_pattern_summary: Optional[str] = None
+    defense_assertion: Optional[str] = None
+    defense_kind: Optional[DefenseKind] = None
 
 
 class ValidatedRequirement(BaseModel):
@@ -52,6 +198,13 @@ class TestCase(BaseModel):
     exploit_target: Optional[str] = None
     mutated_fields: List[str] = Field(default_factory=list)
     parent_test_id: Optional[str] = None
+    # Layer A — SurfaceMap binding stamped at Generator validation time.
+    # Compiler reads bound_method/bound_path directly (no 4-tier inference);
+    # Classifier tier 0 reads bound_path to detect off-target tests.
+    # All three are None for back-compat / unbound tests.
+    bound_method: Optional[str] = None
+    bound_path: Optional[str] = None
+    bound_surface_state: Optional[SurfaceState] = None
 
 
 class CoverageGap(BaseModel):
@@ -90,6 +243,15 @@ class ExecutionLog(BaseModel):
     console_logs: List[str] = Field(default_factory=list)
     html_snapshot: Optional[str] = None
     exploit_target: Optional[str] = None
+    # Layer A — verdict supersedes is_vulnerable/resilient. The legacy
+    # pair is derived from verdict via _legacy_fields_from_verdict at log
+    # construction time, so back-compat consumers (drift_report,
+    # needs_healing, _security_posture) keep reading the legacy fields
+    # without any per-consumer edits.
+    verdict: Verdict = "n/a"
+    verdict_confidence: Literal["high", "medium", "low"] = "low"
+    verdict_evidence: List[str] = Field(default_factory=list)
+    bound_surface_state: Optional[SurfaceState] = None
 
 
 class Patch(BaseModel):
@@ -139,6 +301,11 @@ class ProjectState(BaseModel):
     security_checklist: List[SecurityChecklistItem] = Field(default_factory=list)
     phase1_risk_ids: List[str] = Field(default_factory=list)
 
+    # Layer A — SurfaceMap, keyed by requirement_id. Populated by
+    # surface_resolver_node between Critic and Generator; immutable through
+    # heal cycles. Empty dict means Resolver did not run (back-compat) — the
+    # downstream gates fall through harmlessly when this is empty.
+    surface_map: Dict[str, SurfaceBinding] = Field(default_factory=dict)
 
     heal_attempts: int = 0
     max_heal_attempts: int = 2

@@ -30,7 +30,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from jinja2 import Environment, FileSystemLoader
 from langchain_core.prompts import ChatPromptTemplate
 
-from state import ProjectState, SecurityRisk, SecurityChecklistItem, TestCase
+from state import ProjectState, SecurityRisk, SecurityChecklistItem, SurfaceBinding, TestCase
 from utils import (
     LLMInvocationError,
     Payload,
@@ -205,32 +205,145 @@ def _slug_from_test_id(test_id: str) -> str:
     return s[:120] if s else "unnamed"
 
 
-def _method_path_from_action(action: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-    """Infer (method, path, skip_reason). skip_reason set when inference fails."""
+# --------------------------------------------------------------------------- #
+# P1-8 (Cursor) — multi-source METHOD/path inference                          #
+# --------------------------------------------------------------------------- #
+#
+# The Generator's Rule 3a *instructs* the LLM to start `action` with
+# "<METHOD> <path>", but the LLM follows that ~71% of the time. The other
+# 29% emit natural-language phrases ("Attempt to log in with a 1000-char
+# username") which the strict regex rejects, producing pytest.skip() at
+# test entry — observed in exec-demo-login-post_code-20260528_195120 where
+# 9 of 31 tests skipped for "Could not infer HTTP method and path".
+#
+# Four tiers of inference, first confident hit wins:
+#   1. METHOD-path regex on `action`         (the documented contract)
+#   2. METHOD-path regex on `title`          (rescue when route lives in the title)
+#   3. Bare path in action+title, default POST  (path mentioned, no verb)
+#   4. Heuristic from `input_data` shape +   (email+password → /login or
+#      title/action keywords                   /register based on intent)
+#
+# If all four fail we emit a skip_reason that NAMES the sources we examined.
+# Tier 4 only fires for shapes that unambiguously match a known target route
+# (currently the Smart Task Manager auth endpoints); it does NOT invent
+# routes the target doesn't expose.
 
-    text = (action or "").strip()
-    combined = re.compile(
-        r"\b(GET|POST|PUT|PATCH|DELETE)\b\s*[^\n/]*?(/[A-Za-z0-9_\-./]+)",
-        re.IGNORECASE | re.DOTALL,
-    )
-    m = combined.search(text)
-    if m:
-        meth = m.group(1).upper()
-        path = m.group(2).strip()
-        if "{" in path or "}" in path:
-            return None, None, "Path contains `{`/`}` placeholders — not supported in generated httpx tests"
-        if not path.startswith("/"):
-            path = "/" + path.lstrip("/")
+_METHOD_PATH_RE = re.compile(
+    r"\b(GET|POST|PUT|PATCH|DELETE)\b\s*[^\n/]*?(/[A-Za-z0-9_\-./]+)",
+    re.IGNORECASE | re.DOTALL,
+)
+_BARE_PATH_RE = re.compile(r"(/[A-Za-z][A-Za-z0-9_/\-]{0,200})")
+
+# Title-keyword routing for known target endpoints. Conservative: only routes
+# the current target (Smart Task Manager) actually exposes.
+_HEURISTIC_ROUTES = {
+    "login":    ("POST", "/login"),
+    "register": ("POST", "/register"),
+    "logout":   ("POST", "/logout"),
+    "tasks":    ("GET",  "/tasks/"),
+    "task":     ("GET",  "/tasks/"),
+}
+
+
+def _try_method_path_regex(text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Tier 1/2: strict METHOD + path regex. Reject paths with `{...}` placeholders."""
+    if not text:
+        return None, None
+    m = _METHOD_PATH_RE.search(text)
+    if not m:
+        return None, None
+    path = m.group(2).strip()
+    if "{" in path or "}" in path:
+        return None, None
+    if not path.startswith("/"):
+        path = "/" + path.lstrip("/")
+    return m.group(1).upper(), path
+
+
+def _try_bare_path(text: str) -> Optional[str]:
+    """Tier 3: bare-path mentioned (e.g. `/login`) without a verb. Default POST."""
+    if not text:
+        return None
+    m = _BARE_PATH_RE.search(text)
+    if not m:
+        return None
+    path = m.group(1)
+    if "{" in path or "}" in path:
+        return None
+    return path
+
+
+def _heuristic_from_input_and_title(
+    input_data: Any, title: str, action: str,
+) -> Tuple[Optional[str], Optional[str]]:
+    """Tier 4: infer from input_data shape + title/action keywords.
+
+    Only fires when the input_data shape unambiguously matches a known route
+    AND a title/action keyword narrows the intent. Returns (None, None)
+    otherwise — refuses to invent.
+    """
+    if not isinstance(input_data, dict):
+        return None, None
+    keys = {k.lower() for k in input_data.keys()}
+    combined = f"{title or ''} {action or ''}".lower()
+
+    # email+password (or username+password) is the auth-route shape.
+    # `register / sign up / create account` keyword → /register; else /login
+    # (login is the more common test target on this fixture).
+    if {"email", "password"}.issubset(keys) or {"username", "password"}.issubset(keys):
+        if any(kw in combined for kw in
+               ("register", "sign up", "signup", "create account", "new account")):
+            return "POST", "/register"
+        return "POST", "/login"
+
+    # Single-field email → register partial flow (Smart Task Manager only).
+    if keys == {"email"}:
+        return "POST", "/register"
+
+    # Title-keyword routing as last gasp.
+    for keyword, (method, path) in _HEURISTIC_ROUTES.items():
+        if keyword in combined:
+            return method, path
+
+    return None, None
+
+
+def _method_path_from_action(
+    action: str,
+    *,
+    title: str = "",
+    input_data: Any = None,
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Four-tier METHOD/path inference. Backward-compatible single-arg form
+    still works (tiers 1 + 3 only) — callers using kwargs get all four tiers.
+    """
+    # Tier 1 — strict regex on action (original behaviour)
+    meth, path = _try_method_path_regex(action)
+    if meth and path:
         return meth, path, None
 
-    path_m = re.search(r"(/[A-Za-z][A-Za-z0-9_/\-]{0,200})", text)
-    if path_m:
-        path = path_m.group(1)
-        if "{" in path or "}" in path:
-            return None, None, "Path contains placeholders"
-        return "POST", path, None
+    # Tier 2 — strict regex on title
+    meth, path = _try_method_path_regex(title)
+    if meth and path:
+        return meth, path, None
 
-    return None, None, "Could not infer HTTP method and path from action: " + text[:220]
+    # Tier 3 — bare path on combined text, default POST
+    bare = _try_bare_path(f"{action or ''} {title or ''}")
+    if bare:
+        return "POST", bare, None
+
+    # Tier 4 — input_data shape + intent keywords
+    meth, path = _heuristic_from_input_and_title(input_data, title, action or "")
+    if meth and path:
+        return meth, path, None
+
+    # All four exhausted — name the inputs we examined.
+    return None, None, (
+        "Could not infer HTTP method and path from "
+        f"action={(action or '')[:120]!r}, "
+        f"title={(title or '')[:120]!r}, "
+        f"input_data keys={list(input_data.keys()) if isinstance(input_data, dict) else type(input_data).__name__}"
+    )
 
 
 def _infer_use_auth(tc: TestCase) -> bool:
@@ -333,7 +446,42 @@ def _materialize_pytest_workspace(state: ProjectState) -> None:
     rows: List[Dict[str, Any]] = []
     used_slugs: set[str] = set()
     for tc in tests_all:
-        meth, path, skip_reason = _method_path_from_action(tc.action)
+        # Layer A — prefer Generator-stamped bound_method/bound_path over
+        # the 4-tier inference. Generator validation already proved these
+        # match the SurfaceBinding; using them removes the chance of the
+        # inference disagreeing with the binding (which would re-introduce
+        # the "Compiler sends to /tasks but binding said /tasks/{task_id}"
+        # class of error). Inference only fires when no binding was stamped
+        # (back-compat / pre-Layer-A tests).
+        skip_reason: Optional[str] = None
+        if tc.bound_method and tc.bound_path:
+            meth, path = tc.bound_method, tc.bound_path
+        else:
+            meth, path, skip_reason = _method_path_from_action(
+                tc.action,
+                title=tc.title or "",
+                input_data=tc.input_data,
+            )
+
+        # Layer A — SurfaceMap state-skip guard at materialization time.
+        # If the binding for this test's REQ is anything other than
+        # BACKEND_API, the pytest harness cannot exercise the requirement
+        # honestly. Emit a pytest.skip row (still visible in the artifact)
+        # rather than letting it run and contribute a misleading verdict.
+        binding = state.surface_map.get(tc.covered_requirement_id) if (
+            tc.covered_requirement_id and state.surface_map
+        ) else None
+        if binding is not None and binding.state != "BACKEND_API":
+            skip_reason = (
+                f"surface_map[{tc.covered_requirement_id}].state="
+                f"{binding.state}; pytest harness cannot exercise this surface honestly"
+            )
+
+        # Hard skip with explicit reason instead of the old `meth or "POST"`,
+        # `path or "/"` silent-failure defaults — those produced ghost rows
+        # that ran against the wrong endpoint and polluted posture.
+        if not meth or not path:
+            skip_reason = skip_reason or "no bound_method/bound_path and inference failed"
         slug_base = _slug_from_test_id(tc.test_id)
         slug = slug_base
         dup = 0
@@ -344,13 +492,42 @@ def _materialize_pytest_workspace(state: ProjectState) -> None:
 
         title_one = (tc.title or "").replace("\n", " ").replace("\r", "")[:400]
 
+        # P0-3 (Cursor) — extract the `_repeat` sentinel as a SEPARATE
+        # template field so the rendered pytest actually loops. Previously
+        # `_payload_python_literal` stripped `_repeat` from the embedded
+        # payload and the template did a single request, so REQ-002's
+        # "100 failed login attempts, no lockout" AC was untested.
+        # The literal payload (passed via `payload_literal`) is still
+        # stripped of `_repeat` — that's correct, _repeat isn't a real
+        # HTTP field. But the loop count is now propagated to the template.
+        repeat_count = 1
+        if isinstance(tc.input_data, dict):
+            raw = tc.input_data.get("_repeat")
+            if raw is not None:
+                try:
+                    repeat_count = max(1, int(raw))
+                except (TypeError, ValueError):
+                    repeat_count = 1
+        # Hard cap so a Generator hallucinating _repeat=1000000 doesn't
+        # take a Cloud Run Job's full timeout budget.
+        repeat_cap_env = os.getenv("SENTINEL_PYTEST_REPEAT_CAP", "200")
+        try:
+            repeat_cap = max(1, int(repeat_cap_env))
+        except ValueError:
+            repeat_cap = 200
+        repeat_count = min(repeat_count, repeat_cap)
+
         rows.append(
             {
                 "slug": slug,
                 "test_id": tc.test_id,
                 "title_one_line": title_one,
-                "method": meth or "POST",
-                "path": path or "/",
+                # When skip_reason is set, the template's pytest.skip fires
+                # before any request is made — so the method/path placeholders
+                # below are inert. Keep them non-empty strings so the Jinja
+                # template can still render without a NoneType error.
+                "method": (meth or "GET") if not skip_reason else "GET",
+                "path": (path or "/") if not skip_reason else "/",
                 "skip_reason": skip_reason,
                 "payload_literal": _payload_python_literal(tc.input_data),
                 "expected_status_code": tc.expected_status_code,
@@ -367,6 +544,9 @@ def _materialize_pytest_workspace(state: ProjectState) -> None:
                 "forbidden": list(tc.forbidden_response_content or []),
                 "is_adversarial": tc.is_adversarial,
                 "use_auth": _infer_use_auth(tc),
+                # P0-3 — when > 1, the template wraps the request+asserts in
+                # a `for _iter in range(N)` loop. 1 = single-shot (default).
+                "repeat_count": repeat_count,
             }
         )
 
@@ -502,6 +682,54 @@ def _candidate_tests_for_risk(state: ProjectState, risk: SecurityRisk) -> List[T
     return targeted or functional
 
 
+def _can_mutate(
+    base: TestCase,
+    risk: SecurityRisk,
+    surface_map: Dict[str, SurfaceBinding],
+) -> Optional[str]:
+    """Layer A — gate adversarial mutation against the SurfaceMap.
+
+    Returns None if the mutation is allowed, otherwise a skip-reason string.
+    The Compiler must not turn a functional test for REQ-001 (bound to
+    /tasks/) into a SEC-A03-TC-REQ-005-* test on /register just because the
+    Critic flagged A03 against REQ-005. That cross-REQ leak is what the
+    search story's 6 "REQ-005 register-probe" tests were — Rule 11 alone on
+    the Generator cannot stop them because the Compiler manufactures them
+    from a Generator-correct base test.
+
+    Three gates:
+      1. binding for base's REQ must exist and be BACKEND_API
+      2. base's bound_path (stamped by Generator validation) must be in
+         binding.backend_endpoints
+      3. risk must list base's REQ in affected_requirements (or have no
+         scope, in which case we permit but log)
+    """
+    target_req = base.covered_requirement_id
+    if not target_req or not surface_map:
+        return None  # back-compat: unbound / no map → pass through
+    binding = surface_map.get(target_req)
+    if binding is None:
+        return None
+    if binding.state != "BACKEND_API":
+        return f"surface_map[{target_req}].state={binding.state} — adversarial mutation forbidden"
+    # App-wide defenses (TRANSPORT, ERROR_SANITIZATION) sentinel `path: "/"`
+    # — the defense applies across every route, so the mutation may target
+    # any path the Generator wrote.
+    _paths = {(ep.path or "").strip() for ep in binding.backend_endpoints}
+    _app_wide = binding.defense_kind in ("TRANSPORT", "ERROR_SANITIZATION") and _paths.issubset({"/", ""})
+    if base.bound_path and not _app_wide:
+        from ._paths import _paths_match_any
+        if not _paths_match_any(base.bound_path, [ep.path for ep in binding.backend_endpoints]):
+            return (f"base test's bound_path {base.bound_path} not in binding endpoints "
+                    f"{[ep.path for ep in binding.backend_endpoints]}")
+    # Risk scope: if affected_requirements is set, base's REQ must be in it.
+    # Empty affected_requirements is a Critic loophole — permit, but flag.
+    if risk.affected_requirements and target_req not in risk.affected_requirements:
+        return (f"risk {risk.owasp_id} affects {risk.affected_requirements}, "
+                f"not {target_req}")
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Node
 # ---------------------------------------------------------------------------
@@ -581,6 +809,16 @@ def security_compiler_node(state: ProjectState) -> ProjectState:
     adversarial: List[TestCase] = []
     unmatched_risks: List[str] = []
 
+    # Layer A — Compiler-side Rule 11 enforcement.
+    # The Generator's Rule 11 stops off-binding tests at LLM output time.
+    # But adversarial tests are NOT from the Generator — they're synthesized
+    # here by mutating functional tests. Without _can_mutate, the Compiler
+    # happily produces SEC-A03-TC-REQ-005-* tests on /register from a /tasks/
+    # functional base, which is the exact "REQ-005 register-probe" failure
+    # mode the SurfaceMap was built to close. Gate every mutation against
+    # the binding for the base test's covered_requirement_id.
+    mutations_skipped: List[Dict[str, Any]] = []
+
     if state.security_risks and any(not t.is_adversarial for t in state.test_suite):
         for risk in state.security_risks:
             payloads = get_payloads(risk.owasp_id)
@@ -597,9 +835,24 @@ def security_compiler_node(state: ProjectState) -> ProjectState:
 
             counter = 0
             for base in candidates:
+                skip_reason = _can_mutate(base, risk, state.surface_map)
+                if skip_reason:
+                    mutations_skipped.append({
+                        "base_test_id": base.test_id,
+                        "base_requirement_id": base.covered_requirement_id,
+                        "risk_owasp_id": risk.owasp_id,
+                        "reason": skip_reason,
+                    })
+                    continue
                 for payload in payloads:
                     counter += 1
-                    adversarial.append(_mutate(base, payload, risk, counter))
+                    mutant = _mutate(base, payload, risk, counter)
+                    # Propagate the binding stamps so downstream Compiler
+                    # materialization + Classifier tier 0 see them.
+                    mutant.bound_method = base.bound_method
+                    mutant.bound_path = base.bound_path
+                    mutant.bound_surface_state = base.bound_surface_state
+                    adversarial.append(mutant)
 
         cap_adv = _max_adversarial()
         if len(adversarial) > cap_adv:
@@ -609,6 +862,8 @@ def security_compiler_node(state: ProjectState) -> ProjectState:
         state.metadata["security_compiler_adversarial_count"] = len(adversarial)
         if unmatched_risks:
             state.metadata["security_compiler_unmatched_risks"] = unmatched_risks
+        if mutations_skipped:
+            state.metadata["security_compiler_mutations_skipped"] = mutations_skipped
     else:
         if not state.security_risks:
             state.metadata["security_compiler_adversarial_count"] = 0

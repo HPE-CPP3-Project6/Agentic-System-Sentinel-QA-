@@ -49,6 +49,7 @@ from langgraph.graph import StateGraph, END  # noqa: E402
 
 from agents import (  # noqa: E402
     critic_node,
+    surface_resolver_node,
     generator_node,
     security_compiler_node,
     executor_node,
@@ -66,12 +67,16 @@ def build_graph():
     graph = StateGraph(ProjectState)
 
     graph.add_node("critic", critic_node)
+    graph.add_node("surface_resolver", surface_resolver_node)
     graph.add_node("generator", generator_node)
     graph.add_node("security_compiler", security_compiler_node)
     graph.add_node("executor", executor_node)
 
     graph.set_entry_point("critic")
-    graph.add_edge("critic", "generator")
+    # Layer A — Surface Resolver between Critic and Generator. Produces
+    # state.surface_map, the typed binding every downstream agent consults.
+    graph.add_edge("critic", "surface_resolver")
+    graph.add_edge("surface_resolver", "generator")
     graph.add_edge("generator", "security_compiler")
     graph.add_edge("security_compiler", "executor")
 
@@ -124,11 +129,29 @@ def main(story_key: str = "taskshare", mode: str = "post_code") -> ProjectState:
                 drift = generate_drift_report(phase1, final_state)
                 final_state.metadata["drift_report"] = drift
             else:
+                # Stage 4 (Cursor merged priority list) — auto-seed a phase1
+                # snapshot from this POST_CODE run so the NEXT run can drift
+                # against it.
+                # Background: in the prior version, a story that had only
+                # ever been run in POST_CODE produced "skipped" drift on
+                # every single run, forever. Users had to remember to run
+                # --mode pre_code once, manually, which never happened in
+                # practice (observed: 4/5 demo stories had null drift_report).
+                # Now: the first POST_CODE run seeds the snapshot from
+                # whatever PRE_CODE-shaped fields exist on the state
+                # (security_risks + validated_requirements are populated by
+                # the Critic in BOTH modes; design_contracts and
+                # security_checklist will be empty in POST_CODE, which is
+                # fine — drift_report tolerates empty inputs and the
+                # second run will diff predicted-vs-exploited risks).
+                seed_path = save_phase1(final_state)
+                final_state.metadata["phase_bridge_seeded_from_post_code"] = seed_path
                 final_state.metadata["drift_report"] = {
                     "skipped": (
-                        "no Phase 1 snapshot found for this story_id — run "
-                        "with --mode pre_code first to enable drift reporting"
+                        "no Phase 1 snapshot existed — seeded one from this "
+                        "POST_CODE run; rerun the same story to see drift"
                     ),
+                    "seeded_snapshot_path": seed_path,
                 }
     except Exception as exc:  # noqa: BLE001 — bridge failure must not abort the run
         final_state.metadata["phase_bridge_error"] = (
@@ -153,30 +176,73 @@ def _dump_artifact(final: ProjectState, mode: str, story_key: str) -> Path:
 
     # Strip noisy raw-LLM blobs so the artifact is human-readable
     md = {k: v for k, v in final.metadata.items() if k not in ("critic_raw", "generator_raw")}
+
+    # Stage 3 (Cursor merged priority list) — logs_summary must reflect the
+    # MOST RECENT heal attempt only.
+    # Background: state.logs accumulates across heal cycles via list.extend
+    # (executor.py:783). A 3-cycle run with 30 tests/cycle reports
+    # total=90 in the artifact, which double-counts and makes "30 failed,
+    # 60 passed" read as a 67% pass rate when the final cycle was actually
+    # 100% green. Filter to the final cycle's logs so the headline numbers
+    # mean "current posture".
+    final_attempt = final.heal_attempts
+    current_cycle_logs = [
+        l for l in final.logs
+        if l.heal_attempt == final_attempt
+    ] if final_attempt > 0 else list(final.logs)
+
     payload = {
         "story_id": final.story_id,
         "story_title": final.story_title,
         "pipeline_mode": final.pipeline_mode,
+        # Stage 1 (Cursor merged priority list) — top-level release-gate
+        # signal. One field a CI check can read:
+        #   ATTESTABLE         — suite ran and is credible
+        #   NO_TESTS_GENERATED — Generator emitted nothing (taskshare bug)
+        #   ALL_SKIPPED        — every test pytest.skip'd, nothing exercised
+        #   INSUFFICIENT       — suite ran but coverage floor not met
+        #   NO_RISKS_PREDICTED — Critic found no OWASP exposure; honest empty
+        # Surfaced here (NOT just inside metadata) so reviewers don't need
+        # to grep nested keys to know whether the run is trustworthy.
+        "suite_quality": final.metadata.get("suite_quality"),
         "heal_attempts": final.heal_attempts,
         "validated_requirements": [r.model_dump() for r in final.validated_requirements],
         "security_risks": [r.model_dump() for r in final.security_risks],
-        "design_contracts": [c.model_dump() for c in final.design_contracts],
-        "security_checklist": [i.model_dump() for i in final.security_checklist],
         "test_suite_size": len(final.test_suite),
         "coverage_gaps": [g.model_dump() for g in final.coverage_gaps],
         "suggested_patches": [p.model_dump() for p in final.suggested_patches],
         "logs_summary": {
-            "total": len(final.logs),
-            "passed": sum(1 for l in final.logs if l.status == "passed"),
-            "failed": sum(1 for l in final.logs if l.status == "failed"),
-            "error": sum(1 for l in final.logs if l.status == "error"),
-            "skipped": sum(1 for l in final.logs if l.status == "skipped"),
+            # Stage 3: scoped to the final heal cycle so the totals match
+            # what was actually attested at the end of the run.
+            "heal_attempt": final_attempt,
+            "total": len(current_cycle_logs),
+            "passed": sum(1 for l in current_cycle_logs if l.status == "passed"),
+            "failed": sum(1 for l in current_cycle_logs if l.status == "failed"),
+            "error": sum(1 for l in current_cycle_logs if l.status == "error"),
+            "skipped": sum(1 for l in current_cycle_logs if l.status == "skipped"),
+            # Keep the cumulative count too so reviewers can spot a
+            # double-counting drift between cycles if it ever creeps back in.
+            "cumulative_total_all_cycles": len(final.logs),
         },
         # Lifted from metadata for visibility — the drift report is one of
         # the demo-worthy artifacts on POST_CODE runs.
         "drift_report": final.metadata.get("drift_report"),
         "metadata": md,
     }
+
+    # Stage 3: PRE_CODE-only artifacts (design_contracts, security_checklist)
+    # are produced by the Critic and Security+Compiler nodes during PRE_CODE
+    # mode. In POST_CODE they are only present when a Phase 1 snapshot was
+    # loaded (see main() phase-bridge block). Suppressing empty PRE_CODE
+    # fields in POST_CODE artifacts keeps the JSON honest — an empty list
+    # previously read as "the pipeline considered these and found nothing",
+    # which is misleading. If POST_CODE loaded a snapshot, the lists are
+    # non-empty and we surface them; otherwise we omit the keys entirely.
+    if final.pipeline_mode == "PRE_CODE" or final.design_contracts:
+        payload["design_contracts"] = [c.model_dump() for c in final.design_contracts]
+    if final.pipeline_mode == "PRE_CODE" or final.security_checklist:
+        payload["security_checklist"] = [i.model_dump() for i in final.security_checklist]
+
     target.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     return target
 

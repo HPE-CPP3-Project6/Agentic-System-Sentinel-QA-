@@ -26,6 +26,7 @@ PRE_CODE mode:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import time
@@ -38,7 +39,9 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from database import query_source_context
 from state import ExecutionLog, Patch, ProjectState, TestCase
-from utils import get_local_llm
+from utils import LLMInvocationError, get_local_llm, invoke_with_retry
+
+logger = logging.getLogger(__name__)
 
 
 # --------------------------------------------------------------------------- #
@@ -502,6 +505,7 @@ def _heal(
     *,
     prior_patches: Optional[List[Patch]] = None,
     heal_attempt: Optional[int] = None,
+    heal_llm_errors: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[Patch]:
     rag_query = f"{tc.action} {tc.title} {' '.join(tc.source_refs)}".strip()
     snippets = query_source_context(rag_query, n_results=5)
@@ -515,23 +519,58 @@ def _heal(
         [("system", HEALER_SYSTEM_PROMPT), ("user", HEALER_USER_PROMPT)]
     )
     chain = prompt | llm
-    response = chain.invoke(
-        {
-            "test_id": tc.test_id,
-            "title": tc.title,
-            "action": tc.action,
-            "input_data": json.dumps(tc.input_data, default=str),
-            "expected_result": tc.expected_result,
-            "is_adversarial": tc.is_adversarial,
-            "exploit_target": tc.exploit_target or "n/a",
-            "status": log.status,
-            "stderr": log.stderr or "",
-            "trace": log.trace or "(none)",
-            "console_logs": "\n".join(log.console_logs) or "(none)",
-            "prior_patches": prior_block,
-            "source_context": source_context,
-        }
-    )
+    invoke_ctx = {
+        "test_id": tc.test_id,
+        "title": tc.title,
+        "action": tc.action,
+        "input_data": json.dumps(tc.input_data, default=str),
+        "expected_result": tc.expected_result,
+        "is_adversarial": tc.is_adversarial,
+        "exploit_target": tc.exploit_target or "n/a",
+        "status": log.status,
+        "stderr": log.stderr or "",
+        "trace": log.trace or "(none)",
+        "console_logs": "\n".join(log.console_logs) or "(none)",
+        "prior_patches": prior_block,
+        "source_context": source_context,
+    }
+    try:
+        response = invoke_with_retry(chain.invoke, invoke_ctx)
+    except LLMInvocationError as exc:
+        logger.error(
+            "[healer] Vertex failed after retries for %s: %s",
+            tc.test_id,
+            exc,
+        )
+        if heal_llm_errors is not None:
+            heal_llm_errors.append(
+                {
+                    "test_id": tc.test_id,
+                    "heal_attempt": heal_attempt,
+                    "error": str(exc),
+                    "cause": f"{type(exc.cause).__name__}: {exc.cause}" if exc.cause else None,
+                }
+            )
+        return None
+    except Exception as exc:  # noqa: BLE001 — network blips must not abort the graph
+        # RemoteDisconnected / Connection aborted are not in invoke_with_retry's
+        # transient tuple; observed crashing POST_CODE after pytest succeeded.
+        logger.error(
+            "[healer] LLM call failed for %s: %s: %s",
+            tc.test_id,
+            type(exc).__name__,
+            exc,
+        )
+        if heal_llm_errors is not None:
+            heal_llm_errors.append(
+                {
+                    "test_id": tc.test_id,
+                    "heal_attempt": heal_attempt,
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "cause": None,
+                }
+            )
+        return None
 
     try:
         data = _parse_patch_json(response.content)
@@ -646,6 +685,60 @@ def _security_posture(logs: List[ExecutionLog]) -> Dict[str, object]:
 
 
 # --------------------------------------------------------------------------- #
+# Suite quality gate (Stage 1 — Cursor merged priority list)                  #
+# --------------------------------------------------------------------------- #
+#
+# Background: the taskshare demo run produced an artifact with 0 generated
+# tests but no explicit signal that the suite was empty — downstream readers
+# (release-gate CI, dashboard, HPE reviewer) had to infer "nothing actually
+# ran" from a missing executor_pytest_returncode field. That's a silent
+# attestation lie: "Sentinel closed the loop" reads true even when nothing
+# was attempted.
+#
+# This gate computes a coarse enum that sits at the top of the artifact so
+# a release-gate check is one read:
+#
+#   NO_TESTS_GENERATED — Generator produced zero tests. Loop did not run.
+#   ALL_SKIPPED        — Every test was pytest.skip'd (missing JWT, etc.).
+#                        Nothing was actually exercised against the app.
+#   INSUFFICIENT       — Suite ran but coverage is too thin relative to the
+#                        validated requirements (heuristic floor).
+#   NO_RISKS_PREDICTED — Critic flagged zero security risks; an adversarial
+#                        suite would have been empty by design. Functional
+#                        tests, if any, still ran. NOT a failure mode — it's
+#                        an honest statement that the story has no OWASP
+#                        exposure to attest against.
+#   ATTESTABLE         — Normal case: a non-trivial suite ran with at least
+#                        some adversarial coverage (or the story genuinely
+#                        had no risks). Posture metrics are trustworthy.
+#
+# Floor for INSUFFICIENT: max(3, len(validated_requirements)). One test per
+# AC is the bare-minimum coverage; below that the attestation isn't credible.
+# We deliberately do NOT use a coverage-percent gate (that's a sharper tool
+# that needs evidence we don't yet have for it).
+def _suite_quality(
+    *,
+    test_suite_size: int,
+    run_logs: List[ExecutionLog],
+    validated_requirements_count: int,
+    security_risks_count: int,
+) -> str:
+    if test_suite_size == 0:
+        return "NO_TESTS_GENERATED"
+    if run_logs and all(l.status == "skipped" for l in run_logs):
+        return "ALL_SKIPPED"
+    # Coverage floor — one test per AC, never less than 3 for tiny stories
+    # so a 1-AC story still needs a real adversarial + functional + edge test.
+    floor = max(3, validated_requirements_count)
+    if test_suite_size < floor:
+        return "INSUFFICIENT"
+    # Empty-adversarial is honest when there are no risks to attack.
+    if security_risks_count == 0:
+        return "NO_RISKS_PREDICTED"
+    return "ATTESTABLE"
+
+
+# --------------------------------------------------------------------------- #
 # LangGraph node                                                              #
 # --------------------------------------------------------------------------- #
 
@@ -667,6 +760,12 @@ def executor_node(
     # ------------------------------------------------------------------
     if state.pipeline_mode == "PRE_CODE":
         state.metadata["executor_skipped"] = "PRE_CODE: no test suite to execute"
+        # Stage 1: stamp suite_quality on the PRE_CODE branch too so the
+        # artifact has a single field a release-gate can read regardless of
+        # which mode produced it. PRE_CODE is by construction "no executable
+        # suite yet" — emit NO_TESTS_GENERATED rather than leaving the field
+        # absent (which previously read as "looks ok").
+        state.metadata["suite_quality"] = "NO_TESTS_GENERATED"
         return state
 
     # ------------------------------------------------------------------
@@ -691,11 +790,35 @@ def executor_node(
     if py_file and run_pytest and state.test_suite:
         from .pytest_runner import run_pytest_generated_file
 
-        run_logs, rc, out, err = run_pytest_generated_file(list(state.test_suite), py_file)
+        run_logs, rc, out, err = run_pytest_generated_file(
+            list(state.test_suite),
+            py_file,
+            surface_map=state.surface_map,  # Layer A — tier-0 off-target gate
+        )
         state.metadata["executor_pytest_file"] = str(py_file.resolve())
         state.metadata["executor_pytest_returncode"] = rc
         state.metadata["executor_pytest_stdout_tail"] = out[-4000:] if len(out) > 4000 else out
         state.metadata["executor_pytest_stderr_tail"] = err[-4000:] if len(err) > 4000 else err
+        # Stage 6 (Cursor merged priority list) — breakdown next to the rc.
+        # Background: returncode alone is ambiguous. rc=1 can mean "1 of 30
+        # tests asserted a vulnerability" OR "pytest collect error, nothing
+        # ran". The reviewer had to crack open stdout_tail to tell. Surfacing
+        # the per-status counts inline removes that step. The breakdown is
+        # computed from run_logs (which the runner has already mapped 1:1
+        # with state.test_suite) so it's authoritative.
+        state.metadata["executor_pytest_tests_total"] = len(run_logs)
+        state.metadata["executor_pytest_passed"] = sum(
+            1 for l in run_logs if l.status == "passed"
+        )
+        state.metadata["executor_pytest_failed"] = sum(
+            1 for l in run_logs if l.status == "failed"
+        )
+        state.metadata["executor_pytest_errored"] = sum(
+            1 for l in run_logs if l.status == "error"
+        )
+        state.metadata["executor_pytest_skipped"] = sum(
+            1 for l in run_logs if l.status == "skipped"
+        )
         if rc == -1:
             # pytest_runner signals subprocess.TimeoutExpired with rc=-1 and
             # synthesises one error log per test so the graph can heal once
@@ -719,7 +842,16 @@ def executor_node(
     # H8: we pass the existing state.suggested_patches in so _heal can show the
     # Healer LLM what was tried (and failed) in prior cycles — stops it from
     # re-proposing near-identical patches each iteration.
+    heal_llm_errors: List[Dict[str, Any]] = []
     for tc, log in zip(state.test_suite, run_logs):
+        # Layer A — off-target tests do NOT trigger the Healer. The pytest
+        # outcome is semantically null (test was outside the bound surface);
+        # asking the Healer to patch the app would chase phantoms. This
+        # gate works in concert with tier 0 in pytest_runner — together
+        # they ensure neither posture math nor heal logic acts on a test
+        # the SurfaceMap already disqualified.
+        if log.verdict == "off_target":
+            continue
         needs_patch = (
             (not tc.is_adversarial and log.passed is False)
             or (tc.is_adversarial and log.is_vulnerable is True)
@@ -730,71 +862,158 @@ def executor_node(
                 tc, log, llm,
                 prior_patches=list(state.suggested_patches),
                 heal_attempt=state.heal_attempts,
+                heal_llm_errors=heal_llm_errors,
             )
             if patch is not None:
                 new_patches.append(patch)
 
+    if heal_llm_errors:
+        prior_errs = list(state.metadata.get("heal_llm_errors") or [])
+        prior_errs.extend(heal_llm_errors)
+        state.metadata["heal_llm_errors"] = prior_errs
+
     state.logs.extend(run_logs)
+
+    # P0-6 (Cursor) — QUARANTINE unsafe patches BEFORE dedup.
+    # Previous behavior: state.suggested_patches contained every Healer
+    # proposal including those tagged [UNSAFE-PATCH-FLAG]. A downstream
+    # "apply suggested patches" workflow would happily ship backdoors,
+    # 422→400 framework overrides, and silent password-hash overwrites.
+    # Annotation is not blocking. Now: flagged patches are routed to
+    # state.metadata["quarantined_patches"] and DROPPED from
+    # state.suggested_patches. The dashboard / artifact can show both,
+    # but anyone iterating state.suggested_patches as "patches to apply"
+    # only sees the clean set.
+    clean_patches: List[Patch] = []
+    quarantined: List[Tuple[Patch, str]] = []
+    for p in new_patches:
+        sw = _patch_safety_warning(p)
+        if sw:
+            quarantined.append((p, sw))
+        else:
+            clean_patches.append(p)
+
     # NEW-3 + H3: dedup by (related_test_ids, owasp) so cycle 2's patch for
     # the same failing test REPLACES the cycle 1 patch rather than being
     # appended next to it. Demo-artifact bug: 16 cycle-2 patches accumulated
     # to 31 total because of the prior naive extend.
     state.suggested_patches = _dedup_suggested_patches(
-        list(state.suggested_patches), new_patches,
+        list(state.suggested_patches), clean_patches,
     )
 
-    # Surface safety-flagged patches in metadata so reviewers / dashboards can
-    # spot them without re-scanning suggested_patches. The Patch schema doesn't
-    # carry a `safety_warning` field — `_patch_safety_warning` recovers the
-    # warning from the `[UNSAFE-PATCH-FLAG] ...` prefix `_heal` writes into
-    # `bug_explanation` when the validator fires.
-    flagged_pairs: List[Tuple[Patch, str]] = []
-    for p in new_patches:
-        sw = _patch_safety_warning(p)
-        if sw:
-            flagged_pairs.append((p, sw))
-
-    state.metadata["security_posture"] = _security_posture(run_logs)
-    state.metadata["last_run_summary"] = {
-        "total": len(run_logs),
-        "functional_failed": sum(1 for l in run_logs if not l.is_adversarial and l.passed is False),
-        "vulnerabilities_found": sum(1 for l in run_logs if l.is_vulnerable),
-        "patches_proposed": len(new_patches),
-        "patches_flagged_unsafe": len(flagged_pairs),
-        "heal_attempt": state.heal_attempts,
-    }
-    if flagged_pairs:
+    # Quarantined patches accumulate across cycles in metadata too, but
+    # NEVER enter state.suggested_patches.
+    if quarantined:
+        prior_q = list(state.metadata.get("quarantined_patches") or [])
+        for p, warning in quarantined:
+            prior_q.append({
+                "test_id": (p.related_test_ids or [None])[0],
+                "target_file": p.target_file,
+                "owasp_category": p.owasp_category,
+                "warning": warning,
+                "bug_explanation": p.bug_explanation,
+                "suggested_fix_preview": (p.suggested_fix or "")[:400],
+                "heal_attempt": state.heal_attempts,
+            })
+        state.metadata["quarantined_patches"] = prior_q
+        # Legacy field kept for back-compat with dashboards that already key on it.
         state.metadata["unsafe_patch_warnings"] = [
             {
                 "test_id": (p.related_test_ids or [None])[0],
                 "target_file": p.target_file,
                 "warning": warning,
             }
-            for p, warning in flagged_pairs
+            for p, warning in quarantined
         ]
+
+    state.metadata["security_posture"] = _security_posture(run_logs)
+    # Stage 1 (Cursor merged priority list) — explicit suite quality gate.
+    # Lifted to a top-level artifact field by main._dump_artifact so a
+    # release-gate CI can fail the pipeline on NO_TESTS_GENERATED /
+    # INSUFFICIENT / ALL_SKIPPED without parsing the posture block.
+    state.metadata["suite_quality"] = _suite_quality(
+        test_suite_size=len(state.test_suite),
+        run_logs=run_logs,
+        validated_requirements_count=len(state.validated_requirements),
+        security_risks_count=len(state.security_risks),
+    )
+    # Stage 5 (Cursor merged priority list) — actionable-patch count for the
+    # current cycle. A "patch" with empty target_file is a Healer opt-out
+    # (the LLM judged the failure unfixable / out-of-scope). If every new
+    # patch this cycle is an opt-out, looping again will deterministically
+    # produce more opt-outs and burn the heal budget on no-ops. needs_healing
+    # reads this to short-circuit the cycle.
+    _actionable_this_cycle = sum(
+        1 for p in new_patches if (p.target_file or "").strip()
+    )
+    state.metadata["last_cycle_patches_total"] = len(new_patches)
+    state.metadata["last_cycle_patches_actionable"] = _actionable_this_cycle
+    state.metadata["last_run_summary"] = {
+        "total": len(run_logs),
+        "functional_failed": sum(1 for l in run_logs if not l.is_adversarial and l.passed is False),
+        "vulnerabilities_found": sum(1 for l in run_logs if l.is_vulnerable),
+        "patches_proposed": len(new_patches),
+        "patches_clean": len(clean_patches),
+        "patches_quarantined": len(quarantined),
+        # Legacy alias kept so existing reports / tests don't break.
+        "patches_flagged_unsafe": len(quarantined),
+        "heal_attempt": state.heal_attempts,
+    }
     return state
 
 
 def needs_healing(state: ProjectState) -> str:
     """Conditional edge: loop if (any functional failure OR any vulnerability)
-    in the MOST RECENT run AND we still have heal budget.
+    in the MOST RECENT run AND we still have heal budget AND the Healer has
+    something actionable to propose.
 
     Filters on `heal_attempt` so a failure from attempt N-1 (still present in
     state.logs because we extend rather than replace) cannot keep routing back
     to "heal" after attempt N has actually cleared the problem.
+
+    Stage 5 (Cursor merged priority list) — early-exit when every patch this
+    cycle was a Healer opt-out (target_file="").
+    Background: org-story demo (exec-demo-org-post_code) burned both heal
+    cycles on the same opt-out — Healer kept declining to patch the one
+    failing test, but the loop ran twice anyway because needs_healing only
+    looked at "is there a failure?". Now we also ask "did the Healer give
+    us anything we could actually apply?" — if not, looping is provably
+    wasted work.
     """
     if state.heal_attempts >= state.max_heal_attempts:
         return "end"
 
     current = state.heal_attempts
+    # Layer A — off-target tests are excluded from heal triggers. They
+    # didn't observe anything admissible about the requirement, so neither
+    # a "functional failure" nor a "vulnerability" reading is justified.
     has_functional_failure = any(
-        (not l.is_adversarial) and l.passed is False and l.heal_attempt == current
+        (not l.is_adversarial) and l.passed is False
+        and l.heal_attempt == current and l.verdict != "off_target"
         for l in state.logs
     )
     has_vulnerability = any(
-        l.is_vulnerable and l.heal_attempt == current for l in state.logs
+        l.is_vulnerable and l.heal_attempt == current and l.verdict != "off_target"
+        for l in state.logs
     )
 
-    if has_functional_failure or has_vulnerability:
-        return "heal"
-    return "end"
+    if not (has_functional_failure or has_vulnerability):
+        return "end"
+
+    # Stage 5: actionable-patch gate. A cycle where the Healer attempted
+    # patches but every single one is a no-op (empty target_file) cannot
+    # make progress by re-running — the next iteration will hit the same
+    # opt-out path. Only fires when patches were attempted (>0) AND none
+    # were actionable; if patches_total == 0 we never invoked the Healer
+    # (no needs_patch branch matched), which means the failures are
+    # outside the Healer's reach for a different reason — keep the
+    # original behaviour and let the heal-budget cap stop the loop.
+    patches_total = state.metadata.get("last_cycle_patches_total") or 0
+    patches_actionable = state.metadata.get("last_cycle_patches_actionable") or 0
+    if patches_total > 0 and patches_actionable == 0:
+        state.metadata["heal_loop_early_exit"] = (
+            "all_healer_proposals_were_opt_outs"
+        )
+        return "end"
+
+    return "heal"
