@@ -79,6 +79,35 @@ THREAT CLASS. This decision dominates the downstream binding.
     results, registration). The security test exercises the feature
     the way users would. Proceed to surface selection as usual.
 
+  ── ACCEPT-IS-SECURE GUARD (read before choosing DEFENSIVE_INVERTED) ──
+    Some requirements ask the app to ACCEPT input that LOOKS dangerous
+    but is SAFELY PROCESSED — the secure outcome is SUCCESS (2xx), not
+    rejection. These are DEFENSIVE_NORMAL, NOT DEFENSIVE_INVERTED /
+    INPUT_REJECTION.
+
+    Litmus test: "What is the SECURE response status?"
+      • Secure behavior = REJECT the input (4xx)  → DEFENSIVE_INVERTED,
+        kind INPUT_REJECTION. e.g. "accept any LENGTH" → reject >255 (422).
+      • Secure behavior = ACCEPT the input (2xx) and neutralize it
+        downstream (bcrypt hash, parameterized query, output encoding)
+        → DEFENSIVE_NORMAL. The special characters are stored/processed
+        safely; the request SUCCEEDS.
+
+    Canonical DEFENSIVE_NORMAL examples (do NOT mark INPUT_REJECTION):
+      • "must accept passwords containing %, ;, ', -- " — registration
+        SUCCEEDS (201); bcrypt hashes the value, no SQL injection. The
+        chars are valid password content, not an attack to reject.
+      • "must accept unicode / emoji in a free-text field" — stored as-is.
+      • "must accept any valid email format" — accepted (201).
+
+    Rule: classify INPUT_REJECTION ONLY when the app SHOULD return 4xx.
+    If the correct, secure behavior is a 2xx that safely processes the
+    input, it is DEFENSIVE_NORMAL — a normal feature test, not an
+    anti-pattern inversion. (Observed mis-classification: login REQ-003
+    "accept passwords with special chars" was wrongly tagged
+    INPUT_REJECTION, so the correct 201 test was dropped by the
+    Generator's status-code gate.)
+
   DEFENSIVE_INVERTED
     The requirement uses ANTI-PATTERN language. The narrator is
     asking for an insecure behavior; the Critic flagged it as a
