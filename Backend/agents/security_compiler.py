@@ -232,6 +232,17 @@ _METHOD_PATH_RE = re.compile(
     r"\b(GET|POST|PUT|PATCH|DELETE)\b\s*[^\n/]*?(/[A-Za-z0-9_\-./]+)",
     re.IGNORECASE | re.DOTALL,
 )
+# FastAPI path templates in prose actions (observed: "GET /tasks/{task_id}").
+_METHOD_PATH_TEMPLATE_RE = re.compile(
+    r"\b(GET|POST|PUT|PATCH|DELETE)\b\s*.*?(/[A-Za-z0-9_\-./]*\{[a-zA-Z_][a-zA-Z0-9_]*\})",
+    re.IGNORECASE | re.DOTALL,
+)
+# Literal UUID task ids in AC text (e.g. GET /tasks/550e8400-e29b-41d4-a716-446655440000).
+_TASK_UUID_PATH_RE = re.compile(
+    r"\b(GET|POST|PUT|PATCH|DELETE)\b\s*.*?"
+    r"(/tasks/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})",
+    re.IGNORECASE | re.DOTALL,
+)
 _BARE_PATH_RE = re.compile(r"(/[A-Za-z][A-Za-z0-9_/\-]{0,200})")
 
 # Title-keyword routing for known target endpoints. Conservative: only routes
@@ -243,6 +254,29 @@ _HEURISTIC_ROUTES = {
     "tasks":    ("GET",  "/tasks/"),
     "task":     ("GET",  "/tasks/"),
 }
+
+
+def _try_method_path_template(text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Tier 0: METHOD + FastAPI template path (e.g. GET /tasks/{task_id})."""
+    if not text or "{" not in text:
+        return None, None
+    m = _METHOD_PATH_TEMPLATE_RE.search(text)
+    if not m:
+        return None, None
+    path = m.group(2).strip()
+    if not path.startswith("/"):
+        path = "/" + path.lstrip("/")
+    return m.group(1).upper(), path
+
+
+def _try_method_path_task_uuid(text: str) -> Tuple[Optional[str], Optional[str]]:
+    """Tier 0b: METHOD + /tasks/<uuid> literal (matches binding template at Rule 11)."""
+    if not text:
+        return None, None
+    m = _TASK_UUID_PATH_RE.search(text)
+    if not m:
+        return None, None
+    return m.group(1).upper(), m.group(2).strip()
 
 
 def _try_method_path_regex(text: str) -> Tuple[Optional[str], Optional[str]]:
@@ -300,10 +334,31 @@ def _heuristic_from_input_and_title(
     if keys == {"email"}:
         return "POST", "/register"
 
-    # Title-keyword routing as last gasp.
-    for keyword, (method, path) in _HEURISTIC_ROUTES.items():
-        if keyword in combined:
-            return method, path
+    # task_id in payload → resource-scoped /tasks/{id} (not list GET /tasks/).
+    tid = input_data.get("task_id") or input_data.get("id")
+    if isinstance(tid, str) and tid.strip():
+        literal = f"/tasks/{tid.strip()}"
+        if "delete" in combined:
+            return "DELETE", literal
+        if "patch" in combined or "update" in combined:
+            return "PATCH", literal
+        if "post" in combined and "task" in combined:
+            return "POST", "/tasks/"
+        return "GET", literal
+
+    # Prose mentions {task_id} or per-task routes — avoid collapsing to GET /tasks/.
+    if "{task_id}" in combined or "task_id}" in combined:
+        if "delete" in combined:
+            return "DELETE", "/tasks/{task_id}"
+        if "patch" in combined or "update" in combined:
+            return "PATCH", "/tasks/{task_id}"
+        return "GET", "/tasks/{task_id}"
+
+    # Title-keyword routing as last gasp (list/create only — not when AC names an id).
+    if not ("{task_id}" in combined or re.search(r"/tasks/[0-9a-fA-F-]{36}", combined)):
+        for keyword, (method, path) in _HEURISTIC_ROUTES.items():
+            if keyword in combined:
+                return method, path
 
     return None, None
 
@@ -317,6 +372,21 @@ def _method_path_from_action(
     """Four-tier METHOD/path inference. Backward-compatible single-arg form
     still works (tiers 1 + 3 only) — callers using kwargs get all four tiers.
     """
+    # Tier 0 — FastAPI template paths ({task_id}) before regex truncates at `{`
+    meth, path = _try_method_path_template(action)
+    if meth and path:
+        return meth, path, None
+    meth, path = _try_method_path_template(title)
+    if meth and path:
+        return meth, path, None
+
+    meth, path = _try_method_path_task_uuid(action)
+    if meth and path:
+        return meth, path, None
+    meth, path = _try_method_path_task_uuid(title)
+    if meth and path:
+        return meth, path, None
+
     # Tier 1 — strict regex on action (original behaviour)
     meth, path = _try_method_path_regex(action)
     if meth and path:
@@ -364,6 +434,39 @@ def _infer_use_auth(tc: TestCase) -> bool:
     return True
 
 
+_UUID_IN_PATH_RE = re.compile(
+    r"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+_TEMPLATE_PARAM_IN_PATH_RE = re.compile(r"/\{[a-zA-Z_][a-zA-Z0-9_]*\}")
+
+
+def _is_resource_id_route(path: str) -> bool:
+    """True when the request targets a single resource by id (not a list route).
+
+    404 on unknown/forbidden ids is a valid neutralization for injection/IDOR
+    probes — distinct from POST /login or /register body validation.
+    """
+    if not path:
+        return False
+    if _TEMPLATE_PARAM_IN_PATH_RE.search(path):
+        return True
+    if _UUID_IN_PATH_RE.search(path):
+        return True
+    return False
+
+
+def _request_path_for_adversarial(tc: TestCase) -> str:
+    """Best-effort path used to decide 404-as-resilient (bound_path wins)."""
+    if tc.bound_path:
+        return tc.bound_path
+    meth, path, _ = _method_path_from_action(
+        tc.action or "",
+        title=tc.title or "",
+        input_data=tc.input_data,
+    )
+    return path or ""
+
+
 def _acceptable_status_codes_for_adversarial(tc: TestCase) -> List[int]:
     """Resolve the FULL list of HTTP status codes that count as a SUCCESSFUL
     NEUTRALIZATION for an adversarial test.
@@ -395,8 +498,13 @@ def _acceptable_status_codes_for_adversarial(tc: TestCase) -> List[int]:
 
     codes = list(RESILIENCE_SIGNATURES.get(key, {}).get("http_status") or [])
     if not codes:
-        return [tc.expected_status_code] if tc.expected_status_code is not None else []
-    return [int(c) for c in codes]
+        codes = [tc.expected_status_code] if tc.expected_status_code is not None else []
+    codes = [int(c) for c in codes]
+    # P1 — id-route adversarial probes: 404 means "no such row / not yours" (safe).
+    req_path = _request_path_for_adversarial(tc)
+    if _is_resource_id_route(req_path) and 404 not in codes:
+        codes = sorted(set(codes) | {404})
+    return codes
 
 
 def _payload_python_literal(input_data: Any) -> str:
@@ -517,11 +625,27 @@ def _materialize_pytest_workspace(state: ProjectState) -> None:
             repeat_cap = 200
         repeat_count = min(repeat_count, repeat_cap)
 
+        workflow_steps: List[Dict[str, Any]] = []
+        if tc.workflow_steps and len(tc.workflow_steps) >= 2:
+            for step in tc.workflow_steps:
+                ws: Dict[str, Any] = {
+                    "method": (step.method or "GET").upper(),
+                    "path": step.path or "/",
+                    "input_data": step.input_data if isinstance(step.input_data, dict) else {},
+                    "expected_status_code": int(step.expected_status_code),
+                }
+                if step.capture_json_key:
+                    ws["capture_json_key"] = step.capture_json_key
+                if step.expected_json_keys:
+                    ws["expected_json_keys"] = list(step.expected_json_keys)
+                workflow_steps.append(ws)
+
         rows.append(
             {
                 "slug": slug,
                 "test_id": tc.test_id,
                 "title_one_line": title_one,
+                "workflow_steps": workflow_steps,
                 # When skip_reason is set, the template's pytest.skip fires
                 # before any request is made — so the method/path placeholders
                 # below are inert. Keep them non-empty strings so the Jinja

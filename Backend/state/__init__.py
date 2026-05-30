@@ -17,6 +17,7 @@ from .project_state import (
     FrontendSurface,
     ACOverride,
     SurfaceBinding,
+    WorkflowStep,
     _legacy_fields_from_verdict,
 )
 __all__ = [
@@ -37,5 +38,6 @@ __all__ = [
     "FrontendSurface",
     "ACOverride",
     "SurfaceBinding",
+    "WorkflowStep",
     "_legacy_fields_from_verdict",
 ]

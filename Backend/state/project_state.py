@@ -152,6 +152,24 @@ class SurfaceBinding(BaseModel):
     defense_kind: Optional[DefenseKind] = None
 
 
+class WorkflowStep(BaseModel):
+    """One HTTP hop in a state_transition test (ISTQB state-transition / API workflow).
+
+    Steps run in order inside one pytest. Use ``capture_json_key`` on step N to
+    stash a response field (e.g. ``id`` from POST /tasks/) and reference it in
+    later paths as ``/tasks/{task_id}`` — the harness substitutes ``{task_id}``
+    from the capture named ``task_id`` or from capture key ``id`` when the
+    placeholder name matches.
+    """
+
+    method: str
+    path: str
+    input_data: Dict[str, Any] = Field(default_factory=dict)
+    expected_status_code: int
+    capture_json_key: Optional[str] = None
+    expected_json_keys: List[str] = Field(default_factory=list)
+
+
 class ValidatedRequirement(BaseModel):
     requirement_id: str
     statement: str
@@ -188,7 +206,9 @@ class TestCase(BaseModel):
     # Coverage & Test Metadata
     coverage_rationale: Optional[str] = None
     boundary_value_used: Optional[str] = None  # Exact boundary tested (e.g., "256 chars for 255-limit")
-    test_category: Optional[str] = None  # "positive", "negative", "boundary", "security"
+    test_category: Optional[str] = None  # positive|negative|boundary|security|state_transition
+    # Multi-step workflow (state_transition only). Single-shot tests leave this empty.
+    workflow_steps: List[WorkflowStep] = Field(default_factory=list)
     covered_requirement_id: Optional[str] = None
     covered_acceptance_criterion: Optional[str] = None
     source_refs: List[str] = Field(default_factory=list)

@@ -189,12 +189,128 @@ def _assert_forbidden(text: str, forbidden: list[str]) -> None:
             pytest.fail("Forbidden response fragment found: " + repr(needle))
 
 
+def _resolve_path_placeholders(path: str, payload: dict) -> str:
+    """Replace ``{task_id}`` in a path from payload keys when not workflow-captured."""
+    if "{" not in path:
+        return path
+    tid = payload.get("task_id") or payload.get("id")
+    if tid is not None:
+        return path.replace("{task_id}", str(tid))
+    return path
+
+
+def _substitute_workflow_path(path: str, captured: dict[str, str]) -> str:
+    """Fill ``{task_id}`` (and aliases) from prior workflow step captures."""
+    import re
+
+    def _repl(match: re.Match[str]) -> str:
+        name = match.group(1)
+        if name in captured:
+            return captured[name]
+        if name == "task_id" and "id" in captured:
+            return captured["id"]
+        return match.group(0)
+
+    return re.sub(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", _repl, path)
+
+
+def _run_workflow_steps(
+    client: httpx.Client,
+    steps: list[dict],
+    *,
+    headers: dict[str, str],
+    is_adversarial: bool,
+) -> None:
+    """Execute ordered HTTP steps for ``state_transition`` tests."""
+    captured: dict[str, str] = {}
+    for idx, step in enumerate(steps):
+        method = str(step.get("method") or "GET").upper()
+        raw_path = str(step.get("path") or "/")
+        payload = step.get("input_data") or {}
+        if not isinstance(payload, dict):
+            pytest.fail(f"workflow step {idx + 1}: input_data must be a dict")
+        if "{" in raw_path and "task_id" not in captured and "id" not in captured:
+            pytest.skip(
+                f"workflow step {idx + 1} needs a task id from an earlier "
+                "capture_json_key step (POST create)",
+            )
+        path = _substitute_workflow_path(raw_path, captured)
+        path = _resolve_path_placeholders(path, payload)
+        if "{" in path:
+            pytest.skip(
+                f"workflow step {idx + 1}: unresolved path template {raw_path!r}",
+            )
+        payload = _maybe_randomise_email(
+            payload, path=path, is_adversarial=is_adversarial
+        )
+        expected = int(step["expected_status_code"])
+        m = method
+        if m == "GET":
+            response = client.request("GET", path, params=payload)
+        elif m in ("POST", "PUT", "PATCH", "DELETE"):
+            response = client.request(m, path, json=payload)
+        else:
+            pytest.fail("Unsupported workflow method: " + method)
+        assert response.status_code == expected, (
+            f"workflow step {idx + 1} {method} {path}: expected {expected}, "
+            f"got {response.status_code} — {response.text[:500]}"
+        )
+        cap_key = step.get("capture_json_key")
+        if cap_key:
+            try:
+                body = response.json()
+            except Exception as exc:
+                pytest.fail(
+                    f"workflow step {idx + 1}: capture_json_key={cap_key!r} "
+                    f"but response is not JSON: {exc}"
+                )
+            if not isinstance(body, dict):
+                pytest.fail(
+                    f"workflow step {idx + 1}: JSON missing key {cap_key!r}"
+                )
+            val = body.get(cap_key)
+            if val is None and cap_key in ("task_id", "id"):
+                val = body.get("id") or body.get("task_id")
+            if val is None:
+                pytest.fail(
+                    f"workflow step {idx + 1}: JSON missing key {cap_key!r}"
+                )
+            captured[cap_key] = str(val)
+            captured["task_id"] = captured[cap_key]
+            captured["id"] = captured[cap_key]
+        for key in step.get("expected_json_keys") or []:
+            body = response.json()
+            assert isinstance(body, dict) and key in body, (
+                f"workflow step {idx + 1}: expected JSON key {key!r}"
+            )
+
+
 {% for tc in tests %}
 def test_{{ tc.slug }}() -> None:
     # {{ tc.title_one_line }}
     # test_id={{ tc.test_id }} adversarial={{ tc.is_adversarial }} use_auth={{ tc.use_auth }}
     {% if tc.skip_reason %}
     pytest.skip({{ tc.skip_reason | tojson }})
+    {% elif tc.workflow_steps %}
+    use_auth = {% if tc.use_auth %}True{% else %}False{% endif %}
+    headers = _default_auth_headers() if use_auth else {}
+    if use_auth and not headers:
+        pytest.skip(
+            "Authenticated workflow: set SENTINEL_TEST_BEARER_TOKEN (JWT).",
+        )
+    steps = {{ tc.workflow_steps | tojson }}
+    with httpx.Client(
+        base_url=BASE_URL,
+        timeout=120.0,
+        follow_redirects=True,
+        headers=headers,
+    ) as client:
+        _run_workflow_steps(
+            client,
+            steps,
+            headers=headers,
+            is_adversarial={{ "True" if tc.is_adversarial else "False" }},
+        )
     {% else %}
     use_auth = {% if tc.use_auth %}True{% else %}False{% endif %}
     headers = _default_auth_headers() if use_auth else {}
@@ -219,6 +335,8 @@ def test_{{ tc.slug }}() -> None:
     _ensure_credential(
         payload, path=path, is_adversarial={{ "True" if tc.is_adversarial else "False" }}
     )
+    if isinstance(payload, dict):
+        path = _resolve_path_placeholders(path, payload)
 
     m = method.upper()
     # P0-3: when repeat_count > 1, every request + assertion runs N times so

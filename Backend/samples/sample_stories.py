@@ -54,6 +54,23 @@ SAMPLE_FILTER_ACS: List[str] = [
 ]
 
 
+SAMPLE_LIFECYCLE_STORY = (
+    "As a task owner, I want to create, view, update, and delete my tasks through "
+    "the REST API so that my task list reflects the full object lifecycle."
+)
+
+SAMPLE_LIFECYCLE_ACS: List[str] = [
+    "POST /tasks/ must create a task and return HTTP 201 with a new task id in the JSON body.",
+    "GET /tasks/{task_id} must return HTTP 200 with the same id and title for a task the caller owns.",
+    "PATCH /tasks/{task_id} must persist field changes (e.g. priority) and return HTTP 200.",
+    (
+        "DELETE /tasks/{task_id} must soft-delete the task (HTTP 200) and a subsequent "
+        "GET for that id must return HTTP 404."
+    ),
+    "GET /tasks/{task_id} for another user's task id must return HTTP 404, not 403.",
+]
+
+
 # --------------------------------------------------------------------------- #
 # Security-focused stories (deliberately vulnerable ACs)                      #
 # --------------------------------------------------------------------------- #
@@ -151,6 +168,13 @@ SAMPLE_STORIES: Dict[str, SampleStory] = {
         "acs": SAMPLE_FILTER_ACS,
         "title": "Filter by Priority",
         "story_id": "US-001",
+        "module": "TaskManager",
+    },
+    "lifecycle": {
+        "story": SAMPLE_LIFECYCLE_STORY,
+        "acs": SAMPLE_LIFECYCLE_ACS,
+        "title": "Task API Lifecycle",
+        "story_id": "LIFE-001",
         "module": "TaskManager",
     },
     "org": {

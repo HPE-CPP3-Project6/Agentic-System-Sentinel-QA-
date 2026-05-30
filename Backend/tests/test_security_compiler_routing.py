@@ -21,7 +21,11 @@ from __future__ import annotations
 
 import pytest
 
-from agents.security_compiler import _method_path_from_action
+from agents.security_compiler import (
+    _acceptable_status_codes_for_adversarial,
+    _method_path_from_action,
+)
+from state import TestCase
 
 
 # --------------------------------------------------------------------------- #
@@ -44,16 +48,19 @@ def test_tier1_extracts_method_and_path_from_action(action, expected_method, exp
     assert skip is None
 
 
-def test_tier1_rejects_path_with_placeholders():
-    """{task_id} style placeholders can't be served by the runtime template —
-    they need to be inline literals. Skip with a clear reason rather than
-    emit a malformed request URL."""
+def test_tier0_extracts_fastapi_template_path():
     meth, path, skip = _method_path_from_action("GET /tasks/{task_id} as owner")
-    # Falls through tier 1; tiers 2/3 also reject placeholders → ultimately skipped
-    # (or tier 4 if input_data hints; here we pass no kwargs so it skips).
-    assert meth is None
-    assert path is None
-    assert skip is not None
+    assert meth == "GET"
+    assert path == "/tasks/{task_id}"
+    assert skip is None
+
+
+def test_tier0b_uuid_literal_path():
+    uuid = "550e8400-e29b-41d4-a716-446655440000"
+    meth, path, skip = _method_path_from_action(f"PATCH /tasks/{uuid} with payload")
+    assert meth == "PATCH"
+    assert path == f"/tasks/{uuid}"
+    assert skip is None
 
 
 # --------------------------------------------------------------------------- #
@@ -174,6 +181,37 @@ def test_all_tiers_exhausted_returns_informative_skip_reason():
 # --------------------------------------------------------------------------- #
 # Backward-compat with single-arg legacy callers                              #
 # --------------------------------------------------------------------------- #
+
+
+def test_adversarial_id_route_includes_404():
+    tc = TestCase(
+        test_id="T1",
+        title="sqli in task id",
+        action="GET /tasks/{task_id}",
+        expected_result="blocked",
+        is_adversarial=True,
+        owasp_category="A03:2021",
+        expected_status_code=400,
+        bound_path="/tasks/{task_id}",
+    )
+    codes = _acceptable_status_codes_for_adversarial(tc)
+    assert 404 in codes
+    assert 400 in codes
+
+
+def test_adversarial_login_route_excludes_404():
+    tc = TestCase(
+        test_id="T2",
+        title="sqli login",
+        action="POST /login",
+        expected_result="blocked",
+        is_adversarial=True,
+        owasp_category="A03:2021",
+        expected_status_code=401,
+        bound_path="/login",
+    )
+    codes = _acceptable_status_codes_for_adversarial(tc)
+    assert 404 not in codes
 
 
 def test_legacy_single_arg_call_still_works():

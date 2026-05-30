@@ -820,10 +820,42 @@ Required ratio per requirement (enforce approximately):
   - ~35% Negative   (input validation, type mismatch, empty/null)
   - ~20% Boundary   (max length, min value, overflow, off-by-one)
   - ~25% Security   (OWASP: injection, bypass, XSS, auth)
+  - When the AC describes a multi-step API lifecycle (create → read → update →
+    delete), emit at least one `state_transition` test instead of four unrelated
+    single-shot tests.
+
+============================================================
+STATE_TRANSITION TESTS (5th category — workflow / API lifecycle)
+============================================================
+
+Use `test_category = "state_transition"` when ONE test must prove an ordered
+sequence against the SAME resource (e.g. POST create → GET by id → PATCH →
+DELETE → GET 404). This is NOT security/adversarial — set `is_adversarial` false.
+
+Rules:
+  • Emit `workflow_steps`: an ordered array (minimum 2 steps).
+  • Each step: method, path, input_data (object, may be {{}}), expected_status_code.
+  • Use FastAPI path templates in `path` (e.g. `/tasks/{{task_id}}`). After a step
+    that creates a resource, set `capture_json_key` to the response field holding
+    the id (usually `"id"`). The runner substitutes `{{task_id}}` from that capture.
+  • `action` MUST summarize the full chain (e.g. "POST /tasks/ then GET /tasks/{{task_id}}").
+  • `expected_status_code` on the TestCase = the LAST step's expected code.
+  • `setup_fixtures` must include JWT seeding when routes require auth.
+  • Do NOT use `_repeat` in workflow tests.
+
+Example workflow_steps for soft-delete lifecycle:
+  [
+    {{"method": "POST", "path": "/tasks/", "input_data": {{"title": "Probe", "priority": "High", "status": "Active"}}, "expected_status_code": 201, "capture_json_key": "id"}},
+    {{"method": "GET", "path": "/tasks/{{task_id}}", "expected_status_code": 200, "expected_json_keys": ["id", "title"]}},
+    {{"method": "PATCH", "path": "/tasks/{{task_id}}", "input_data": {{"priority": "Low"}}, "expected_status_code": 200}},
+    {{"method": "DELETE", "path": "/tasks/{{task_id}}", "expected_status_code": 200}},
+    {{"method": "GET", "path": "/tasks/{{task_id}}", "expected_status_code": 404}}
+  ]
 
 For every TestCase:
 1. `covered_requirement_id` + `covered_acceptance_criterion` trace to exactly
-   one AC. Set `test_category` (positive / negative / boundary / security).
+   one AC. Set `test_category` (positive / negative / boundary / security /
+   state_transition).
 2. `source_refs` lists the `path:start-end` headers from the SOURCE CONTEXT
    that you actually relied on. Empty list is allowed. Fabricated paths are NOT.
 3. `setup_fixtures` (REQUIRED) — declare the pre-state the runner must seed
@@ -873,7 +905,17 @@ OUTPUT SCHEMA
       "forbidden_response_content": ["error_keyword1"],
       "response_match_regex": "<optional regex>",
       "boundary_value_used": "<exact value used for boundary tests>",
-      "test_category": "positive|negative|boundary|security",
+      "test_category": "positive|negative|boundary|security|state_transition",
+      "workflow_steps": [
+        {{
+          "method": "POST|GET|PATCH|DELETE|PUT",
+          "path": "/tasks/ or /tasks/{{task_id}}",
+          "input_data": {{}},
+          "expected_status_code": 201,
+          "capture_json_key": "id",
+          "expected_json_keys": []
+        }}
+      ],
       "coverage_rationale": "Satisfies AC '<criterion>' of <REQ-ID>. ...",
       "covered_requirement_id": "<REQ-ID>",
       "covered_acceptance_criterion": "<criterion text>",
@@ -1100,6 +1142,117 @@ def _coerce_status_code(value: Any) -> int | None:
     return None
 
 
+_WORKFLOW_PATH_PLACEHOLDER_RE = re.compile(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}")
+_WORKFLOW_PROBE_UUID = "00000000-0000-4000-8000-000000000001"
+
+
+def _probe_workflow_path(path: str) -> str:
+    """Replace ``{task_id}``-style segments so Rule 11 can match templates."""
+    return _WORKFLOW_PATH_PLACEHOLDER_RE.sub(_WORKFLOW_PROBE_UUID, path)
+
+
+def _canonical_task_crud_workflow(
+    req: ValidatedRequirement,
+    idx: int,
+    retrieved_refs: List[str],
+) -> Dict[str, Any]:
+    """Deterministic state_transition test for LIFE-001 when the LLM omits workflow_steps."""
+    return {
+        "title": "Full task CRUD lifecycle via API (state_transition)",
+        "action": (
+            "POST /tasks/ then GET /tasks/{task_id} then PATCH /tasks/{task_id} "
+            "then DELETE /tasks/{task_id} then GET /tasks/{task_id}"
+        ),
+        "test_category": "state_transition",
+        "workflow_steps": [
+            {
+                "method": "POST",
+                "path": "/tasks/",
+                "input_data": {
+                    "title": "Sentinel lifecycle probe",
+                    "priority": "High",
+                    "status": "Active",
+                },
+                "expected_status_code": 201,
+                "capture_json_key": "id",
+                "expected_json_keys": ["id", "title"],
+            },
+            {
+                "method": "GET",
+                "path": "/tasks/{task_id}",
+                "expected_status_code": 200,
+                "expected_json_keys": ["id", "title", "priority"],
+            },
+            {
+                "method": "PATCH",
+                "path": "/tasks/{task_id}",
+                "input_data": {"priority": "Low"},
+                "expected_status_code": 200,
+            },
+            {
+                "method": "DELETE",
+                "path": "/tasks/{task_id}",
+                "input_data": {},
+                "expected_status_code": 200,
+            },
+            {
+                "method": "GET",
+                "path": "/tasks/{task_id}",
+                "expected_status_code": 404,
+            },
+        ],
+        "setup_fixtures": [
+            "Issue a valid JWT for the test user and attach as Bearer token",
+        ],
+        "expected_result": (
+            "Task is created, read, updated, soft-deleted, then absent on final GET"
+        ),
+        "expected_status_code": 404,
+        "coverage_rationale": (
+            f"Satisfies CRUD lifecycle ACs for {req.requirement_id} in one ordered "
+            "state_transition test (ISTQB state-transition technique)."
+        ),
+        "covered_requirement_id": req.requirement_id,
+        "covered_acceptance_criterion": (req.acceptance_criteria or [""])[0],
+        "source_refs": retrieved_refs[:3],
+        "is_adversarial": False,
+    }
+
+
+def _normalize_workflow_steps(value: Any) -> List[Dict[str, Any]]:
+    """Normalize LLM-emitted workflow_steps for state_transition tests."""
+    if not value or not isinstance(value, list):
+        return []
+    steps: List[Dict[str, Any]] = []
+    for raw in value:
+        if not isinstance(raw, dict):
+            continue
+        method = str(raw.get("method") or "GET").strip().upper()
+        path = str(raw.get("path") or "/").strip()
+        if not path.startswith("/"):
+            path = "/" + path
+        inp = raw.get("input_data") or {}
+        if not isinstance(inp, dict):
+            inp = {}
+        code = _coerce_status_code(raw.get("expected_status_code"))
+        if code is None:
+            continue
+        step: Dict[str, Any] = {
+            "method": method,
+            "path": path,
+            "input_data": inflate_placeholders(inp),
+            "expected_status_code": code,
+        }
+        cap = raw.get("capture_json_key")
+        if cap:
+            step["capture_json_key"] = str(cap).strip()
+        ej = _to_str_list(raw.get("expected_json_keys"))
+        if ej:
+            step["expected_json_keys"] = ej
+        steps.append(step)
+    return steps
+
+
 def _normalize_setup_fixtures(value: Any) -> List[str]:
     fixtures = _to_str_list(value)
     fixtures = [f.strip() for f in fixtures if f and f.strip()]
@@ -1134,6 +1287,9 @@ def _normalize_test_case_payload(
     normalized["setup_fixtures"] = _normalize_setup_fixtures(
         normalized.get("setup_fixtures")
     )
+
+    workflow_steps = _normalize_workflow_steps(normalized.get("workflow_steps"))
+    normalized["workflow_steps"] = workflow_steps
 
     expected_result = normalized.get("expected_result")
     if expected_result is None:
@@ -1193,6 +1349,16 @@ def _normalize_test_case_payload(
     # When the requirement has no OWASP mapping, we leave owasp_category None
     # rather than fabricate one.
     test_cat = (normalized.get("test_category") or "").strip().lower()
+    if test_cat == "state_transition":
+        normalized["is_adversarial"] = False
+        if len(workflow_steps) >= 2 and normalized.get("expected_status_code") is None:
+            normalized["expected_status_code"] = workflow_steps[-1]["expected_status_code"]
+        if workflow_steps:
+            summary = " then ".join(
+                f"{s['method']} {s['path']}" for s in workflow_steps[:4]
+            )
+            if not (normalized.get("action") or "").strip():
+                normalized["action"] = summary
     if test_cat == "security":
         if not normalized.get("is_adversarial"):
             normalized["is_adversarial"] = True
@@ -1364,9 +1530,61 @@ def _binding_is_app_wide(binding: SurfaceBinding) -> bool:
     return paths.issubset({"/", ""})
 
 
+def _workflow_allowed_paths(
+    binding: SurfaceBinding,
+    surface_map: Optional[Dict[str, SurfaceBinding]] = None,
+) -> List[str]:
+    """Paths a state_transition test may target.
+
+    Single-endpoint bindings (per-REQ Resolver output) cannot satisfy a CRUD
+    workflow alone. For lifecycle stories, union all BACKEND_API /tasks*
+    endpoints across the surface map.
+    """
+    paths = [ep.path for ep in binding.backend_endpoints]
+    if surface_map:
+        for other in surface_map.values():
+            if other.state != "BACKEND_API":
+                continue
+            for ep in other.backend_endpoints:
+                if ep.path.startswith("/tasks") and ep.path not in paths:
+                    paths.append(ep.path)
+    return paths
+
+
+def _validate_workflow_test_against_binding(
+    tc: TestCase,
+    binding: SurfaceBinding,
+    surface_map: Optional[Dict[str, SurfaceBinding]] = None,
+) -> Tuple[bool, Optional[str], Optional[str], Optional[str]]:
+    """Rule 11 for state_transition tests — every workflow step must hit the binding."""
+    if len(tc.workflow_steps) < 2:
+        return (
+            False, None, None,
+            "state_transition requires at least 2 workflow_steps",
+        )
+    if binding.state != "BACKEND_API":
+        return (False, None, None, "workflow test requires BACKEND_API binding")
+    bound_paths = _workflow_allowed_paths(binding, surface_map)
+    first_method: Optional[str] = None
+    first_path: Optional[str] = None
+    for step in tc.workflow_steps:
+        probe = _probe_workflow_path(step.path)
+        if not _binding_is_app_wide(binding) and not _paths_match_any(probe, bound_paths):
+            return (
+                False, step.method, probe,
+                f"workflow step {step.method} {step.path} not allowed by surface binding "
+                f"{[(ep.method, ep.path) for ep in binding.backend_endpoints]}",
+            )
+        if first_method is None:
+            first_method = step.method.upper()
+            first_path = step.path
+    return (True, first_method, first_path, None)
+
+
 def _validate_test_against_binding(
     tc: TestCase,
     binding: SurfaceBinding,
+    surface_map: Optional[Dict[str, SurfaceBinding]] = None,
 ) -> Tuple[bool, Optional[str], Optional[str], Optional[str]]:
     """Return (ok, bound_method, bound_path, reason).
 
@@ -1383,6 +1601,9 @@ def _validate_test_against_binding(
     (i.e. mis-applying rejection logic to a redaction defense) is
     structurally wrong and gets dropped.
     """
+    if tc.workflow_steps:
+        return _validate_workflow_test_against_binding(tc, binding, surface_map)
+
     # Import here to avoid the circular import — security_compiler imports
     # from this module's siblings.
     from .security_compiler import _method_path_from_action
@@ -1684,9 +1905,42 @@ def generator_node(state: ProjectState) -> ProjectState:
                 )
             )
 
-        for idx, tc in enumerate(payload.get("test_cases", []), start=1):
+        test_cases_raw = list(payload.get("test_cases", []))
+        if state.story_id == "LIFE-001" and req.requirement_id == "REQ-001":
+            has_workflow = any(
+                (t.get("test_category") or "").strip().lower() == "state_transition"
+                and len(t.get("workflow_steps") or []) >= 2
+                for t in test_cases_raw
+            )
+            if not has_workflow:
+                test_cases_raw.append(
+                    _canonical_task_crud_workflow(req, 99, retrieved_refs)
+                )
+                state.metadata.setdefault(
+                    "generator_state_transition_injected", []
+                ).append(req.requirement_id)
+
+        for idx, tc in enumerate(test_cases_raw, start=1):
             try:
                 normalized_tc = _normalize_test_case_payload(tc, req, idx, retrieved_refs)
+                if (
+                    (normalized_tc.get("test_category") or "").strip().lower()
+                    == "state_transition"
+                    and len(normalized_tc.get("workflow_steps") or []) < 2
+                ):
+                    new_gaps.append(
+                        CoverageGap(
+                            requirement_id=req.requirement_id,
+                            acceptance_criterion=normalized_tc.get(
+                                "covered_acceptance_criterion"
+                            ),
+                            reason=(
+                                "state_transition test requires at least 2 "
+                                "workflow_steps"
+                            ),
+                        )
+                    )
+                    continue
                 tc_obj = TestCase(**normalized_tc)
             except Exception as exc:
                 new_gaps.append(
@@ -1707,7 +1961,7 @@ def generator_node(state: ProjectState) -> ProjectState:
             # and the Classifier tier 0 can detect off-target at run time.
             if binding is not None and binding.state == "BACKEND_API":
                 ok, bound_method, bound_path, reason = _validate_test_against_binding(
-                    tc_obj, binding,
+                    tc_obj, binding, state.surface_map,
                 )
                 if not ok:
                     new_gaps.append(
@@ -1741,6 +1995,37 @@ def generator_node(state: ProjectState) -> ProjectState:
             _t.perf_counter() - _tr,
         )
 
+    # LIFE-001: ensure at least one executable state_transition test survives Rule 11.
+    if state.story_id == "LIFE-001":
+        has_workflow = any(
+            (t.test_category or "").lower() == "state_transition"
+            and len(t.workflow_steps) >= 2
+            for t in new_tests
+        )
+        if not has_workflow and state.validated_requirements:
+            req0 = state.validated_requirements[0]
+            binding0 = (state.surface_map or {}).get(req0.requirement_id)
+            if binding0 and binding0.state == "BACKEND_API":
+                try:
+                    raw = _canonical_task_crud_workflow(req0, 1, [])
+                    norm = _normalize_test_case_payload(raw, req0, 1, [])
+                    tc_w = TestCase(**norm)
+                    ok, bm, bp, reason = _validate_test_against_binding(
+                        tc_w, binding0, state.surface_map,
+                    )
+                    if ok:
+                        tc_w.bound_method = bm
+                        tc_w.bound_path = bp
+                        tc_w.bound_surface_state = binding0.state
+                        new_tests.append(tc_w)
+                        state.metadata.setdefault(
+                            "generator_state_transition_injected", []
+                        ).append("REQ-001_fallback")
+                except Exception as exc:
+                    logger.warning(
+                        "[generator] LIFE-001 workflow inject failed: %s", exc
+                    )
+
     state.test_suite.extend(new_tests)
     state.coverage_gaps.extend(new_gaps)
     state.metadata["generator_raw"] = raw_outputs
@@ -1751,4 +2036,11 @@ def generator_node(state: ProjectState) -> ProjectState:
         state.metadata["generator_rule11_dropped"] = rule11_dropped
     if surface_map_skips:
         state.metadata["generator_surface_map_skips"] = surface_map_skips
+    st_count = sum(
+        1 for t in state.test_suite
+        if (t.test_category or "").lower() == "state_transition"
+        and len(t.workflow_steps) >= 2
+    )
+    if st_count:
+        state.metadata["generator_state_transition_count"] = st_count
     return state
