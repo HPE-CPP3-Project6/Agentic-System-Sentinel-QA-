@@ -59,8 +59,3 @@ def _path_template_match(actual: str, template: str) -> bool:
 def _paths_match_any(actual: str, templates: Iterable[str]) -> bool:
     """True iff `actual` matches at least one of the supplied templates."""
     return any(_path_template_match(actual, t) for t in templates)
-
-
-def _normalize_for_display(path: str) -> str:
-    """Stable form used in evidence strings / log messages."""
-    return _normalize(path)

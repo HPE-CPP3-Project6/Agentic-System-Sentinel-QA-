@@ -132,18 +132,3 @@ def _normalise(owasp_id: str) -> str:
 
 def get_payloads(owasp_id: str) -> List[Payload]:
     return list(_LIBRARY.get(_normalise(owasp_id), []))
-
-
-def get_payloads_for_mappings(owasp_ids: List[str]) -> List[Payload]:
-    seen: set[str] = set()
-    out: List[Payload] = []
-    for oid in owasp_ids:
-        for p in get_payloads(oid):
-            if p.value not in seen:
-                seen.add(p.value)
-                out.append(p)
-    return out
-
-
-def all_categories() -> List[str]:
-    return list(_LIBRARY.keys())

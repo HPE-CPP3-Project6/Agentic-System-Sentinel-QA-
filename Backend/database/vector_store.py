@@ -785,7 +785,8 @@ def _router_query(action: str, context_keywords: str = "") -> str:
     return (
         f"FastAPI APIRouter @router.post @router.get @router.put @router.delete "
         f"@app.post endpoint path Depends OAuth2PasswordRequestForm Form() "
-        f"response_model for {action} {context_keywords}"
+        f"response_model "
+        f"for {action} {context_keywords}"
     )
 
 

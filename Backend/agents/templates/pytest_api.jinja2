@@ -182,10 +182,24 @@ def _default_auth_headers() -> dict[str, str]:
     return {"Authorization": "Bearer " + token}
 
 
+# FastAPI / Pydantic error-envelope keys. These appear in EVERY structured
+# error body (`{"detail":[{"loc":...,"msg":...,"type":...}]}`) so a forbidden
+# assertion on them is always a test defect, not an app leak. Skipped as a
+# last-line-of-defense even if a forbidden list slips past the Generator's
+# _sanitize_forbidden_content (e.g. via a heal-cycle regeneration).
+_FORBIDDEN_ENVELOPE_SKIP = {
+    "detail", "loc", "msg", "type", "ctx", "input", "url", "errors",
+}
+
+
 def _assert_forbidden(text: str, forbidden: list[str]) -> None:
     lower = text.lower()
     for needle in forbidden:
-        if needle and needle.lower() in lower:
+        if not needle:
+            continue
+        if needle.strip().lower() in _FORBIDDEN_ENVELOPE_SKIP:
+            continue  # framework envelope key — never a real leak
+        if needle.lower() in lower:
             pytest.fail("Forbidden response fragment found: " + repr(needle))
 
 

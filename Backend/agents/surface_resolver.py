@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -657,6 +658,66 @@ def _extract_raw_bindings(parsed: Any) -> tuple[List[Any], Optional[str]]:
     return [], f"unexpected_root_{type(parsed).__name__}"
 
 
+def _path_grounding_literals(path: str) -> List[str]:
+    """Path strings that may appear in FastAPI routers or route manifest comments."""
+    if not path:
+        return []
+    return list(dict.fromkeys([path, path.rstrip("/"), path.rstrip("/") + "/"]))
+
+
+def _path_nonparam_segments(path: str) -> List[str]:
+    """Non-parameter path segments, e.g. /tasks/{task_id} -> ['tasks']."""
+    return [
+        seg for seg in (path or "").strip("/").split("/")
+        if seg and not (seg.startswith("{") and seg.endswith("}"))
+    ]
+
+
+def _file_grounds_endpoint(text: str, ep: BackendEndpoint) -> bool:
+    """True if `text` plausibly implements the bound endpoint.
+
+    FastAPI splits a full path across an APIRouter prefix and the route
+    decorator: `APIRouter(prefix="/tasks")` + `@router.get("/{task_id}")`
+    means the FULL path "/tasks/{task_id}" never appears as one literal in
+    the file. So full-literal matching alone wrongly rejects every prefixed
+    route — which downgraded all 6 lifecycle REQs to NEEDS_CLARIFICATION and
+    produced a 0-test suite. We accept four grounding signals:
+    """
+    if not text:
+        return False
+    path = ep.path or ""
+
+    # A) Full path literal (non-prefixed routers, route-manifest comments).
+    for literal in _path_grounding_literals(path):
+        if literal in text or literal.rstrip("/") in text:
+            return True
+
+    # B) Param-bearing tail — handles the prefix split. For
+    #    /tasks/{task_id} the decorator literal "/{task_id}" appears in
+    #    the file even though the prefix "/tasks" is declared separately.
+    if "{" in path:
+        segs = path.strip("/").split("/")
+        for i in range(len(segs)):
+            tail = "/" + "/".join(segs[i:])
+            if "{" in tail and tail in text:
+                return True
+
+    # C) All non-parameter segments present — the resource noun lives in
+    #    `prefix="/tasks"` and/or the decorators. For /tasks/ (list) and
+    #    /tasks/{task_id} the segment "tasks" appears in the cited file.
+    #    Scoped to the Resolver-cited handler_file, so coincidental matches
+    #    in unrelated files are not a concern.
+    nonparam = _path_nonparam_segments(path)
+    if nonparam and all(seg in text for seg in nonparam):
+        return True
+
+    # D) App-wide handlers (middleware / exception handlers) — sentinel path.
+    normalized = path.strip().strip("/")
+    if normalized in ("", "*") and any(hint in text for hint in _NON_ROUTE_HANDLER_HINTS):
+        return True
+    return False
+
+
 def _validate_endpoint_grounding(
     ep: BackendEndpoint,
     repo_roots: List[Path],
@@ -664,44 +725,23 @@ def _validate_endpoint_grounding(
     """Confirm the endpoint's handler_file exists and is plausibly the
     binding's defense location.
 
-    File-level (not decorator-regex) check. Two acceptance criteria:
-
-      A) The literal `path` appears anywhere in the file. Covers the
-         common case where the LLM cited @router.get("/tasks/") and
-         the file actually contains that decorator. Covers
-         /tasks/{task_id}-style templates after the brace-stripped form
-         is also checked.
-
-      B) The file contains a non-route handler hint that matches the
-         defense pattern. Exception handlers, middleware, and CORS
-         registrations don't have a URL path — they wrap the whole app.
-         For these, an `ep.path == "/"` (root catch-all) or
-         `ep.path == ""` is a legitimate binding, and the file is
-         "grounded" if it contains an exception_handler / middleware
-         registration. This was the search REQ-005 case: defense lives
-         in main.py's global exception handler, but the prior strict
-         path-in-file check rejected it as unfounded.
+    File-level check. Accepts:
+      A) FastAPI-style path literals (`/tasks/`, `/tasks/{task_id}`).
+      B) Non-route handlers (middleware / exception handlers).
     """
-    candidates = [
-        root / ep.handler_file
-        for root in repo_roots
-        if ep.handler_file and not ep.handler_file.startswith("(")
-    ]
-    for f in candidates:
-        if not f.is_file():
-            continue
-        try:
-            text = f.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            continue
-        # A — explicit path literal anywhere in the file
-        if ep.path and (ep.path in text or ep.path.rstrip("/") in text):
-            return True
-        # B — non-route handler hint. Accept when the bound "path" is a
-        # placeholder ("/", "", "*") AND the file contains a recognized
-        # middleware / exception-handler registration.
-        normalized = (ep.path or "").strip().strip("/")
-        if normalized in ("", "*") and any(hint in text for hint in _NON_ROUTE_HANDLER_HINTS):
+    if not ep.handler_file or ep.handler_file.startswith("("):
+        return False
+    roots = [Path(r) for r in repo_roots]
+    handler_candidates = [root / ep.handler_file for root in roots]
+    texts: List[str] = []
+    for f in handler_candidates:
+        if f.is_file():
+            try:
+                texts.append(f.read_text(encoding="utf-8", errors="ignore"))
+            except OSError:
+                pass
+    for text in texts:
+        if _file_grounds_endpoint(text, ep):
             return True
     return False
 
@@ -831,12 +871,34 @@ def _empty_chroma_map(reqs: List[ValidatedRequirement], reason: str) -> Dict[str
 
 
 def _resolve_repo_roots() -> List[Path]:
-    """Candidate roots for endpoint-grounding validation."""
+    """Candidate roots for endpoint-grounding validation.
+
+    Must include every tree that ``database.ingest`` may index. Handler paths
+    from the LLM are relative to that root (e.g. ``routers/task_router.py`` for
+    ``repo_cache``). Override with ``SENTINEL_REPO_ROOT`` when testing another
+    checkout.
+    """
     here = Path(__file__).resolve().parent.parent
-    return [
-        here / "repo_cache",                    # Smart Task Manager target
-        here,                                    # Backend itself (rare; auth_router etc.)
-    ]
+    candidates: List[Path] = []
+    env_root = os.getenv("SENTINEL_REPO_ROOT", "").strip()
+    if env_root:
+        candidates.append(Path(env_root))
+    candidates.extend([
+        here / "repo_cache",
+        here,
+    ])
+    seen: set[Path] = set()
+    roots: List[Path] = []
+    for p in candidates:
+        try:
+            resolved = p.resolve()
+        except OSError:
+            continue
+        if resolved in seen or not resolved.is_dir():
+            continue
+        seen.add(resolved)
+        roots.append(resolved)
+    return roots
 
 
 def _apply_manual_overrides(

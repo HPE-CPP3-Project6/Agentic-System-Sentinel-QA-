@@ -337,7 +337,7 @@ def test_executor_metadata_lists_unsafe_patches_when_heal_emits_backdoor(monkeyp
     # surfacing, not the LLM call. Safety warnings are encoded into
     # bug_explanation with the `[UNSAFE-PATCH-FLAG] ...` prefix; _patch_safety_warning
     # extracts them, and executor_node propagates to metadata.
-    def fake_heal(tc, log, llm, *, prior_patches=None, heal_attempt=None):
+    def fake_heal(tc, log, llm, *, prior_patches=None, heal_attempt=None, heal_llm_errors=None):
         fix = 'if email == "test@example.com": return seeded_user'
         sw = exec_mod._validate_patch_safety(fix, "auth.py")
         bug_exp = f"{exec_mod._UNSAFE_PREFIX}{sw}\nbackdoor-style stub" if sw else "x"
@@ -384,7 +384,7 @@ def test_executor_dedup_replaces_prior_cycle_patch_in_state(monkeypatch):
     # Two distinct fakes so we can tell the cycles apart
     counter = {"n": 0}
 
-    def fake_heal(tc, log, llm, *, prior_patches=None, heal_attempt=None):
+    def fake_heal(tc, log, llm, *, prior_patches=None, heal_attempt=None, heal_llm_errors=None):
         counter["n"] += 1
         return Patch(
             target_file="auth.py",

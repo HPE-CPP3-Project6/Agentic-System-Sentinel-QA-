@@ -207,6 +207,18 @@ class TestCase(BaseModel):
     coverage_rationale: Optional[str] = None
     boundary_value_used: Optional[str] = None  # Exact boundary tested (e.g., "256 chars for 255-limit")
     test_category: Optional[str] = None  # positive|negative|boundary|security|state_transition
+    # P1 (ISTQB / ISO 29119-4) — the formal test-DESIGN technique this case
+    # embodies. `test_category` says WHAT outcome class (positive/negative/…);
+    # `test_technique` says WHICH design discipline produced it. Inferred from
+    # category + shape when the Generator omits it. Reported as by_technique in
+    # the artifact so a reviewer can map coverage to recognized techniques.
+    #   equivalence_partition | boundary_value | decision_table |
+    #   state_transition | requirements_based | security_adversarial
+    test_technique: Optional[str] = None
+    # For equivalence_partition tests: the partition/class this case represents
+    # (e.g. "valid", "invalid-empty", "invalid-type", "auth-missing"). Lets the
+    # artifact show one test per meaningful class without duplicates.
+    equivalence_class: Optional[str] = None
     # Multi-step workflow (state_transition only). Single-shot tests leave this empty.
     workflow_steps: List[WorkflowStep] = Field(default_factory=list)
     covered_requirement_id: Optional[str] = None

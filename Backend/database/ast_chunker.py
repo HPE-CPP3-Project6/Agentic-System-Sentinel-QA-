@@ -172,8 +172,12 @@ def ast_chunk_source(
     if parser is None:
         raise AstChunkerUnavailable(f"parser unavailable for language={language!r}")
 
-    source_bytes = source.encode("utf-8", errors="replace")
-    tree = parser.parse(source_bytes)
+    # tree-sitter 0.22+ expects `str`; older bindings wanted `bytes`.
+    try:
+        tree = parser.parse(source)
+    except TypeError:
+        source_bytes = source.encode("utf-8", errors="replace")
+        tree = parser.parse(source_bytes)
     root = tree.root_node
 
     boundary_types = _CHUNK_NODES[language]

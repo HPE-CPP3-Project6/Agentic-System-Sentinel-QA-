@@ -38,7 +38,6 @@ from utils import (
     get_payloads,
     invoke_with_retry,
     parse_llm_json,
-    stringify_response,
 )
 from utils.boundaries import RESILIENCE_SIGNATURES, VULNERABILITY_SIGNATURES
 
@@ -539,9 +538,20 @@ def _materialize_pytest_workspace(state: ProjectState) -> None:
     cap = _max_tests_per_file()
     truncated = False
     if len(tests_all) > cap:
+        dropped = len(tests_all) - cap
         tests_all = tests_all[:cap]
         truncated = True
         state.metadata["security_compiler_tests_truncated_to"] = cap
+        state.metadata["security_compiler_tests_dropped_by_cap"] = dropped
+        # CRITICAL: keep state.test_suite IN SYNC with what we actually write
+        # to the pytest file. Previously the file was capped to `cap` tests but
+        # state.test_suite kept all N — so the executor expected N, the runner
+        # found only `cap` JUnit entries, and the (N-cap) overflow tests were
+        # logged as ERRORED ("No JUnit entry … emit truncated"). Those ghost
+        # errors then drove garbage Healer patches (observed: 22 ghost errors
+        # + ~16 spurious patches on lifecycle). Drop the overflow from the
+        # suite so suite, file, and run_logs all describe the same tests.
+        state.test_suite = list(tests_all)
 
     root = _workspace_root()
     root.mkdir(parents=True, exist_ok=True)
@@ -807,6 +817,85 @@ def _candidate_tests_for_risk(state: ProjectState, risk: SecurityRisk) -> List[T
     return targeted or functional
 
 
+# --------------------------------------------------------------------------- #
+# 0.2 — stack-aware payload gating                                            #
+# --------------------------------------------------------------------------- #
+#
+# The mutation engine fans out SQLi/XSS/Command/NoSQL payloads against every
+# bound endpoint. On a FastAPI + SQLAlchemy + SQLite app there is no shell
+# exec and no document store, so Command-injection and NoSQL-injection
+# payloads test for vulnerability classes that physically cannot exist —
+# pure denominator padding + spurious errors (observed: lifecycle had 10
+# Command + 10 NoSQL clones, ~all trivially resilient or errored).
+#
+# We probe the target ONCE per run for capability signatures and skip the
+# payload classes the stack can't express. Computed at node start, cached on
+# state.metadata["stack_capabilities"], consumed in the mutation loop.
+
+_STACK_SIGNATURES = {
+    "nosql": (
+        "pymongo", "mongoengine", "motor", "mongomock", "from mongo",
+        "import mongo", "mongoclient", "mongoose", "$where", "collection.find(",
+        "couchdb", "dynamodb", "boto3.resource('dynamodb'", "redis.",
+    ),
+    "shell": (
+        "subprocess", "os.system", "os.popen", "child_process", "shell=true",
+        "popen(", "commands.getoutput", "pty.spawn", "exec(", "eval(",
+    ),
+}
+
+# Map a payload's exploit_target → the capability it requires. If the target
+# stack lacks that capability, the payload class is skipped.
+_PAYLOAD_CLASS_REQUIRES = {
+    "(NoSQL)": "nosql",
+    "(Command)": "shell",
+}
+
+
+def _detect_stack_capabilities(roots: List[Path]) -> Dict[str, bool]:
+    """One-pass probe of the target source for stack capabilities.
+
+    Returns e.g. {"sql": True, "nosql": False, "shell": False}. SQL defaults
+    True (the demo app is SQL and SQLi is always worth probing); nosql/shell
+    are True only if a real signature appears in the indexed source.
+    """
+    found = {"nosql": False, "shell": False}
+    exts = {".py", ".js", ".ts", ".jsx", ".tsx"}
+    skip_dirs = {"venv", ".venv", "node_modules", "__pycache__", ".git", "dist", "build"}
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for path in root.rglob("*"):
+            if path.suffix.lower() not in exts:
+                continue
+            if any(part in skip_dirs for part in path.parts):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore").lower()
+            except OSError:
+                continue
+            for cap, sigs in _STACK_SIGNATURES.items():
+                if not found[cap] and any(s in text for s in sigs):
+                    found[cap] = True
+            if all(found.values()):
+                break
+    return {"sql": True, **found}
+
+
+def _payload_allowed_by_stack(
+    payload: "Payload",
+    stack: Dict[str, bool],
+) -> Optional[str]:
+    """Return None if the payload's class is exercisable on this stack,
+    else a skip-reason. Only NoSQL/Command are gated; SQLi/XSS/etc. always
+    pass (relevant to any HTTP API)."""
+    target = payload.exploit_target or ""
+    for marker, cap in _PAYLOAD_CLASS_REQUIRES.items():
+        if marker in target and not stack.get(cap, False):
+            return f"stack lacks '{cap}' capability — {marker} payload not exercisable"
+    return None
+
+
 def _can_mutate(
     base: TestCase,
     risk: SecurityRisk,
@@ -934,6 +1023,23 @@ def security_compiler_node(state: ProjectState) -> ProjectState:
     adversarial: List[TestCase] = []
     unmatched_risks: List[str] = []
 
+    # 0.2 — compute stack capabilities ONCE (not per-mutation). The probe
+    # walks the TARGET-UNDER-TEST source for NoSQL/shell signatures; the
+    # mutation loop reads the cached flags to skip payload classes the stack
+    # can't express.
+    #
+    # CRITICAL: scan ONLY the target app (repo_cache), NOT the Backend/
+    # pipeline source. The pipeline's own code (this file's _STACK_SIGNATURES,
+    # utils/payloads.py) literally contains the words "pymongo", "subprocess",
+    # "mongo", etc. — scanning Backend made every capability read True and
+    # silently disabled gating (observed: stack={sql,nosql,shell all True} on
+    # a FastAPI+SQLite target). The target is the app the tests run against.
+    _backend_root = Path(__file__).resolve().parent.parent
+    _target_root = _backend_root / "repo_cache"
+    _stack = _detect_stack_capabilities([_target_root])
+    state.metadata["stack_capabilities"] = _stack
+    _payloads_gated: List[Dict[str, Any]] = []
+
     # Layer A — Compiler-side Rule 11 enforcement.
     # The Generator's Rule 11 stops off-binding tests at LLM output time.
     # But adversarial tests are NOT from the Generator — they're synthesized
@@ -970,6 +1076,16 @@ def security_compiler_node(state: ProjectState) -> ProjectState:
                     })
                     continue
                 for payload in payloads:
+                    # 0.2 — skip payload classes the stack can't express
+                    # (NoSQL on a SQL app, Command on a no-shell app).
+                    stack_skip = _payload_allowed_by_stack(payload, _stack)
+                    if stack_skip:
+                        _payloads_gated.append({
+                            "base_test_id": base.test_id,
+                            "exploit_target": payload.exploit_target,
+                            "reason": stack_skip,
+                        })
+                        continue
                     counter += 1
                     mutant = _mutate(base, payload, risk, counter)
                     # Propagate the binding stamps so downstream Compiler
@@ -989,6 +1105,9 @@ def security_compiler_node(state: ProjectState) -> ProjectState:
             state.metadata["security_compiler_unmatched_risks"] = unmatched_risks
         if mutations_skipped:
             state.metadata["security_compiler_mutations_skipped"] = mutations_skipped
+        if _payloads_gated:
+            state.metadata["security_compiler_payloads_gated_by_stack"] = _payloads_gated
+            state.metadata["security_compiler_payloads_gated_count"] = len(_payloads_gated)
     else:
         if not state.security_risks:
             state.metadata["security_compiler_adversarial_count"] = 0

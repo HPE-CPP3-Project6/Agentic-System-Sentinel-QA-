@@ -622,7 +622,58 @@ def _dedup_suggested_patches(existing: List[Patch], new: List[Patch]) -> List[Pa
         by_key[key(p)] = p
     for p in new:
         by_key[key(p)] = p  # overwrites any prior cycle's patch for same identity
-    return list(by_key.values())
+    deduped = list(by_key.values())
+
+    # 0.3a — SECOND pass: collapse patches that propose the SAME change to the
+    # SAME file, even when their related_test_ids differ. The first pass keys
+    # on test id, so 7 path-param injection tests each yielding a
+    # "task_id: uuid.UUID" patch survive as 7 near-identical entries
+    # (observed in exec-demo-lifecycle). Group non-empty-target patches by
+    # (target_file, change_intent); keep the first, fold the others' test ids
+    # into related_test_ids so traceability is preserved.
+    return _collapse_by_intent(deduped)
+
+
+# Semantic "change intent" tokens — type annotations, status codes, and
+# explicit HTTP-status constants. Two patches sharing the same intent token
+# set against the same file are the same fix wearing different test ids.
+_PATCH_INTENT_RE = re.compile(
+    r"(\b\w+\s*:\s*uuid\.UUID\b|\buuid\.UUID\b|status\.HTTP_\d+\w*|"
+    r"status_code\s*=\s*\d+|\b\w+\s*:\s*(?:int|str|UUID|bool|float)\b)",
+    re.IGNORECASE,
+)
+
+
+def _patch_intent(p: Patch) -> frozenset:
+    """Coarse semantic fingerprint of what a patch CHANGES (whitespace-stable)."""
+    fix = p.suggested_fix or ""
+    return frozenset(
+        m.group(0).lower().replace(" ", "") for m in _PATCH_INTENT_RE.finditer(fix)
+    )
+
+
+def _collapse_by_intent(patches: List[Patch]) -> List[Patch]:
+    """Collapse same-file same-intent patches into one (merge test ids)."""
+    out: List[Patch] = []
+    seen: Dict[Tuple[str, frozenset], int] = {}  # (target_file, intent) -> index in out
+    for p in patches:
+        tf = (p.target_file or "").strip()
+        intent = _patch_intent(p)
+        # Only collapse when we have BOTH a real target file AND a recognized
+        # intent — otherwise we can't be confident two patches are "the same",
+        # so we keep them separate (no over-merging of distinct fixes).
+        if not tf or not intent:
+            out.append(p)
+            continue
+        k = (tf, intent)
+        if k in seen:
+            kept = out[seen[k]]
+            merged_ids = sorted(set(kept.related_test_ids or []) | set(p.related_test_ids or []))
+            out[seen[k]] = kept.model_copy(update={"related_test_ids": merged_ids})
+        else:
+            seen[k] = len(out)
+            out.append(p)
+    return out
 
 
 # --------------------------------------------------------------------------- #
@@ -740,6 +791,141 @@ def _suite_quality(
 
 
 # --------------------------------------------------------------------------- #
+# Attestation model (v3 P0) — two axes: run_validity + coverage_quality       #
+# --------------------------------------------------------------------------- #
+#
+# `_suite_quality` above answers "was the SUITE meaningful?" (coverage_quality).
+# It is ONLY trustworthy when the run itself was valid. These helpers answer
+# the orthogonal question "did we actually exercise the app?" (run_validity):
+#
+#   OK                     — the app was reachable and the suite behaved.
+#   TARGET_UNREACHABLE     — the live API was down; tests connect-errored.
+#                            Posture is meaningless (no attack ever fired).
+#   FUNCTIONALLY_UNRELIABLE— too many functional failures are TEST defects
+#                            (Healer opted out), not app bugs. The suite
+#                            can't be trusted to attest the app.
+#
+# Read order: a consumer checks run_validity FIRST; only when it is OK does
+# coverage_quality / resilience_pct mean anything. This kills the
+# "ATTESTABLE / 100% resilient on a dead server" lie observed in
+# exec-demo-lifecycle-post_code-20260530_123829 (75 ConnectErrors, still
+# printed 100%).
+
+# Signatures that a test errored because the target API was unreachable —
+# not because the attack/assertion did anything. Lowercased substring match
+# against the test's captured stderr/stdout/trace.
+_CONNECT_ERROR_SIGNATURES = (
+    "connecterror", "connection refused", "actively refused", "[errno 111]",
+    "winerror 10061", "10061", "max retries exceeded", "failed to establish",
+    "connecttimeout", "newconnectionerror", "connection aborted",
+    "all connection attempts failed",
+)
+
+# Run is TARGET_UNREACHABLE when this fraction of EXECUTED (non-skipped) tests
+# connect-errored. A flapping server might error a minority; a down server
+# errors ~all. 0.40 catches "down" without tripping on a few transient errors.
+_TARGET_UNREACHABLE_RATE = 0.40
+
+# Run is FUNCTIONALLY_UNRELIABLE when this fraction of functional failures are
+# Healer opt-outs (empty target_file = "the test is wrong, not the app").
+# Uses the Healer's own signal rather than a hand-rolled fixture-vs-real
+# classifier (which can't distinguish a fixture-404 from a real-bug 404).
+_FUNCTIONAL_UNRELIABLE_RATE = 0.30
+
+
+def _is_connect_error(log: ExecutionLog) -> bool:
+    if log.status != "error":
+        return False
+    blob = " ".join(
+        s for s in (log.stderr, log.trace, log.stdout) if s
+    ).lower()
+    return any(sig in blob for sig in _CONNECT_ERROR_SIGNATURES)
+
+
+def _detect_target_unreachable(
+    run_logs: List[ExecutionLog],
+) -> Optional[Dict[str, Any]]:
+    """Return evidence dict if the target API was unreachable, else None.
+
+    Computed BEFORE the heal pass so healing can be skipped — patching the
+    app for ConnectErrors is futile and pollutes the artifact.
+    """
+    executed = [l for l in run_logs if l.status != "skipped"]
+    if not executed:
+        return None
+    connect_errs = sum(1 for l in run_logs if _is_connect_error(l))
+    rate = connect_errs / len(executed)
+    if rate >= _TARGET_UNREACHABLE_RATE:
+        return {
+            "connect_errors": connect_errs,
+            "executed": len(executed),
+            "connect_error_rate": round(rate, 2),
+            "reason": (
+                "API not reachable — connect/refused on "
+                f">={int(_TARGET_UNREACHABLE_RATE * 100)}% of executed tests"
+            ),
+        }
+    return None
+
+
+def _detect_functional_unreliability(
+    run_logs: List[ExecutionLog],
+    new_patches: List[Patch],
+) -> Optional[Dict[str, Any]]:
+    """Return evidence dict if functional failures are dominated by test
+    defects (Healer opt-outs), else None. Computed AFTER the heal pass."""
+    func_fail = [
+        l for l in run_logs
+        if (not l.is_adversarial) and l.passed is False and l.verdict != "off_target"
+    ]
+    if not func_fail:
+        return None
+    fail_ids = {l.test_id for l in func_fail}
+    optout_ids: set = set()
+    for p in new_patches:
+        if (p.target_file or "").strip():
+            continue  # actionable patch — Healer believes it's a real app bug
+        for tid in (p.related_test_ids or []):
+            if tid in fail_ids:
+                optout_ids.add(tid)
+    ratio = len(optout_ids) / len(func_fail)
+    if ratio >= _FUNCTIONAL_UNRELIABLE_RATE:
+        return {
+            "functional_failures": len(func_fail),
+            "test_defect_failures": len(optout_ids),
+            "defect_ratio": round(ratio, 2),
+            "reason": (
+                "majority of functional failures are Healer-flagged test "
+                "defects (empty target_file), not app bugs"
+            ),
+        }
+    return None
+
+
+# 0.3b — Healer backstop: an id-route injection probe that the app answered
+# with 404 ("no such row / not yours") was safely neutralized. 0.3c already
+# makes 404 an acceptable status for these (so they pass), but if one still
+# reaches the Healer (e.g. routed via an error), we must NOT propose an app
+# patch — 404 is correct, the test merely wanted a different 4xx. Convert any
+# such patch to an opt-out (empty target_file) with an explanation.
+_ID_ROUTE_TEMPLATE_RE = re.compile(r"/\{[a-zA-Z_]\w*\}")
+_ID_ROUTE_UUID_RE = re.compile(
+    r"/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+
+def _is_safe_404_optout(tc: TestCase, log: ExecutionLog) -> bool:
+    if not tc.is_adversarial:
+        return False
+    path = tc.bound_path or ""
+    is_id_route = bool(_ID_ROUTE_TEMPLATE_RE.search(path)) or bool(_ID_ROUTE_UUID_RE.search(path))
+    if not is_id_route:
+        return False
+    blob = " ".join(s for s in (log.stderr, log.stdout, log.trace) if s)
+    return "404" in blob
+
+
+# --------------------------------------------------------------------------- #
 # LangGraph node                                                              #
 # --------------------------------------------------------------------------- #
 
@@ -837,6 +1023,14 @@ def executor_node(
     for log in run_logs:
         log.heal_attempt = state.heal_attempts
 
+    # 0.5 — TARGET_UNREACHABLE guard. If the live API is down, ~every test
+    # connect-errors. Healing those is futile (you can't patch the app into
+    # being reachable) and the posture would be a lie (no attack ever fired).
+    # Detect BEFORE the heal pass and short-circuit healing when unreachable.
+    _unreachable = _detect_target_unreachable(run_logs)
+    if _unreachable is not None:
+        state.metadata["heal_suppressed_reason"] = "target_unreachable"
+
     # Heal pass — runs for BOTH the pytest path and the injected-runner path.
     # run_logs is aligned 1:1 with state.test_suite in either branch (the pytest
     # runner emits one log per TestCase in order; so does the stub loop above).
@@ -845,6 +1039,12 @@ def executor_node(
     # re-proposing near-identical patches each iteration.
     heal_llm_errors: List[Dict[str, Any]] = []
     for tc, log in zip(state.test_suite, run_logs):
+        # 0.5 — when the target is unreachable, skip the heal pass entirely.
+        # Every "failure" is a ConnectError; the Healer would emit garbage
+        # patches chasing connectivity (observed: 104 patches on a dead
+        # server). Leave new_patches empty.
+        if _unreachable is not None:
+            break
         # Layer A — off-target tests do NOT trigger the Healer. The pytest
         # outcome is semantically null (test was outside the bound surface);
         # asking the Healer to patch the app would chase phantoms. This
@@ -866,6 +1066,22 @@ def executor_node(
                 heal_llm_errors=heal_llm_errors,
             )
             if patch is not None:
+                # 0.3b backstop — id-route injection neutralized by 404 is
+                # safe; never ship an app patch for it. Convert to opt-out.
+                if (p_tf := (patch.target_file or "").strip()) and _is_safe_404_optout(tc, log):
+                    patch = patch.model_copy(update={
+                        "target_file": "",
+                        "suggested_fix": "",
+                        "bug_explanation": (
+                            "[0.3b] id-route injection neutralized with 404 "
+                            "(no such row / not owned) — app is safe; no patch. "
+                            + (patch.bug_explanation or "")
+                        ),
+                    })
+                    state.metadata.setdefault("healer_404_optouts", []).append({
+                        "test_id": tc.test_id, "bound_path": tc.bound_path,
+                        "was_target": p_tf,
+                    })
                 new_patches.append(patch)
 
     if heal_llm_errors:
@@ -927,22 +1143,49 @@ def executor_node(
             for p, warning in quarantined
         ]
 
-    state.metadata["security_posture"] = _security_posture(run_logs)
+    _posture = _security_posture(run_logs)
     state.metadata["test_suite_summary"] = build_test_suite_summary(
         list(state.test_suite),
         run_logs,
         surface_map=state.surface_map or None,
     )
-    # Stage 1 (Cursor merged priority list) — explicit suite quality gate.
-    # Lifted to a top-level artifact field by main._dump_artifact so a
-    # release-gate CI can fail the pipeline on NO_TESTS_GENERATED /
-    # INSUFFICIENT / ALL_SKIPPED without parsing the posture block.
-    state.metadata["suite_quality"] = _suite_quality(
+
+    # v3 P0 — TWO-AXIS attestation.
+    #
+    # coverage_quality: "was the suite meaningful?" (only trusted if run is OK)
+    # run_validity:     "did we actually exercise the app?"
+    #
+    # `suite_quality` is kept as a deprecated alias of coverage_quality for
+    # one release so existing dashboards/CI keyed on it don't break.
+    _coverage_quality = _suite_quality(
         test_suite_size=len(state.test_suite),
         run_logs=run_logs,
         validated_requirements_count=len(state.validated_requirements),
         security_risks_count=len(state.security_risks),
     )
+    state.metadata["coverage_quality"] = _coverage_quality
+    state.metadata["suite_quality"] = _coverage_quality  # deprecated alias
+
+    # run_validity: TARGET_UNREACHABLE (pre-heal) wins; else check functional
+    # reliability (post-heal, from Healer opt-out ratio); else OK.
+    if _unreachable is not None:
+        state.metadata["run_validity"] = "TARGET_UNREACHABLE"
+        state.metadata["run_validity_evidence"] = _unreachable
+    else:
+        _unreliable = _detect_functional_unreliability(run_logs, new_patches)
+        if _unreliable is not None:
+            state.metadata["run_validity"] = "FUNCTIONALLY_UNRELIABLE"
+            state.metadata["run_validity_evidence"] = _unreliable
+        else:
+            state.metadata["run_validity"] = "OK"
+
+    # Posture is only trustworthy when run_validity == OK. When it isn't, keep
+    # the RAW counts for forensics but suppress the headline resilience_pct so
+    # no consumer can quote "100% resilient" off a dead-target / unreliable run.
+    if state.metadata["run_validity"] != "OK":
+        _posture["resilience_pct"] = None
+        _posture["suppressed"] = state.metadata["run_validity"]
+    state.metadata["security_posture"] = _posture
     # Stage 5 (Cursor merged priority list) — actionable-patch count for the
     # current cycle. A "patch" with empty target_file is a Healer opt-out
     # (the LLM judged the failure unfixable / out-of-scope). If every new
