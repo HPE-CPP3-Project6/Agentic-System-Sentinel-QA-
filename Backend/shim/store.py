@@ -61,6 +61,8 @@ class RunRow:
             "run_id": self.run_id,
             "started_at": self.started_at,
             "pipeline_mode": self.mode,
+            "status": self.status,
+            "current_phase": self.current_phase,
             "run_validity": self.run_validity or "OK",
             "suite_quality": self.suite_quality,
             "resilience_pct": self.resilience_pct,

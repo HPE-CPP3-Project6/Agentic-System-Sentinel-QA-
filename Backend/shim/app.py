@@ -237,6 +237,32 @@ def advance_run(run_id: str, payload: RunAdvance) -> dict[str, Any]:
     return {"run_id": run_id, "status": "queued"}
 
 
+def _phase_status(run, phase: str) -> str:
+    order = ["critic", "surface_resolver", "generator", "security_compiler", "executor"]
+    if phase not in order:
+        return "pending"
+    if run.status == "completed":
+        return "completed"
+    if run.status == "failed" and run.current_phase in order:
+        failed_idx = order.index(run.current_phase)
+        phase_idx = order.index(phase)
+        if phase_idx < failed_idx:
+            return "completed"
+        if phase_idx == failed_idx:
+            return "failed"
+        return "pending"
+    if run.status == "running" and run.current_phase == phase:
+        return "running"
+    if run.current_phase in order:
+        cur_idx = order.index(run.current_phase)
+        phase_idx = order.index(phase)
+        if phase_idx < cur_idx:
+            return "completed"
+        if phase_idx == cur_idx and run.status == "paused":
+            return "completed"
+    return "pending"
+
+
 @app.get("/api/runs/{run_id}")
 def get_run(run_id: str) -> dict[str, Any]:
     run = store.get_run(run_id)
@@ -245,28 +271,16 @@ def get_run(run_id: str) -> dict[str, Any]:
     phases = []
     partial = _partial_artifact(run_id)
     for phase in ["critic", "surface_resolver", "generator", "security_compiler", "executor"]:
-        status = "pending"
-        if run.current_phase == phase and run.status == "running":
-            status = "running"
-        elif run.current_phase and phase in (
-            "critic",
-            "surface_resolver",
-            "generator",
-            "security_compiler",
-            "executor",
-        ):
-            order = ["critic", "surface_resolver", "generator", "security_compiler", "executor"]
-            if run.current_phase in order and order.index(phase) < order.index(run.current_phase):
-                status = "completed"
-            elif run.status == "completed":
-                status = "completed"
-        phases.append({"phase": phase, "status": status})
+        phases.append({"phase": phase, "status": _phase_status(run, phase)})
     return {
         "run_id": run.run_id,
         "status": run.status,
         "current_phase": run.current_phase,
+        "stop_after": run.stop_after,
         "phases": phases,
         "partial_artifact": partial,
+        "error_code": run.error_code,
+        "error_message": run.error_message,
     }
 
 

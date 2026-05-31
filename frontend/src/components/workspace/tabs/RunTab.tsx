@@ -1,19 +1,23 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckCircle2,
   Circle,
+  Loader2,
   MinusCircle,
   Pause,
   Play,
   XCircle,
 } from "lucide-react";
-import { useArtifact, useHealth } from "@/api/hooks";
+import { toast } from "sonner";
+import { useAdvanceRun, useArtifact, useHealth, useRun } from "@/api/hooks";
+import { canStartExecution, isReportReady, isRunInFlight } from "@/api/runLifecycle";
 import { useRunStreamStore } from "@/stores/runStreamStore";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { PatchInbox } from "@/components/PatchInbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { VerdictRecord } from "@/api/types";
 
 interface RunTabProps {
   runId?: string;
@@ -31,15 +35,27 @@ const PHASE_LABELS: Record<string, string> = {
 
 export function RunTab({ runId, onTabChange }: RunTabProps) {
   const { data: health } = useHealth();
-  const { data: artifact } = useArtifact(runId, Boolean(runId));
-  const phases = useRunStreamStore((s) => s.phases);
+  const { data: run } = useRun(runId);
+  const advance = useAdvanceRun(runId);
+  const reportReady = isReportReady(run?.status);
+  const { data: artifact } = useArtifact(runId, Boolean(runId) && reportReady);
+  const streamPhases = useRunStreamStore((s) => s.phases);
   const logLines = useRunStreamStore((s) => s.logLines);
-  const verdicts = useRunStreamStore((s) => s.verdicts);
-  const runStatus = useRunStreamStore((s) => s.runStatus);
+  const streamVerdicts = useRunStreamStore((s) => s.verdicts);
+  const streamStatus = useRunStreamStore((s) => s.runStatus);
   const failureCode = useRunStreamStore((s) => s.failureCode);
   const failureMessage = useRunStreamStore((s) => s.failureMessage);
   const logRef = useRef<HTMLDivElement>(null);
   const [paused, setPaused] = useState(false);
+
+  const phases = streamPhases.length ? streamPhases : (run?.phases ?? []);
+  const runStatus =
+    streamStatus !== "idle" ? streamStatus : (run?.status ?? "idle");
+
+  const verdicts: VerdictRecord[] = useMemo(() => {
+    if (streamVerdicts.length) return streamVerdicts;
+    return artifact?.execution_logs ?? [];
+  }, [streamVerdicts, artifact?.execution_logs]);
 
   useEffect(() => {
     if (!paused && logRef.current) {
@@ -48,11 +64,70 @@ export function RunTab({ runId, onTabChange }: RunTabProps) {
   }, [logLines, paused]);
 
   useEffect(() => {
-    if (runStatus === "completed") onTabChange("report");
-  }, [runStatus, onTabChange]);
+    if (runStatus === "completed" || run?.status === "completed") {
+      onTabChange("report");
+    }
+  }, [runStatus, run?.status, onTabChange]);
+
+  if (!runId) {
+    return <div className="panel p-6 text-muted">Select a run from Scripts to execute tests.</div>;
+  }
 
   const targetDown = health && !health.target_app_ok;
   const patches = artifact?.suggested_patches ?? [];
+  const displayFailure = failureCode ?? (run?.status === "failed" ? run.error_code : null);
+  const displayFailureMsg =
+    failureMessage ?? (run?.status === "failed" ? run.error_message : null);
+  const awaitingExecution = canStartExecution(run?.status, run?.current_phase);
+
+  async function startExecution() {
+    await advance.mutateAsync({ stop_after: null });
+    toast.success("Execution started");
+  }
+
+  if (isRunInFlight(run?.status) || (runStatus === "running" && run?.status !== "completed")) {
+    return (
+      <div className="space-y-4">
+        {targetDown && (
+          <ErrorBanner
+            code="target_app_unreachable"
+            message="Target application is unreachable. Execution is blocked until the app responds."
+          />
+        )}
+        <Card>
+          <CardHeader><CardTitle>Executing tests</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center gap-2 text-sm">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" strokeWidth={1.75} />
+              <span>Running pytest against target app…</span>
+              <Badge variant="muted">{run?.status}</Badge>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {phases.map((p) => (
+                <Badge
+                  key={p.phase}
+                  variant={
+                    p.status === "completed" ? "success" :
+                    p.status === "failed" ? "danger" :
+                    p.status === "running" ? "default" : "muted"
+                  }
+                  className="gap-1 normal-case"
+                >
+                  {p.status === "running" && <Play className="h-3 w-3" strokeWidth={1.75} />}
+                  {PHASE_LABELS[p.phase] ?? p.phase}
+                </Badge>
+              ))}
+            </div>
+            {logLines.length > 0 && (
+              <div className="max-h-48 overflow-y-auto bg-console-bg p-3 font-mono text-xs text-console-fg">
+                {logLines.map((line, i) => <div key={i}>{line}</div>)}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -62,8 +137,26 @@ export function RunTab({ runId, onTabChange }: RunTabProps) {
           message="Target application is unreachable. Execution is blocked until the app responds."
         />
       )}
-      {failureCode && (
-        <ErrorBanner code={failureCode} message={failureMessage ?? "Run failed"} />
+      {displayFailure && (
+        <ErrorBanner code={displayFailure} message={displayFailureMsg ?? "Run failed"} />
+      )}
+
+      {awaitingExecution && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between normal-case">
+            <CardTitle>Ready to execute</CardTitle>
+            <Button
+              onClick={() => void startExecution()}
+              disabled={advance.isPending || Boolean(targetDown)}
+            >
+              <Play className="h-4 w-4" strokeWidth={1.75} />
+              Start execution
+            </Button>
+          </CardHeader>
+          <CardContent className="text-sm text-muted">
+            Pytest script is compiled. Start execution to run tests against the target app.
+          </CardContent>
+        </Card>
       )}
 
       <Card>
@@ -103,7 +196,11 @@ export function RunTab({ runId, onTabChange }: RunTabProps) {
             className="max-h-64 overflow-y-auto bg-console-bg p-3 font-mono text-xs text-console-fg"
           >
             {logLines.length === 0 ? (
-              <span className="text-muted">Waiting for pytest output…</span>
+              <span className="text-muted">
+                {awaitingExecution
+                  ? "No pytest output yet — click Start execution above."
+                  : "No pytest output yet."}
+              </span>
             ) : (
               logLines.map((line, i) => <div key={i}>{line}</div>)
             )}

@@ -77,14 +77,19 @@ export const RunSummarySchema = z.object({
   run_id: z.string(),
   status: RunStatusSchema,
   current_phase: PhaseNameSchema.nullable().optional(),
+  stop_after: z.string().nullable().optional(),
   phases: z.array(RunPhaseSchema).default([]),
-  partial_artifact: z.record(z.string(), z.unknown()).optional(),
+  partial_artifact: z.record(z.string(), z.unknown()).nullish(),
+  error_code: z.string().nullable().optional(),
+  error_message: z.string().nullable().optional(),
 });
 
 export const RunHistoryItemSchema = z.object({
   run_id: z.string(),
   started_at: z.string(),
   pipeline_mode: PipelineModeSchema,
+  status: RunStatusSchema.optional(),
+  current_phase: PhaseNameSchema.nullable().optional(),
   run_validity: RunValiditySchema,
   suite_quality: SuiteQualitySchema.nullish(),
   resilience_pct: z.number().nullish(),
@@ -99,29 +104,31 @@ export const BackendEndpointSchema = z.object({
 
 export const SurfaceBindingSchema = z.object({
   req_id: z.string(),
-  requirement_text: z.string().optional(),
+  requirement_text: z.string().nullish(),
   state: SurfaceStateSchema,
-  threat_class: ThreatClassSchema.optional(),
-  defense_kind: DefenseKindSchema.optional(),
+  threat_class: ThreatClassSchema.nullish(),
+  defense_kind: z.string().nullish(),
   backend_endpoints: z.array(BackendEndpointSchema).default([]),
   grounding_refs: z.array(z.string()).default([]),
-  confidence: z.enum(["high", "medium", "low"]).optional(),
-  assertion_hint: z.string().optional(),
+  confidence: z.enum(["high", "medium", "low"]).nullish(),
+  assertion_hint: z.string().nullish(),
 });
 
 export const TestCaseSchema = z.object({
   test_id: z.string(),
-  title: z.string().optional(),
-  category: z.string().optional(),
-  technique: z.string().optional(),
-  equivalence_class: z.string().optional(),
-  method: z.string().optional(),
-  path: z.string().optional(),
-  expected_status_code: z.number().optional(),
-  adversarial: z.boolean().optional(),
-  input_data: z.record(z.string(), z.unknown()).optional(),
-  forbidden_response_content: z.array(z.string()).optional(),
-  source_refs: z.array(z.string()).optional(),
+  title: z.string().nullish(),
+  category: z.string().nullish(),
+  technique: z.string().nullish(),
+  equivalence_class: z.string().nullish(),
+  method: z.string().nullish(),
+  path: z.string().nullish(),
+  expected_status_code: z.number().nullish(),
+  adversarial: z.boolean().nullish(),
+  input_data: z
+    .union([z.record(z.string(), z.unknown()), z.array(z.unknown())])
+    .nullish(),
+  forbidden_response_content: z.array(z.string()).nullish(),
+  source_refs: z.array(z.string()).nullish(),
 });
 
 export const VerdictRecordSchema = z.object({
@@ -129,10 +136,10 @@ export const VerdictRecordSchema = z.object({
   status: z.enum(["passed", "failed", "skipped", "error"]),
   verdict: z
     .enum(["resilient", "vulnerable", "off_target", "inconclusive", "n/a"])
-    .optional(),
-  verdict_confidence: z.enum(["high", "medium", "low"]).optional(),
-  duration_ms: z.number().optional(),
-  exploit_target: z.string().optional(),
+    .nullish(),
+  verdict_confidence: z.enum(["high", "medium", "low"]).nullish(),
+  duration_ms: z.number().nullish(),
+  exploit_target: z.string().nullish(),
 });
 
 export const SuggestedPatchSchema = z.object({
@@ -142,46 +149,43 @@ export const SuggestedPatchSchema = z.object({
   decision: z.enum(["pending", "accept", "reject"]).optional(),
 });
 
+const ExploitTargetCountsSchema = z.object({
+  attempted: z.number().nullish(),
+  resilient: z.number().nullish(),
+  vulnerable: z.number().nullish(),
+  skipped: z.number().nullish(),
+  errored: z.number().nullish(),
+});
+
 export const SecurityPostureSchema = z.object({
-  attempted: z.number().optional(),
-  resilient: z.number().optional(),
-  vulnerable: z.number().optional(),
-  skipped: z.number().optional(),
-  errored: z.number().optional(),
-  resilience_pct: z.number().optional(),
-  by_exploit_target: z
-    .record(
-      z.string(),
-      z.object({
-        attempted: z.number().optional(),
-        resilient: z.number().optional(),
-        vulnerable: z.number().optional(),
-        skipped: z.number().optional(),
-        errored: z.number().optional(),
-      }),
-    )
-    .optional(),
+  attempted: z.number().nullish(),
+  resilient: z.number().nullish(),
+  vulnerable: z.number().nullish(),
+  skipped: z.number().nullish(),
+  errored: z.number().nullish(),
+  resilience_pct: z.number().nullish(),
+  by_exploit_target: z.record(z.string(), ExploitTargetCountsSchema).nullish(),
 });
 
 export const ProjectStateSchema = z
   .object({
     pipeline_mode: PipelineModeSchema,
     run_validity: RunValiditySchema,
-    coverage_quality: SuiteQualitySchema.optional(),
-    suite_quality: SuiteQualitySchema.optional(),
-    attestation_banner: z.string().optional(),
+    coverage_quality: SuiteQualitySchema.nullish(),
+    suite_quality: SuiteQualitySchema.nullish(),
+    attestation_banner: z.string().nullish(),
     surface_map: z.record(z.string(), SurfaceBindingSchema).optional(),
     test_suite: z.array(TestCaseSchema).optional(),
     execution_logs: z.array(VerdictRecordSchema).optional(),
     design_contracts: z.array(z.record(z.string(), z.unknown())).optional(),
     security_checklist: z.array(z.record(z.string(), z.unknown())).optional(),
-    design_summary: z.string().optional(),
+    design_summary: z.string().nullish(),
     suggested_patches: z.array(SuggestedPatchSchema).optional(),
-    security_posture: SecurityPostureSchema.optional(),
-    test_suite_summary: z.record(z.string(), z.unknown()).optional(),
-    resilience_pct: z.number().optional(),
-    drift_report: z.record(z.string(), z.unknown()).optional(),
-    sast_summary: z.record(z.string(), z.unknown()).optional(),
+    security_posture: SecurityPostureSchema.nullish(),
+    test_suite_summary: z.record(z.string(), z.unknown()).nullish(),
+    resilience_pct: z.number().nullish(),
+    drift_report: z.record(z.string(), z.unknown()).nullish(),
+    sast_summary: z.record(z.string(), z.unknown()).nullish(),
     metadata: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough();
@@ -300,4 +304,20 @@ export type WsEvent =
       code: string;
       phase?: PhaseName;
       message: string;
+    }
+  | {
+      type: "heal_cycle_started";
+      run_id: string;
+      seq: number;
+      ts: string;
+      attempt: number;
+      failing_test_ids: string[];
+    }
+  | {
+      type: "heal_cycle_completed";
+      run_id: string;
+      seq: number;
+      ts: string;
+      attempt: number;
+      patches_proposed: number;
     };

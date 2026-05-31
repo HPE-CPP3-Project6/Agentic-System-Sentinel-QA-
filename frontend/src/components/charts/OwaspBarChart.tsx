@@ -47,11 +47,15 @@ export function OwaspBarChart({ data }: OwaspBarChartProps) {
   );
 }
 
+type ExploitTargetCounts = {
+  resilient?: number | null;
+  vulnerable?: number | null;
+  skipped?: number | null;
+  errored?: number | null;
+};
+
 export function buildOwaspChartData(
-  byTarget: Record<
-    string,
-    { resilient?: number; vulnerable?: number; skipped?: number; errored?: number }
-  >,
+  byTarget: Record<string, ExploitTargetCounts>,
 ): OwaspDatum[] {
   return Object.entries(byTarget).map(([target, v]) => ({
     target: target.length > 12 ? `${target.slice(0, 10)}…` : target,

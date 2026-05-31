@@ -1,11 +1,13 @@
 import { toast } from "sonner";
-import { Download, FileSpreadsheet } from "lucide-react";
-import { useArtifact } from "@/api/hooks";
+import { Download, FileSpreadsheet, Loader2 } from "lucide-react";
+import { useArtifact, useRun } from "@/api/hooks";
+import { isReportReady, isRunInFlight } from "@/api/runLifecycle";
 import { isPreCode } from "@/api/types";
 import { apiFetch } from "@/api/client";
 import { buildOwaspChartData, OwaspBarChart } from "@/components/charts/OwaspBarChart";
 import { ResilienceGauge } from "@/components/charts/ResilienceGauge";
 import { SuiteQualityBadge } from "@/components/SuiteQualityBadge";
+import { ErrorBanner } from "@/components/ErrorBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,12 +18,50 @@ interface ReportTabProps {
 }
 
 export function ReportTab({ runId, storyTitle }: ReportTabProps) {
-  const { data: artifact, isLoading } = useArtifact(runId, Boolean(runId));
+  const { data: run } = useRun(runId);
+  const reportReady = isReportReady(run?.status);
+  const { data: artifact, isLoading, isError, error } = useArtifact(runId, Boolean(runId) && reportReady);
 
   if (!runId) {
     return <div className="panel p-6 text-muted">Complete a run to view the report.</div>;
   }
+
+  if (run?.status === "failed") {
+    return (
+      <ErrorBanner
+        code={run.error_code ?? "run_failed"}
+        message={run.error_message ?? "Run failed before report could be generated."}
+      />
+    );
+  }
+
+  if (isRunInFlight(run?.status)) {
+    return (
+      <div className="panel flex items-center gap-2 p-6 text-sm">
+        <Loader2 className="h-4 w-4 animate-spin text-primary" strokeWidth={1.75} />
+        Run in progress — report will be available when execution completes.
+      </div>
+    );
+  }
+
+  if (!reportReady) {
+    return (
+      <div className="panel p-6 text-muted">
+        Report not ready — finish execution on the Run tab first.
+      </div>
+    );
+  }
+
   if (isLoading) return <p className="p-4 text-muted">Loading report…</p>;
+  if (isError) {
+    return (
+      <ErrorBanner
+        code="response_invalid"
+        message="Could not load report data from the API."
+        detail={error instanceof Error ? error.message : "Schema mismatch — check browser console."}
+      />
+    );
+  }
   if (!artifact) return <p className="p-4 text-muted">Report not available yet.</p>;
 
   const preCode = isPreCode(artifact.pipeline_mode);
@@ -44,6 +84,10 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
 
   return (
     <div className="space-y-4">
+      {artifact.attestation_banner && (
+        <ErrorBanner code="attestation" message={artifact.attestation_banner} />
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
         <div>
           <h2 className="text-base font-semibold">
@@ -69,7 +113,7 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
         <Card>
           <CardHeader><CardTitle>Quality gate</CardTitle></CardHeader>
           <CardContent>
-            <SuiteQualityBadge quality={quality} />
+            <SuiteQualityBadge quality={quality ?? undefined} />
           </CardContent>
         </Card>
 

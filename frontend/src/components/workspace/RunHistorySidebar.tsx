@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { formatDistanceToNow } from "date-fns";
 import { History, RotateCw } from "lucide-react";
 import { useStoryRuns } from "@/api/hooks";
+import type { PhaseName, RunStatus } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -9,7 +10,7 @@ import { cn } from "@/lib/cn";
 interface RunHistorySidebarProps {
   storyId: string;
   activeRunId?: string;
-  onSelectRun: (runId: string) => void;
+  onSelectRun: (runId: string, status?: RunStatus, currentPhase?: PhaseName | null) => void;
 }
 
 export function RunHistorySidebar({
@@ -49,7 +50,7 @@ export function RunHistorySidebar({
                     "cursor-pointer",
                     activeRunId === run.run_id && "bg-surface-elevated",
                   )}
-                  onClick={() => onSelectRun(run.run_id)}
+                  onClick={() => onSelectRun(run.run_id, run.status, run.current_phase)}
                 >
                   <td>
                     <div className="font-mono">{run.run_id}</div>
@@ -73,7 +74,7 @@ export function RunHistorySidebar({
       </div>
       {sorted[0] && (
         <div className="border-t border-border p-2">
-          <Button size="sm" variant="outline" className="w-full" onClick={() => onSelectRun(sorted[0].run_id)}>
+          <Button size="sm" variant="outline" className="w-full" onClick={() => onSelectRun(sorted[0].run_id, sorted[0].status, sorted[0].current_phase)}>
             <RotateCw className="h-3.5 w-3.5" strokeWidth={1.75} />
             Open latest report
           </Button>

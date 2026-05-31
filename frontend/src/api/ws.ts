@@ -94,6 +94,8 @@ export function useRunStream(runId: string | undefined) {
             break;
           case "run_paused":
             setRunStatus("paused");
+            qc.invalidateQueries({ queryKey: queryKeys.run(runId) });
+            qc.invalidateQueries({ queryKey: queryKeys.artifact(runId) });
             break;
           case "run_completed":
             setRunStatus("completed");
@@ -107,6 +109,16 @@ export function useRunStream(runId: string | undefined) {
               phase: evt.phase ?? ("executor" as PhaseName),
               status: "failed",
             });
+            qc.invalidateQueries({ queryKey: queryKeys.run(runId) });
+            break;
+          case "heal_cycle_started":
+            appendLog(`[heal] cycle ${evt.attempt} started`, MAX_LOG_LINES);
+            break;
+          case "heal_cycle_completed":
+            appendLog(
+              `[heal] cycle ${evt.attempt} completed · ${evt.patches_proposed} patches`,
+              MAX_LOG_LINES,
+            );
             break;
         }
       };

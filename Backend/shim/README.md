@@ -11,6 +11,8 @@ pip install fastapi uvicorn python-multipart
 python run_shim.py
 ```
 
+`run_shim.py` enables reload for **shim source only** (`Backend/shim/`). Pipeline output under `Backend/workspace/` does not trigger a restart.
+
 Shim listens on **http://localhost:8080** (target app under test stays on `:8000`).
 
 ## Frontend

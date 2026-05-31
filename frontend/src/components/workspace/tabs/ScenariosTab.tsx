@@ -1,22 +1,36 @@
 import { Fragment, useState } from "react";
-import { ChevronDown, ChevronRight, Save } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
-import { useAdvanceRun, useArtifact, usePatchTestCase, useRun } from "@/api/hooks";
+import {
+  useArtifact,
+  usePatchTestCase,
+  useRun,
+} from "@/api/hooks";
+import {
+  isRunInFlight,
+  isScenariosGateDone,
+} from "@/api/runLifecycle";
+import type { FlowMode } from "@/api/pipelineSettings";
 import type { TestCase } from "@/api/types";
+import { ErrorBanner } from "@/components/ErrorBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 interface ScenariosTabProps {
   runId?: string;
+  flowMode?: FlowMode;
   onTabChange: (tab: "scripts") => void;
 }
 
-export function ScenariosTab({ runId, onTabChange }: ScenariosTabProps) {
-  const { data: artifact } = useArtifact(runId, Boolean(runId));
+export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: ScenariosTabProps) {
   const { data: run } = useRun(runId);
+  const scenariosReady = isScenariosGateDone(run?.status, run?.current_phase);
+  const { data: artifact, isLoading: artifactLoading } = useArtifact(
+    runId,
+    Boolean(runId) && scenariosReady,
+  );
   const patchTest = usePatchTestCase(runId ?? "");
-  const advance = useAdvanceRun(runId);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [editStatus, setEditStatus] = useState<Record<string, string>>({});
 
@@ -29,8 +43,55 @@ export function ScenariosTab({ runId, onTabChange }: ScenariosTabProps) {
     return <div className="panel p-6 text-muted">Complete Surface Map and generate tests first.</div>;
   }
 
+  if (run?.status === "failed") {
+    return (
+      <ErrorBanner
+        code={run.error_code ?? "run_failed"}
+        message={run.error_message ?? "Test generation failed."}
+      />
+    );
+  }
+
+  const generating =
+    isRunInFlight(run?.status) &&
+    (run?.current_phase === "generator" || run?.current_phase === "security_compiler");
+
+  if (generating && !tests.length) {
+    return (
+      <div className="panel p-6 space-y-4">
+        <div className="flex items-center gap-2 text-sm">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" strokeWidth={1.75} />
+          <span>Generating test scenarios…</span>
+          <Badge variant="muted">{run?.status ?? "queued"}</Badge>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(run?.phases ?? []).map((p) => (
+            <Badge
+              key={p.phase}
+              variant={
+                p.status === "completed" ? "success" :
+                p.status === "running" ? "caution" : "muted"
+              }
+              className="normal-case"
+            >
+              {p.phase.replace(/_/g, " ")} · {p.status}
+            </Badge>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (artifactLoading && !tests.length) {
+    return <div className="panel p-6 text-muted">Loading scenarios…</div>;
+  }
+
   if (!tests.length) {
-    return <div className="panel p-6 text-muted">No test scenarios generated yet.</div>;
+    return (
+      <div className="panel p-6 text-muted">
+        No test scenarios yet. Return to Surface Map and click Generate Tests.
+      </div>
+    );
   }
 
   async function saveStatus(tc: TestCase) {
@@ -43,12 +104,22 @@ export function ScenariosTab({ runId, onTabChange }: ScenariosTabProps) {
     toast.success(`${tc.test_id} updated`);
   }
 
+  async function continueToScripts() {
+    onTabChange("scripts");
+  }
+
+  const canEdit = run?.status === "paused";
+
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
-        <Button onClick={() => void advance.mutateAsync({ stop_after: null }).then(() => onTabChange("scripts"))}>
-          Continue to Scripts
-        </Button>
+        {flowMode === "regular" ? (
+          <Button onClick={() => void continueToScripts()} disabled={!scenariosReady || isRunInFlight(run?.status)}>
+            Continue to Scripts
+          </Button>
+        ) : (
+          <span className="text-xs text-muted">Auto flow — continuing to Scripts when compiler finishes</span>
+        )}
       </div>
       <div className="panel overflow-hidden">
         <div className="panel-header">Test scenarios ({tests.length})</div>
@@ -91,11 +162,12 @@ export function ScenariosTab({ runId, onTabChange }: ScenariosTabProps) {
                       <Input
                         className="h-7 w-16"
                         defaultValue={String(tc.expected_status_code ?? "")}
+                        disabled={!canEdit}
                         onChange={(e) => setEditStatus((s) => ({ ...s, [tc.test_id]: e.target.value }))}
                       />
                     </td>
                     <td>
-                      <Button size="sm" variant="ghost" onClick={() => void saveStatus(tc)}>
+                      <Button size="sm" variant="ghost" disabled={!canEdit} onClick={() => void saveStatus(tc)}>
                         <Save className="h-3.5 w-3.5" strokeWidth={1.75} />
                       </Button>
                     </td>

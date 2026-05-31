@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch } from "./client";
+import { ApiError, apiFetch } from "./client";
 import type {
   Health,
   PipelineMode,
@@ -17,6 +17,7 @@ import {
   StorySchema,
 } from "./types";
 import { z } from "zod";
+import { isArtifactReady, isRunInFlight } from "./runLifecycle";
 
 export const queryKeys = {
   stories: ["stories"] as const,
@@ -124,8 +125,11 @@ export function useStartRun(storyId: string) {
         { method: "POST", body: JSON.stringify(payload) },
       );
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: queryKeys.storyRuns(storyId) });
+      if (result.run_id) {
+        qc.invalidateQueries({ queryKey: queryKeys.run(result.run_id) });
+      }
     },
   });
 }
@@ -139,8 +143,13 @@ export function useAdvanceRun(runId: string | undefined) {
         { method: "POST", body: JSON.stringify(payload) },
       );
     },
-    onSuccess: () => {
-      if (runId) qc.invalidateQueries({ queryKey: queryKeys.run(runId) });
+    onSuccess: async () => {
+      if (runId) {
+        await qc.invalidateQueries({ queryKey: queryKeys.run(runId) });
+        await qc.refetchQueries({ queryKey: queryKeys.run(runId) });
+        qc.invalidateQueries({ queryKey: queryKeys.artifact(runId) });
+        qc.invalidateQueries({ queryKey: queryKeys.script(runId) });
+      }
     },
   });
 }
@@ -155,9 +164,11 @@ export function useRun(runId: string | undefined) {
     enabled: Boolean(runId),
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      if (status === "running" || status === "queued") return 2000;
+      if (isRunInFlight(status)) return 1500;
       return false;
     },
+    refetchOnWindowFocus: true,
+    staleTime: 0,
   });
 }
 
@@ -169,7 +180,20 @@ export function useArtifact(runId: string | undefined, enabled = true) {
       return ProjectStateSchema.parse(data);
     },
     enabled: Boolean(runId) && enabled,
+    retry: (count, error) => {
+      if (error instanceof ApiError && error.code === "run_not_complete") return false;
+      if (error instanceof ApiError && error.code === "script_not_ready") return false;
+      return count < 2;
+    },
   });
+}
+
+/** Fetch artifact only when the backend gate allows it (paused or completed). */
+export function useRunArtifact(runId: string | undefined) {
+  const { data: run } = useRun(runId);
+  const ready = isArtifactReady(run?.status);
+  const artifact = useArtifact(runId, ready);
+  return { run, artifact, ready };
 }
 
 export function useStoryRuns(storyId: string | undefined) {
@@ -193,6 +217,11 @@ export function useScript(runId: string | undefined, enabled = true) {
       return apiFetch<string>(`/api/runs/${runId}/script?format=py`);
     },
     enabled: Boolean(runId) && enabled,
+    retry: (count, error) => {
+      if (error instanceof ApiError && error.code === "run_not_complete") return false;
+      if (error instanceof ApiError && error.code === "script_not_ready") return false;
+      return count < 2;
+    },
   });
 }
 

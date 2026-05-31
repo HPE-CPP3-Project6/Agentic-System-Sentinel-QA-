@@ -5,6 +5,16 @@ from typing import Any
 from state import ProjectState
 
 
+def _serialize_input_data(tc: Any) -> dict[str, Any] | list[Any]:
+    """Pass through generator payloads for the UI (dict or workflow step list)."""
+    data = getattr(tc, "input_data", None)
+    if data is None:
+        return {}
+    if isinstance(data, (dict, list)):
+        return data
+    return {"value": data}
+
+
 def state_to_artifact(state: ProjectState) -> dict[str, Any]:
     """Mirror main._dump_artifact envelope + frontend-friendly extras."""
     md = {k: v for k, v in state.metadata.items() if k not in ("critic_raw", "generator_raw")}
@@ -57,7 +67,7 @@ def state_to_artifact(state: ProjectState) -> dict[str, Any]:
                 "expected_status_code": tc.expected_status_code,
                 "adversarial": tc.is_adversarial,
                 "forbidden_response_content": tc.forbidden_response_content,
-                "input_data": {},
+                "input_data": _serialize_input_data(tc),
                 "source_refs": tc.source_refs,
             }
         )

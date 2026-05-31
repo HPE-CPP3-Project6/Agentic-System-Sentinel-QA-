@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { useRun } from "@/api/hooks";
 import { useUiStore } from "@/stores/uiStore";
 import { useRunStreamStore } from "@/stores/runStreamStore";
 import { Loader2 } from "lucide-react";
@@ -6,25 +7,31 @@ import { Loader2 } from "lucide-react";
 export function RunStatusPill() {
   const activeRunId = useUiStore((s) => s.activeRunId);
   const wsStatus = useUiStore((s) => s.wsStatus);
-  const runStatus = useRunStreamStore((s) => s.runStatus);
+  const streamStatus = useRunStreamStore((s) => s.runStatus);
+  const { data: run } = useRun(activeRunId ?? undefined);
 
   if (!activeRunId) return null;
 
+  const displayStatus =
+    streamStatus !== "idle" ? streamStatus : (run?.status ?? "queued");
+
   const variant =
-    runStatus === "failed"
+    displayStatus === "failed"
       ? "danger"
-      : runStatus === "completed"
+      : displayStatus === "completed"
         ? "success"
-        : runStatus === "running"
+        : displayStatus === "running"
           ? "default"
-          : "muted";
+          : displayStatus === "paused"
+            ? "caution"
+            : "muted";
 
   return (
     <Badge variant={variant} className="font-mono normal-case">
       {wsStatus === "connecting" && (
         <Loader2 className="mr-1 inline h-3 w-3 animate-spin" aria-hidden />
       )}
-      {activeRunId} · {runStatus}
+      {activeRunId} · {displayStatus}
     </Badge>
   );
 }

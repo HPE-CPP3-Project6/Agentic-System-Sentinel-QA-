@@ -80,6 +80,18 @@ def _script_path(run: RunRow) -> Path:
     candidates = list(ws.glob("test_sentinel_api_generated.py"))
     if candidates:
         return candidates[0]
+    state = load_state(run)
+    if state:
+        generated = state.metadata.get("security_compiler_generated_files") or []
+        for raw in reversed(generated):
+            path = Path(str(raw))
+            if path.is_file():
+                return path
+        compiler_dir = state.metadata.get("security_compiler_run_dir")
+        if compiler_dir:
+            path = Path(str(compiler_dir)) / "test_sentinel_api_generated.py"
+            if path.is_file():
+                return path
     return ws / "test_sentinel_api_generated.py"
 
 

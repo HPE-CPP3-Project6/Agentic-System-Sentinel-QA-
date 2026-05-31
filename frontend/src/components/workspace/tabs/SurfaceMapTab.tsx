@@ -9,6 +9,8 @@ import {
   useRun,
   useSurfaceOverride,
 } from "@/api/hooks";
+import { canGenerateTests, isArtifactReady, isRunInFlight } from "@/api/runLifecycle";
+import type { FlowMode } from "@/api/pipelineSettings";
 import type { SurfaceBinding } from "@/api/types";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +20,7 @@ import { cn } from "@/lib/cn";
 
 interface SurfaceMapTabProps {
   runId?: string;
+  flowMode?: FlowMode;
   onTabChange: (tab: "scenarios") => void;
 }
 
@@ -29,10 +32,10 @@ const STATE_BADGE: Record<string, "success" | "danger" | "caution" | "muted"> = 
   CLIENT_SIDE_ONLY: "muted",
 };
 
-export function SurfaceMapTab({ runId, onTabChange }: SurfaceMapTabProps) {
+export function SurfaceMapTab({ runId, flowMode = "regular", onTabChange }: SurfaceMapTabProps) {
   const { data: health } = useHealth();
-  const { data: run, isError: runError, error: runFetchError } = useRun(runId);
-  const artifactReady = run?.status === "paused" || run?.status === "completed";
+  const { data: run, isError: runError, error: runFetchError, isLoading: runLoading } = useRun(runId);
+  const artifactReady = isArtifactReady(run?.status);
   const { data: artifact } = useArtifact(runId, Boolean(runId) && artifactReady);
   const advance = useAdvanceRun(runId);
   const override = useSurfaceOverride(runId ?? "");
@@ -41,7 +44,9 @@ export function SurfaceMapTab({ runId, onTabChange }: SurfaceMapTabProps) {
   const [overridePath, setOverridePath] = useState("/tasks/search");
   const [groupFilter, setGroupFilter] = useState<string>("all");
 
-  const surfaceMap = artifact?.surface_map ?? run?.partial_artifact?.surface_map;
+  const surfaceMap =
+    artifact?.surface_map ??
+    (run?.partial_artifact?.surface_map as Record<string, SurfaceBinding> | undefined);
   const entries = useMemo(
     () => Object.values((surfaceMap ?? {}) as Record<string, SurfaceBinding>),
     [surfaceMap],
@@ -57,6 +62,15 @@ export function SurfaceMapTab({ runId, onTabChange }: SurfaceMapTabProps) {
     return (
       <div className="panel p-6 text-muted">
         Start from Input and click Resolve Surface to populate the traceability map.
+      </div>
+    );
+  }
+
+  if (runLoading && !run) {
+    return (
+      <div className="panel flex items-center gap-2 p-6 text-sm text-muted">
+        <Loader2 className="h-4 w-4 animate-spin text-primary" strokeWidth={1.75} />
+        Loading run status…
       </div>
     );
   }
@@ -82,7 +96,7 @@ export function SurfaceMapTab({ runId, onTabChange }: SurfaceMapTabProps) {
     );
   }
 
-  const inFlight = run?.status === "queued" || run?.status === "running";
+  const inFlight = isRunInFlight(run?.status);
   if (inFlight && !entries.length) {
     return (
       <div className="panel p-6 space-y-4">
@@ -116,8 +130,8 @@ export function SurfaceMapTab({ runId, onTabChange }: SurfaceMapTabProps) {
   if (run?.status === "failed") {
     return (
       <ErrorBanner
-        code="run_failed"
-        message="Surface resolution failed."
+        code={run.error_code ?? "run_failed"}
+        message={run.error_message ?? "Surface resolution failed."}
         detail="Check the shim terminal for errors, then retry from Input."
       />
     );
@@ -185,13 +199,24 @@ export function SurfaceMapTab({ runId, onTabChange }: SurfaceMapTabProps) {
           ))}
         </div>
         <div className="flex gap-2">
-          <Button size="sm" variant="outline">
-            <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.75} />
-            Re-resolve
-          </Button>
-          <Button size="sm" onClick={() => void generateTests()} disabled={advance.isPending}>
-            Generate Tests
-          </Button>
+          {flowMode === "regular" && (
+            <>
+              <Button size="sm" variant="outline">
+                <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.75} />
+                Re-resolve
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => void generateTests()}
+                disabled={advance.isPending || !canGenerateTests(run?.status, run?.current_phase)}
+              >
+                Generate Tests
+              </Button>
+            </>
+          )}
+          {flowMode === "auto" && (
+            <span className="text-xs text-muted self-center">Auto flow — pipeline advances automatically</span>
+          )}
         </div>
       </div>
 
