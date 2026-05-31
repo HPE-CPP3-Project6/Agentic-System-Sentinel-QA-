@@ -3,7 +3,7 @@
 **Agentic QA pipeline for HPE-style API security and functional attestation.**  
 Given a user story, acceptance criteria, and an indexed codebase, Sentinel-QA produces **grounded test cases**, **OWASP-aligned adversarial variants**, **runnable pytest**, and a **categorized execution report** — with honest **coverage gaps** when the spec outruns the code.
 
-The reference application under test is [**Smart Task Manager**](Backend/repo_cache/README.md) (FastAPI + SQLAlchemy + React), vendored under `Backend/repo_cache/`. A separate **React reviewer UI** is in development; see [`sentinel-qa-architecture.md`](sentinel-qa-architecture.md) for the planned SPA + API shim. **This repository is the LangGraph backend** (agents, RAG, compiler, executor).
+The reference application under test is **Smart Task Manager** (FastAPI + SQLAlchemy + React), populated locally under `Backend/repo_cache/` (gitignored — sync via `database/github_sync` or ingest). A separate **React reviewer UI** is in development; see [`sentinel-qa-architecture.md`](sentinel-qa-architecture.md) for the planned SPA + API shim. **This repository is the LangGraph backend** (agents, RAG, compiler, executor).
 
 ---
 
@@ -11,9 +11,9 @@ The reference application under test is [**Smart Task Manager**](Backend/repo_ca
 
 1. **Critic** — turns prose ACs into atomic requirements, ambiguity scores, and OWASP-linked risks.  
 2. **Surface Resolver** — binds each requirement to a real code surface (`BACKEND_API`, `NOT_IMPLEMENTED`, …) and a **defense kind** for inverted security stories.  
-3. **Generator** — RAG over ChromaDB; emits `test_suite` + `coverage_gaps` with file citations.  
-4. **Security+Compiler** — clones functional tests into payload-driven adversarial cases; writes `test_sentinel_api_generated.py`.  
-5. **Executor** — runs pytest against a live API (`SENTINEL_BASE_URL`); records verdicts; optional **heal loop** back to Generator; publishes **security posture** and **test suite summary by category**.
+3. **Generator** — POST_CODE: RAG over ChromaDB → `test_suite` + `coverage_gaps`; PRE_CODE: `design_contracts` (no RAG) and derives `surface_map` from them.  
+4. **Security+Compiler** — POST_CODE: adversarial expansion + pytest file; PRE_CODE: `security_checklist` from Critic risks (no pytest).  
+5. **Executor** — POST_CODE: pytest, heal loop, `run_validity` / `test_suite_summary`; PRE_CODE: `run_validity=DESIGN_ONLY`, `design_summary`, no execution.
 
 ---
 
@@ -45,7 +45,7 @@ flowchart LR
 | Mode | Command | What runs |
 |------|---------|-----------|
 | **POST_CODE** (default) | `python main.py post_code <story>` | Full graph: generate, compile, execute, heal (if configured). Requires Chroma ingest + live API for meaningful execution. |
-| **PRE_CODE** | `python main.py --mode pre_code <story>` | Critic through Compiler; **no pytest execution**. Saves a Phase-1 snapshot for later drift comparison. |
+| **PRE_CODE** | `python main.py --mode pre_code <story>` | Critic through Compiler; **design contracts** + **security checklist**; `run_validity=DESIGN_ONLY`. Saves Phase-1 snapshot for drift on the next POST_CODE run. |
 
 **Entry point:** `Backend/main.py` only. Story keys come from `Backend/samples/sample_stories.py`.
 
@@ -63,6 +63,7 @@ python main.py lifecycle          # post_code is default
 |-----|----------|--------|
 | `filter` | US-001 | Functional — client-side filter behavior |
 | `lifecycle` | LIFE-001 | **State-transition** — CRUD + soft-delete on `/tasks/{task_id}` |
+| `validation` | VALID-001 | Task create validation & sanitization (POST /tasks/) |
 | `org` | ORG-001 | Functional — organization create (often thin / not in app) |
 | `login` | AUTH-001 | Security anti-patterns → defense confirmation (A07, A03) |
 | `search` | SEARCH-001 | Injection / search surface (A03) |
@@ -122,6 +123,8 @@ For **POST_CODE execution**:
 | `SENTINEL_TEST_BEARER_TOKEN` | JWT from `POST /login` or `POST /register` |
 | `SENTINEL_EXECUTOR_RUN_PYTEST` | `1` (default) to run generated pytest; `0` to skip |
 | `SENTINEL_COMPILER_MAX_TESTS_PER_FILE` | Cap compiled tests (default `80`; use `25` for demos) |
+| `SENTINEL_MAX_HEAL` | Cap graph heal cycles (`0`–`2`; lower for faster demos) |
+| `SENTINEL_SAST` | `1` (default) runs Bandit after POST_CODE; `0` to skip |
 
 Full list: [`Backend/.env.example`](Backend/.env.example).
 
@@ -185,10 +188,10 @@ Wall time is often **10–25 minutes** per story (LLM + pytest + optional heal).
 | # | Agent | Module | Output |
 |---|--------|--------|--------|
 | 1 | **Critic** | `agents/critic.py` | `validated_requirements`, `security_risks`, ambiguity flags |
-| 1.5 | **Surface Resolver** | `agents/surface_resolver.py` | `surface_map` — per-REQ `SurfaceState`, endpoints, `threat_class`, `defense_kind` |
-| 2 | **Generator** | `agents/generator.py` | `test_suite`, `coverage_gaps`; Rule 11 binds tests to `surface_map` |
-| 3 | **Security+Compiler** | `agents/security_compiler.py` | Adversarial `TestCase` rows + `workspace/runs/.../test_sentinel_api_generated.py` |
-| 4 | **Executor** | `agents/executor.py` | `logs`, `suggested_patches`, `metadata` (posture, suite quality, **test_suite_summary**) |
+| 1.5 | **Surface Resolver** | `agents/surface_resolver.py` | POST_CODE: `surface_map` from Chroma; PRE_CODE: skipped (Generator derives map from design contracts) |
+| 2 | **Generator** | `agents/generator.py` | POST_CODE: `test_suite`, `coverage_gaps`; PRE_CODE: `design_contracts` + `surface_map` |
+| 3 | **Security+Compiler** | `agents/security_compiler.py` | POST_CODE: adversarial rows + pytest; PRE_CODE: `security_checklist` |
+| 4 | **Executor** | `agents/executor.py` | POST_CODE: `logs`, patches, `security_posture`, `test_suite_summary`; PRE_CODE: `design_summary`, `DESIGN_ONLY` attestation |
 
 **Heal loop:** `needs_healing` → Generator when functional failures, vulnerabilities, or errors remain and heal budget allows (`heal_attempts` / `max_heal_attempts` on `ProjectState`).
 
@@ -245,30 +248,33 @@ After execution, **`test_suite_summary`** rolls up planned vs executed per categ
 
 ## Output artifacts
 
-Each POST_CODE run writes:
-
-**`outputs/exec-demo-<story>-post_code-<timestamp>.json`** (repo root, gitignored)
+Each run writes **`outputs/exec-demo-<story>-<mode>-<timestamp>.json`** (repo root, gitignored). PRE_CODE and POST_CODE share the **same top-level envelope**; `pipeline_mode` is the discriminator.
 
 | Top-level field | Meaning |
 |-----------------|--------|
-| `run_validity` | **Check this FIRST.** `OK`, `TARGET_UNREACHABLE` (app down — posture suppressed), `FUNCTIONALLY_UNRELIABLE` (failures are mostly test defects) |
-| `coverage_quality` | Trusted only when `run_validity == OK`: `ATTESTABLE`, `INSUFFICIENT`, `NO_TESTS_GENERATED`, `ALL_SKIPPED`, `NO_RISKS_PREDICTED` |
+| `pipeline_mode` | `PRE_CODE` or `POST_CODE` |
+| `run_validity` | **Check this FIRST.** POST_CODE: `OK`, `TARGET_UNREACHABLE`, `FUNCTIONALLY_UNRELIABLE`. PRE_CODE: `DESIGN_ONLY` |
+| `coverage_quality` | POST_CODE (when `run_validity==OK`): `ATTESTABLE`, `INSUFFICIENT`, … PRE_CODE: `DESIGN_COMPLETE`, `DESIGN_INSUFFICIENT`, `NO_REQUIREMENTS` |
 | `suite_quality` | Deprecated alias of `coverage_quality` (one release) |
-| `attestation_banner` | Human-readable warning when `run_validity != OK` |
-| `test_suite_summary` | **By category / technique / OWASP / defense_kind** + `equivalence_partitions` + slim `tests_by_category` drill-down |
-| `logs_detail` | Per-test final-cycle slice (test_id, status, verdict, evidence) — traceable verdicts |
-| `sast_summary` | **Static** analysis (Bandit) of the target source — separate bucket, never merged into dynamic posture, never auto-healed (`SENTINEL_SAST=0` to skip) |
+| `attestation_banner` | Human-readable warning when POST_CODE `run_validity != OK` |
+| `design_contracts` | PRE_CODE: API contracts; POST_CODE: empty unless Phase-1 loaded |
+| `security_checklist` | PRE_CODE: shift-left checklist; POST_CODE: empty unless Phase-1 loaded |
+| `surface_map` | Always present; populated in both modes when bindings exist |
+| `design_summary` | PRE_CODE: contract/checklist counts (`design_summary`); POST_CODE: null |
+| `test_suite_summary` | POST_CODE: by category / technique / OWASP; PRE_CODE: null |
+| `logs_detail` | POST_CODE: per-test final-cycle slice; PRE_CODE: empty |
+| `sast_summary` | POST_CODE: Bandit sidecar (`SENTINEL_SAST=0` to skip); PRE_CODE: null |
 | `validated_requirements` | Critic output |
 | `security_risks` | OWASP mapping |
-| `test_suite_size` | Total tests after compiler |
+| `test_suite_size` | POST_CODE: total tests; PRE_CODE: `0` |
 | `coverage_gaps` | Spec claims not grounded in code |
-| `logs_summary` | Final heal cycle only (passed / failed / error / skipped) |
-| `drift_report` | PRE_CODE vs POST_CODE diff when Phase-1 snapshot exists |
-| `metadata` | `security_posture`, pytest paths, compiler caps, quarantined patches, … |
+| `logs_summary` | POST_CODE: final heal cycle; PRE_CODE: empty |
+| `drift_report` | POST_CODE vs Phase-1 snapshot when `phase_bridge_data` exists |
+| `metadata` | POST_CODE: `security_posture`, pytest paths, …; mode-specific extras |
 
-**Generated pytest:** `Backend/workspace/runs/run_<utc>/test_sentinel_api_generated.py` (gitignored).
+**Generated pytest (POST_CODE only):** `Backend/workspace/runs/run_<utc>/test_sentinel_api_generated.py` (gitignored).
 
-**Phase bridge:** `Backend/state/phase1_snapshots/` — PRE_CODE snapshots for drift on the next POST_CODE run.
+**Phase bridge:** `Backend/phase_bridge_data/` — PRE_CODE snapshots for drift on the next POST_CODE run.
 
 ---
 
@@ -276,7 +282,7 @@ Each POST_CODE run writes:
 
 Defined in [`Backend/state/project_state.py`](Backend/state/project_state.py).
 
-Key fields: `user_story`, `acceptance_criteria`, `surface_map`, `test_suite`, `coverage_gaps`, `logs`, `suggested_patches`, `heal_attempts`, `metadata`.
+Key fields: `user_story`, `acceptance_criteria`, `surface_map`, `test_suite`, `design_contracts`, `security_checklist`, `coverage_gaps`, `logs`, `suggested_patches`, `heal_attempts`, `metadata`.
 
 Each **`TestCase`** includes `action`, `input_data`, `expected_status_code`, `source_refs`, `test_category`, optional `workflow_steps`, and adversarial fields (`payload`, `owasp_category`, `bound_method`, `bound_path`, …).
 
@@ -311,10 +317,13 @@ HPE Project/
     │   └── templates/pytest_api.jinja2
     ├── state/                         # Pydantic models
     ├── database/                      # ingest, vector_store, ast_chunker, reranker
-    ├── samples/sample_stories.py      # CLI story registry
+    ├── samples/
+    │   ├── sample_stories.py            # CLI story registry
+    │   └── mentor_requirements/         # Mentor FR/NFR category stories
+    ├── tools/sast_scan.py               # Bandit sidecar (POST_CODE)
     ├── utils/                         # llm, payloads, boundaries, placeholders
     ├── phase_bridge/                    # Phase-1 snapshots + drift_report
-    ├── repo_cache/                    # App under test (FastAPI + React)
+    ├── repo_cache/                    # App under test (local only, gitignored)
     ├── tests/                         # Unit tests
     ├── workspace/                     # Generated pytest runs (gitignored)
     ├── chroma_data/                   # Vector DB (gitignored)
@@ -363,4 +372,4 @@ Payloads in `utils/payloads.py` are **canonical test strings** for authorized se
 
 ## License / attribution
 
-HPE internship / academic project context. Smart Task Manager sample app lives under `Backend/repo_cache/` with its own README.
+HPE internship / academic project context. Smart Task Manager sample app is populated locally under `Backend/repo_cache/` (gitignored).

@@ -6,14 +6,14 @@ Single-tenant internal tool. SPA + thin FastAPI shim over the existing LangGraph
 
 ## A. Executive Summary
 
-We are building a React SPA backed by a thin, stateless FastAPI service that wraps the existing CLI pipeline by invoking it as a subprocess and streaming its progress. The frontend's job is to drive the five-agent pipeline through a staged golden path (Resolve Surface → Generate → Execute → Report) and render the single `ProjectState` artifact so an HPE reviewer understands the release decision in seconds. The architecture is deliberately conservative: the CLI is untouched, the API holds no business logic it doesn't have to, and the SPA matches the React+Vite stack of the apps the pipeline tests. It is HPE-credible because the two screens reviewers will scrutinize map cleanly onto tools they already trust — the **Surface Map** is a modern requirement→test→result traceability matrix (the ALM/Quality Center mental model), and the **Security Posture** dashboard groups verdicts into OWASP buckets with severity ranking and drill-down (the Fortify mental model), without cloning either's dated UI.
+We are building a React SPA backed by a thin, stateless FastAPI service that wraps the existing CLI pipeline by invoking it as a subprocess and streaming its progress. The frontend's job is to drive the five-agent pipeline through a staged golden path (Resolve Surface → Generate → Execute → Report) and render the single artifact JSON (`pipeline_mode` + `run_validity` first, then mode-specific fields) so an HPE reviewer understands the release decision in seconds. The architecture is deliberately conservative: the CLI is untouched, the API holds no business logic it doesn't have to, and the SPA matches the React+Vite stack of the apps the pipeline tests. It is HPE-credible because the two screens reviewers will scrutinize map cleanly onto tools they already trust — the **Surface Map** is a modern requirement→test→result traceability matrix (the ALM/Quality Center mental model), and the **Security Posture** dashboard groups verdicts into OWASP buckets with severity ranking and drill-down (the Fortify mental model), without cloning either's dated UI.
 
 ## B. Tech Stack
 
 | Layer | Choice | Justification (2 sentences) |
 |---|---|---|
 | Framework | **React 18 + Vite** | Matches the target apps under test, so reviewers see one stack. Vite's lazy chunking keeps the initial bundle under the 500 KB budget. |
-| Language | **TypeScript** | `ProjectState` is ~40 fields with discriminated unions (`suite_quality`, `threat_class`, `defense_kind`); TS turns the artifact contract into compile-time guarantees and catches schema drift before it reaches a reviewer. The pipeline's own enums are the strongest argument for typing. |
+| Language | **TypeScript** | The artifact uses a uniform envelope for PRE_CODE and POST_CODE; `pipeline_mode` and `run_validity` are the primary discriminators, with `coverage_quality` / `suite_quality` values that differ by mode. TS turns that contract into compile-time guarantees and catches schema drift before it reaches a reviewer. |
 | Server state | **TanStack Query** | Stories, runs, artifacts, and history are all server-owned async resources with caching, polling, and invalidation needs — exactly Query's job. |
 | Client state | **Zustand** | The genuine client state (theme, active run id, WS connection status, high-frequency live-log buffer, surface-override drafts) is small and ephemeral; Zustand carries it without RTK's reducer/middleware ceremony. Chosen over Redux Toolkit because there is no complex shared mutation graph to justify the boilerplate. |
 | UI | **shadcn/ui + Tailwind** | Copy-in components give a Linear-class, non-generic aesthetic we fully own, with no Material-UI "existing-HPE-tool" vibe. |
@@ -50,7 +50,7 @@ We are building a React SPA backed by a thin, stateless FastAPI service that wra
                                           └────────────────────────┘
 ```
 
-The shim writes story payloads and override files to a per-run workspace dir, spawns the CLI with `--mode`/`--stop-after` flags, tails stdout to parse phase + pytest events into the WS stream, and serves the finished `outputs/*.json` as the artifact. State persistence is a single SQLite file (stories, runs, history) — adequate for single-tenant.
+The shim writes story payloads and override files to a per-run workspace dir, spawns the CLI with `--mode`/`--stop-after` flags, tails stdout to parse phase + pytest events into the WS stream, and serves the finished `outputs/*.json` artifact (same top-level keys in both modes). State persistence is a single SQLite file (stories, runs, history) — adequate for single-tenant.
 
 ## D. HTTP API Contract
 
@@ -71,7 +71,7 @@ Base `/api`. Errors use `{ "error": { "code": "...", "message": "...", "detail":
 | PATCH | `/runs/{run_id}/surface-overrides` | `{overrides:{REQ-ID:{state?,threat_class?,defense_kind?,backend_endpoints?}}}` | `200 {surface_map}` | `404`, `409 not_paused`, `422` |
 | PATCH | `/runs/{run_id}/test-cases/{tc_id}` | `{action?,expected_status_code?,forbidden_response_content?}` | `200 {test_case}` | `404`, `409 not_paused` |
 | POST | `/runs/{run_id}/patches/{patch_id}/decision` | `{decision:"accept"\|"reject"}` | `200 {patch}` | `404`, `409 run_not_complete` |
-| GET | `/stories/{id}/runs` | — | `200 {runs[{run_id, started_at, suite_quality, resilience_pct}]}` | `404` |
+| GET | `/stories/{id}/runs` | — | `200 {runs[{run_id, started_at, pipeline_mode, run_validity, suite_quality, resilience_pct}]}` | `404` |
 | GET | `/runs/{run_id}/export` | `?format=pdf\|xlsx` | `200` (binary) | `404`, `409`, `503 export_failed` |
 | WS | `/ws/runs/{run_id}` | — | event stream (Section E) | close `4404` unknown run |
 | GET | `/health` | — | `200 {chroma_ok, target_app_ok, queue_depth}` | — |
@@ -109,13 +109,14 @@ One connection per run. Every event shares an envelope; `seq` is monotonic per r
   "stopped_after":"surface_resolver" }   // staged-path checkpoint
 
 { "type":"run_completed","run_id":"r_8f","seq":230,"ts":"...",
+  "pipeline_mode":"post_code","run_validity":"OK",
   "suite_quality":"ATTESTABLE","resilience_pct":100.0 }
 
 { "type":"run_failed","run_id":"r_8f","seq":58,"ts":"...",
   "code":"pytest_timeout","phase":"executor","message":"..." }
 ```
 
-The SPA reduces `verdict_decided` events into the early-results table live, buffers `pytest_stdout` into the console, and on `run_completed` invalidates the run's TanStack Query so the full artifact is fetched once over REST (the WS never carries the 40-field artifact).
+The SPA reduces `verdict_decided` events into the early-results table live, buffers `pytest_stdout` into the console, and on `run_completed` invalidates the run's TanStack Query so the full artifact is fetched once over REST (the WS never carries the full artifact). For PRE_CODE runs, Reports render `design_contracts` / `security_checklist` / `design_summary` instead of posture gauges.
 
 ## F. Frontend Component Tree
 
@@ -231,9 +232,11 @@ Principle: anything a reviewer might bookmark or share lives in the URL; anythin
 ```
 ┌ Reports · SEARCH-001 / r_8f ──────────────────────────────┐
 │ ┌ Quality Gate ┐ ┌ Resilience ┐ ┌ Coverage ──────────────┐│
-│ │ ● ATTESTABLE │ │   ◔ 100%   │ │ 9 tests · 0 off-target ││
+│ │ ● ATTESTABLE │ │   ◔ 100%   │ │ 9 tests · 0 off-target ││  ← POST_CODE, run_validity=OK
 │ │   Trusted    │ │  gauge     │ │ 8 attempted · 8 resil. ││
 │ └──────────────┘ └────────────┘ └────────────────────────┘│
+│ PRE_CODE: gate shows DESIGN_COMPLETE / DESIGN_INSUFFICIENT │
+│ (run_validity=DESIGN_ONLY); no resilience gauge.           │
 │ OWASP by exploit target          Resilience (recent runs) │
 │ A01 ▇▇▇  A03 ▇▇▇▇▇  A04 ▇▇       ╱‾‾╲__╱‾   ▁▂▅▇▇         │
 │ [ Export PDF ]  [ Export Excel ]                          │
@@ -255,7 +258,9 @@ Principle: anything a reviewer might bookmark or share lives in the URL; anythin
 
 ## I. suite_quality Badge Language
 
-Traffic-light + SonarQube "quality gate" vocabulary. Color, label, sub-copy:
+Traffic-light + SonarQube "quality gate" vocabulary. **Branch on `pipeline_mode` and `run_validity` first** — POST_CODE posture badges apply only when `run_validity == OK`; PRE_CODE uses design attestation instead of execution metrics.
+
+Color, label, sub-copy (`coverage_quality` / deprecated `suite_quality`):
 
 | Enum | Color | Badge label | Sub-copy |
 |---|---|---|---|
@@ -265,8 +270,10 @@ Traffic-light + SonarQube "quality gate" vocabulary. Color, label, sub-copy:
 | `NO_RISKS_PREDICTED` | grey-amber | **Review** | Critic predicted no OWASP exposure; nothing to attest. |
 | `ALL_SKIPPED` | grey | **Inconclusive** | Every test skipped; nothing executed. |
 | `NO_TESTS_GENERATED` | red | **Blocked** | Generator produced no tests; pipeline cannot attest. |
+| `DESIGN_COMPLETE` | green | **Design ready** | PRE_CODE: contracts + checklist present (`run_validity=DESIGN_ONLY`). |
+| `DESIGN_INSUFFICIENT` | amber | **Design gap** | PRE_CODE: missing contracts or checklist items. |
 
-Only `ATTESTABLE` reads as a passed gate; everything else is explicitly *not* a green light, which is the release-gate honesty HPE reviewers expect.
+Only `ATTESTABLE` (POST_CODE) or `DESIGN_COMPLETE` (PRE_CODE) reads as a passed gate; everything else is explicitly *not* a green light, which is the release-gate honesty HPE reviewers expect.
 
 ## J. Error-State Catalog
 
