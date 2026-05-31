@@ -22,6 +22,7 @@ import argparse
 import datetime as _dt
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -100,6 +101,15 @@ def main(story_key: str = "taskshare", mode: str = "post_code") -> ProjectState:
         module=s["module"],
         pipeline_mode=mode.upper(),
     )
+    # Demo/CI knob — cap heal cycles. The heal loop re-embeds RAG context on
+    # CPU per failing test, so a large suite can take 15-40 min. Set
+    # SENTINEL_MAX_HEAL=1 (or 0) for fast demo/smoke runs. Default unchanged (2).
+    _max_heal = os.getenv("SENTINEL_MAX_HEAL")
+    if _max_heal is not None:
+        try:
+            initial.max_heal_attempts = max(0, int(_max_heal))
+        except ValueError:
+            pass
     final_raw = app.invoke(initial)
     final_state = _coerce_state(final_raw)
 
@@ -158,6 +168,24 @@ def main(story_key: str = "taskshare", mode: str = "post_code") -> ProjectState:
             f"{type(exc).__name__}: {exc}"
         )
 
+    # --- SAST sidecar (Phase 3A) ---
+    # Static analysis of the target source, in a SEPARATE bucket. The dynamic
+    # pipeline tested the running app; Bandit reads the source. Never merged
+    # into security_posture, never healed. Disable with SENTINEL_SAST=0.
+    if (
+        final_state.pipeline_mode == "POST_CODE"
+        and os.getenv("SENTINEL_SAST", "1").strip().lower() not in ("0", "false", "no")
+    ):
+        try:
+            from tools.sast_scan import run_sast_scan
+            target_root = Path(__file__).resolve().parent / "repo_cache"
+            final_state.metadata["sast_summary"] = run_sast_scan(target_root)
+        except Exception as exc:  # noqa: BLE001 — sidecar must not abort the run
+            final_state.metadata["sast_summary"] = {
+                "tool": "bandit", "ran": False,
+                "reason": f"{type(exc).__name__}: {exc}",
+            }
+
     return final_state
 
 
@@ -191,19 +219,47 @@ def _dump_artifact(final: ProjectState, mode: str, story_key: str) -> Path:
         if l.heal_attempt == final_attempt
     ] if final_attempt > 0 else list(final.logs)
 
+    # v3 P0 — TWO-AXIS attestation surfaced at the TOP of the artifact.
+    #   run_validity:     did we actually exercise the app? (check FIRST)
+    #   coverage_quality: was the suite meaningful? (only if run_validity OK)
+    # A CI gate / reviewer reads run_validity first; if it isn't OK, the
+    # security headline is suppressed and coverage_quality is informational.
+    run_validity = final.metadata.get("run_validity", "OK")
+    coverage_quality = final.metadata.get("coverage_quality") or final.metadata.get("suite_quality")
+    attestation_banner = None
+    if run_validity != "OK":
+        ev = final.metadata.get("run_validity_evidence") or {}
+        attestation_banner = (
+            f"⚠ run_validity={run_validity} — security posture suppressed. "
+            f"{ev.get('reason', 'run did not validly exercise the app')}"
+        )
+
+    # 2.1 — per-test log slice (final heal cycle). Makes every verdict
+    # traceable from the artifact alone: a reviewer can see WHICH test was
+    # vulnerable and WHY without opening the pytest workspace.
+    logs_detail = [
+        {
+            "test_id": l.test_id,
+            "status": l.status,
+            "is_adversarial": l.is_adversarial,
+            "verdict": getattr(l, "verdict", "n/a"),
+            "verdict_evidence": (getattr(l, "verdict_evidence", None) or [])[:4],
+            "exploit_target": l.exploit_target,
+            "stderr_excerpt": (l.stderr or "")[:300] if l.status in ("failed", "error") else None,
+        }
+        for l in current_cycle_logs
+    ]
+
     payload = {
         "story_id": final.story_id,
         "story_title": final.story_title,
         "pipeline_mode": final.pipeline_mode,
-        # Stage 1 (Cursor merged priority list) — top-level release-gate
-        # signal. One field a CI check can read:
-        #   ATTESTABLE         — suite ran and is credible
-        #   NO_TESTS_GENERATED — Generator emitted nothing (taskshare bug)
-        #   ALL_SKIPPED        — every test pytest.skip'd, nothing exercised
-        #   INSUFFICIENT       — suite ran but coverage floor not met
-        #   NO_RISKS_PREDICTED — Critic found no OWASP exposure; honest empty
-        # Surfaced here (NOT just inside metadata) so reviewers don't need
-        # to grep nested keys to know whether the run is trustworthy.
+        # v3 P0 attestation — read run_validity FIRST.
+        "run_validity": run_validity,
+        "coverage_quality": coverage_quality,
+        "attestation_banner": attestation_banner,
+        # Deprecated alias (one release): equals coverage_quality. Consumers
+        # needing run-validity must migrate to the run_validity field above.
         "suite_quality": final.metadata.get("suite_quality"),
         "test_suite_summary": final.metadata.get("test_suite_summary"),
         "heal_attempts": final.heal_attempts,
@@ -225,6 +281,10 @@ def _dump_artifact(final: ProjectState, mode: str, story_key: str) -> Path:
             # double-counting drift between cycles if it ever creeps back in.
             "cumulative_total_all_cycles": len(final.logs),
         },
+        # 2.1 — per-test final-cycle detail (traceable verdicts).
+        "logs_detail": logs_detail,
+        # SAST sidecar (Phase 3A) — STATIC findings, separate from dynamic posture.
+        "sast_summary": final.metadata.get("sast_summary"),
         # Lifted from metadata for visibility — the drift report is one of
         # the demo-worthy artifacts on POST_CODE runs.
         "drift_report": final.metadata.get("drift_report"),
@@ -254,6 +314,13 @@ def _print_summary(final: ProjectState, mode: str) -> None:
     print("=" * 60)
     print(f"\nSTORY: {final.story_title} ({final.story_id})")
     print(f"Mode:  {final.pipeline_mode}")
+    # v3 P0 — attestation headline. run_validity first; banner if not OK.
+    _rv = final.metadata.get("run_validity", "OK")
+    _cq = final.metadata.get("coverage_quality") or final.metadata.get("suite_quality")
+    print(f"RUN VALIDITY: {_rv}   |   COVERAGE QUALITY: {_cq}")
+    if _rv != "OK":
+        ev = final.metadata.get("run_validity_evidence") or {}
+        print(f"  ⚠ posture SUPPRESSED — {ev.get('reason', 'run did not validly exercise the app')}")
     print(f"\nVALIDATED REQUIREMENTS ({len(final.validated_requirements)})")
     for r in final.validated_requirements:
         print(f"  - {r.requirement_id}: {r.statement[:80]}")
@@ -293,11 +360,39 @@ def _print_summary(final: ProjectState, mode: str) -> None:
                     f"vulnerable={bucket.get('vulnerable', 0):3d}"
                 )
             print(line)
+        # P1 — ISTQB / ISO 29119-4 technique breakdown.
+        if summary.get("by_technique"):
+            print("  By design technique (ISTQB / ISO 29119-4):")
+            t_order = summary.get("technique_order") or list(summary["by_technique"].keys())
+            for tech in t_order:
+                tb = summary["by_technique"].get(tech)
+                if not tb:
+                    continue
+                print(f"    {tech:22s}  planned={tb['planned']:3d}  executed={tb.get('executed', 0):3d}")
+            eqp = summary.get("equivalence_partitions") or {}
+            if eqp:
+                covered = sorted({c for classes in eqp.values() for c in classes})
+                print(f"    equivalence classes covered: {', '.join(covered)}")
     print(f"COVERAGE GAPS: {len(final.coverage_gaps)}")
     print(f"SUGGESTED PATCHES: {len(final.suggested_patches)}   <-- headline metric")
     posture = final.metadata.get("security_posture")
     if posture:
-        print(f"SECURITY POSTURE: {posture}")
+        print(f"SECURITY POSTURE (dynamic): {posture}")
+
+    # SAST sidecar — static findings, clearly separated from dynamic posture.
+    sast = final.metadata.get("sast_summary")
+    if sast:
+        if sast.get("ran"):
+            bysev = sast.get("by_severity") or {}
+            sev_str = ", ".join(f"{k}={v}" for k, v in bysev.items()) or "none"
+            print(
+                f"SAST (static, Bandit): {sast.get('findings_total', 0)} findings "
+                f"across {sast.get('files_scanned', 0)} files  [{sev_str}]"
+            )
+            for f in (sast.get("top_findings") or [])[:3]:
+                print(f"    - [{f.get('severity')}] {f.get('test_id')} {f.get('path')}:{f.get('line')} — {f.get('issue')}")
+        else:
+            print(f"SAST (static): not run — {sast.get('reason')}")
 
     drift = final.metadata.get("drift_report")
     if drift and "summary" in drift:

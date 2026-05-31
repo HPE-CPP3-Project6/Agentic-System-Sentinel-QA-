@@ -224,9 +224,18 @@ Tests carry **`test_category`** on each `TestCase`:
 | `state_transition` | Multi-step workflows (`workflow_steps` in pytest template) |
 | `security` | Adversarial / OWASP (`is_adversarial`, payloads from `utils/payloads.py`) |
 
-After execution, **`test_suite_summary`** rolls up planned vs executed counts per category, plus **`by_owasp`** and **`by_defense_kind`** — surfaced in the JSON artifact and CLI (for reviewer UI tabs).
+Each `TestCase` also carries **`test_technique`** — the formal **ISTQB / ISO 29119-4** design discipline it embodies (distinct from `test_category`, which names the outcome class). Inferred from category + shape when the LLM omits it:
 
-**Enterprise technique labels** (`test_technique`: equivalence partition, decision table, …) are roadmap; categories above are what the pipeline emits today.
+| `test_technique` | Discipline |
+|------------------|-----------|
+| `equivalence_partition` | One representative test per input class (`valid`, `invalid-empty`, `invalid-type`, `auth-missing`, …); the class is recorded in `equivalence_class` |
+| `boundary_value` | Value at/adjacent to a limit (BVA) |
+| `decision_table` | One row of a condition→action table (opportunistic — multi-condition stories) |
+| `state_transition` | Ordered multi-step workflow (`workflow_steps`) |
+| `requirements_based` | Direct AC restatement, no sharper technique |
+| `security_adversarial` | Attack / abuse case |
+
+After execution, **`test_suite_summary`** rolls up planned vs executed per category **and per technique** (`by_technique`), plus `equivalence_partitions` (req → class → test ids), `by_owasp`, and `by_defense_kind` — surfaced in the JSON artifact and CLI.
 
 ---
 
@@ -238,8 +247,13 @@ Each POST_CODE run writes:
 
 | Top-level field | Meaning |
 |-----------------|--------|
-| `suite_quality` | Release gate: `ATTESTABLE`, `INSUFFICIENT`, `NO_TESTS_GENERATED`, `ALL_SKIPPED`, `NO_RISKS_PREDICTED` |
-| `test_suite_summary` | **By category / OWASP / defense_kind** + slim `tests_by_category` drill-down |
+| `run_validity` | **Check this FIRST.** `OK`, `TARGET_UNREACHABLE` (app down — posture suppressed), `FUNCTIONALLY_UNRELIABLE` (failures are mostly test defects) |
+| `coverage_quality` | Trusted only when `run_validity == OK`: `ATTESTABLE`, `INSUFFICIENT`, `NO_TESTS_GENERATED`, `ALL_SKIPPED`, `NO_RISKS_PREDICTED` |
+| `suite_quality` | Deprecated alias of `coverage_quality` (one release) |
+| `attestation_banner` | Human-readable warning when `run_validity != OK` |
+| `test_suite_summary` | **By category / technique / OWASP / defense_kind** + `equivalence_partitions` + slim `tests_by_category` drill-down |
+| `logs_detail` | Per-test final-cycle slice (test_id, status, verdict, evidence) — traceable verdicts |
+| `sast_summary` | **Static** analysis (Bandit) of the target source — separate bucket, never merged into dynamic posture, never auto-healed (`SENTINEL_SAST=0` to skip) |
 | `validated_requirements` | Critic output |
 | `security_risks` | OWASP mapping |
 | `test_suite_size` | Total tests after compiler |

@@ -33,3 +33,7 @@ tree-sitter-language-pack>=0.4.0
 # Cloud-runtime publisher (cloud/publish_results.py). Only imported inside
 # the container; local runs use --dry-run and never touch the package.
 google-cloud-storage>=2.16.0
+
+# SAST sidecar (tools/sast_scan.py) — static analysis of the target source,
+# reported in a separate `sast_summary` bucket. Disable a run with SENTINEL_SAST=0.
+bandit>=1.7.0
