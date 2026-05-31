@@ -1,11 +1,19 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys, useRun } from "@/api/hooks";
-import { isRunInFlight } from "@/api/runLifecycle";
 import type { RunStatus } from "@/api/types";
 import { useRunStreamStore } from "@/stores/runStreamStore";
 
-/** Keep WebSocket store and TanStack Query in sync with REST run status. */
+/**
+ * Reconcile the WebSocket store with REST run status. The live channel is the
+ * WebSocket (useRunStream); this hook layers REST reconciliation on top so the
+ * stepper/status stay correct if the socket drops or misses an event.
+ *
+ * Polling itself lives in `useRun` (refetchInterval 1.5s while in-flight) —
+ * we intentionally do NOT add a second interval here. A previous version ran
+ * its own 1.5s setInterval on top of useRun's, double-polling /api/runs and
+ * competing with the now-working WS stream.
+ */
 export function useRunProgressSync(runId: string | undefined, storyId?: string) {
   const qc = useQueryClient();
   const { data: run } = useRun(runId);
@@ -40,13 +48,4 @@ export function useRunProgressSync(runId: string | undefined, storyId?: string) 
       }
     }
   }, [run, runId, storyId, setPhases, setRunStatus, setFailure, qc]);
-
-  // Poll REST while in-flight even if WS disconnects.
-  useEffect(() => {
-    if (!runId || !isRunInFlight(run?.status)) return;
-    const id = window.setInterval(() => {
-      qc.invalidateQueries({ queryKey: queryKeys.run(runId) });
-    }, 1500);
-    return () => window.clearInterval(id);
-  }, [runId, run?.status, qc]);
 }

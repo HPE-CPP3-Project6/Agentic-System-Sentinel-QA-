@@ -140,7 +140,63 @@ export const VerdictRecordSchema = z.object({
   verdict_confidence: z.enum(["high", "medium", "low"]).nullish(),
   duration_ms: z.number().nullish(),
   exploit_target: z.string().nullish(),
+  // Enriched by the shim for the findings table: evidence + provenance so a
+  // reviewer can see WHY a verdict was reached without opening pytest.
+  is_adversarial: z.boolean().nullish(),
+  category: z.string().nullish(),
+  technique: z.string().nullish(),
+  title: z.string().nullish(),
+  stderr_excerpt: z.string().nullish(),
+  verdict_evidence: z.array(z.string()).nullish(),
 });
+
+// test_suite_summary — typed so the ISTQB technique + category rollups render.
+const CategoryBucketSchema = z
+  .object({
+    planned: z.number().nullish(),
+    executed: z.number().nullish(),
+    passed: z.number().nullish(),
+    failed: z.number().nullish(),
+    skipped: z.number().nullish(),
+    error: z.number().nullish(),
+    resilient: z.number().nullish(),
+    vulnerable: z.number().nullish(),
+  })
+  .passthrough();
+
+export const TestSuiteSummarySchema = z
+  .object({
+    totals: z.object({ planned: z.number().nullish(), executed: z.number().nullish() }).nullish(),
+    by_category: z.record(z.string(), CategoryBucketSchema).nullish(),
+    category_order: z.array(z.string()).nullish(),
+    by_technique: z
+      .record(z.string(), z.object({ planned: z.number().nullish(), executed: z.number().nullish() }).passthrough())
+      .nullish(),
+    technique_order: z.array(z.string()).nullish(),
+    equivalence_partitions: z.record(z.string(), z.record(z.string(), z.array(z.string()))).nullish(),
+    by_owasp: z.record(z.string(), z.unknown()).nullish(),
+  })
+  .passthrough();
+
+// design_summary — PRE_CODE rollup (now an OBJECT, was wrongly typed as string).
+export const DesignSummarySchema = z
+  .object({
+    contracts_total: z.number().nullish(),
+    contracts_by_method: z.record(z.string(), z.number()).nullish(),
+    requirements_total: z.number().nullish(),
+    requirements_with_contract: z.number().nullish(),
+    checklist_total: z.number().nullish(),
+    checklist_by_owasp: z.record(z.string(), z.number()).nullish(),
+  })
+  .passthrough();
+
+export const CoverageGapSchema = z
+  .object({
+    requirement_id: z.string().nullish(),
+    acceptance_criterion: z.string().nullish(),
+    reason: z.string().nullish(),
+  })
+  .passthrough();
 
 export const SuggestedPatchSchema = z.object({
   patch_id: z.string(),
@@ -179,10 +235,11 @@ export const ProjectStateSchema = z
     execution_logs: z.array(VerdictRecordSchema).optional(),
     design_contracts: z.array(z.record(z.string(), z.unknown())).optional(),
     security_checklist: z.array(z.record(z.string(), z.unknown())).optional(),
-    design_summary: z.string().nullish(),
+    design_summary: DesignSummarySchema.nullish(),
+    coverage_gaps: z.array(CoverageGapSchema).nullish(),
     suggested_patches: z.array(SuggestedPatchSchema).optional(),
     security_posture: SecurityPostureSchema.nullish(),
-    test_suite_summary: z.record(z.string(), z.unknown()).nullish(),
+    test_suite_summary: TestSuiteSummarySchema.nullish(),
     resilience_pct: z.number().nullish(),
     drift_report: z.record(z.string(), z.unknown()).nullish(),
     sast_summary: z.record(z.string(), z.unknown()).nullish(),
@@ -211,6 +268,9 @@ export type ProjectState = z.infer<typeof ProjectStateSchema>;
 export type SurfaceBinding = z.infer<typeof SurfaceBindingSchema>;
 export type TestCase = z.infer<typeof TestCaseSchema>;
 export type VerdictRecord = z.infer<typeof VerdictRecordSchema>;
+export type TestSuiteSummary = z.infer<typeof TestSuiteSummarySchema>;
+export type DesignSummary = z.infer<typeof DesignSummarySchema>;
+export type CoverageGap = z.infer<typeof CoverageGapSchema>;
 export type SuggestedPatch = z.infer<typeof SuggestedPatchSchema>;
 export type SecurityPosture = z.infer<typeof SecurityPostureSchema>;
 export type Health = z.infer<typeof HealthSchema>;

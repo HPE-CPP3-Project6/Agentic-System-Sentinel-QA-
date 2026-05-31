@@ -38,17 +38,29 @@ def state_to_artifact(state: ProjectState) -> dict[str, Any]:
             f"run_validity={run_validity} — {ev.get('reason', 'run did not validly exercise the app')}"
         )
 
-    logs_detail = [
-        {
-            "test_id": l.test_id,
-            "status": l.status,
-            "verdict": getattr(l, "verdict", "n/a"),
-            "verdict_confidence": getattr(l, "verdict_confidence", "low"),
-            "duration_ms": l.duration_ms,
-            "exploit_target": l.exploit_target,
-        }
-        for l in current_cycle_logs
-    ]
+    # Join logs with their TestCase so the UI findings table can show
+    # category / technique / title + evidence per row (Fortify-style) without
+    # a second lookup.
+    _tc_by_id = {tc.test_id: tc for tc in state.test_suite}
+    logs_detail = []
+    for l in current_cycle_logs:
+        tc = _tc_by_id.get(l.test_id)
+        logs_detail.append(
+            {
+                "test_id": l.test_id,
+                "status": l.status,
+                "verdict": getattr(l, "verdict", "n/a"),
+                "verdict_confidence": getattr(l, "verdict_confidence", "low"),
+                "duration_ms": l.duration_ms,
+                "exploit_target": l.exploit_target,
+                "is_adversarial": l.is_adversarial,
+                "category": getattr(tc, "test_category", None) if tc else None,
+                "technique": getattr(tc, "test_technique", None) if tc else None,
+                "title": (getattr(tc, "title", None) if tc else None) or l.test_id,
+                "verdict_evidence": (getattr(l, "verdict_evidence", None) or [])[:4],
+                "stderr_excerpt": (l.stderr or "")[:300] if l.status in ("failed", "error") else None,
+            }
+        )
 
     posture = state.metadata.get("security_posture")
 

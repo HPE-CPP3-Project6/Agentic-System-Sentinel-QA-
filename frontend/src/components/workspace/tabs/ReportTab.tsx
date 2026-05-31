@@ -7,6 +7,9 @@ import { apiFetch } from "@/api/client";
 import { buildOwaspChartData, OwaspBarChart } from "@/components/charts/OwaspBarChart";
 import { ResilienceGauge } from "@/components/charts/ResilienceGauge";
 import { SuiteQualityBadge } from "@/components/SuiteQualityBadge";
+import { RunValidityHero } from "@/components/report/RunValidityHero";
+import { TechniquePanel } from "@/components/report/TechniquePanel";
+import { FindingsTable } from "@/components/report/FindingsTable";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -84,17 +87,11 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
 
   return (
     <div className="space-y-4">
-      {artifact.attestation_banner && (
-        <ErrorBanner code="attestation" message={artifact.attestation_banner} />
-      )}
-
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold">
-            Dashboard · {storyTitle ?? "Story"}
-          </h2>
+          <h2 className="text-base font-semibold">Dashboard · {storyTitle ?? "Story"}</h2>
           <p className="text-xs text-muted">
-            Run {runId} · {String(artifact.pipeline_mode).toUpperCase()} · {artifact.run_validity}
+            Run {runId} · {String(artifact.pipeline_mode).toUpperCase()}
           </p>
         </div>
         <div className="flex gap-2">
@@ -108,6 +105,9 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
           </Button>
         </div>
       </div>
+
+      {/* Two-axis attestation hero — the headline trustworthiness signal. */}
+      <RunValidityHero artifact={artifact} />
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
@@ -140,6 +140,9 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
         </Card>
       </div>
 
+      {/* ISTQB test-design technique breakdown — both modes when present. */}
+      <TechniquePanel summary={artifact.test_suite_summary} />
+
       {!preCode && owaspData.length > 0 && (
         <Card>
           <CardHeader><CardTitle>OWASP by exploit target</CardTitle></CardHeader>
@@ -148,6 +151,9 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
           </CardContent>
         </Card>
       )}
+
+      {/* Per-test findings (Fortify-style triage grid). */}
+      {!preCode && <FindingsTable logs={artifact.execution_logs} />}
 
       {sast && (
         <Card>
@@ -169,24 +175,58 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
       )}
 
       {preCode && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <Card>
-            <CardHeader><CardTitle>Design contracts</CardTitle></CardHeader>
-            <CardContent>
-              <pre className="max-h-48 overflow-auto font-mono text-xs">
-                {JSON.stringify(artifact.design_contracts ?? [], null, 2)}
-              </pre>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader><CardTitle>Security checklist</CardTitle></CardHeader>
-            <CardContent>
-              <pre className="max-h-48 overflow-auto font-mono text-xs">
-                {JSON.stringify(artifact.security_checklist ?? [], null, 2)}
-              </pre>
-            </CardContent>
-          </Card>
-        </div>
+        <>
+          {artifact.design_summary && (
+            <Card>
+              <CardHeader><CardTitle>Design summary</CardTitle></CardHeader>
+              <CardContent className="flex flex-wrap gap-6 text-sm">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted">Contracts</p>
+                  <p className="text-lg font-semibold">{artifact.design_summary.contracts_total ?? 0}</p>
+                  <p className="text-xs text-muted">
+                    {Object.entries(artifact.design_summary.contracts_by_method ?? {})
+                      .map(([m, n]) => `${m} ${n}`)
+                      .join(" · ") || "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted">Requirements covered</p>
+                  <p className="text-lg font-semibold">
+                    {artifact.design_summary.requirements_with_contract ?? 0}/
+                    {artifact.design_summary.requirements_total ?? 0}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-muted">Checklist items</p>
+                  <p className="text-lg font-semibold">{artifact.design_summary.checklist_total ?? 0}</p>
+                  <p className="text-xs text-muted">
+                    {Object.entries(artifact.design_summary.checklist_by_owasp ?? {})
+                      .map(([o, n]) => `${o}: ${n}`)
+                      .join(" · ") || "—"}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          <div className="grid gap-4 md:grid-cols-2">
+            <Card>
+              <CardHeader><CardTitle>Design contracts</CardTitle></CardHeader>
+              <CardContent>
+                <pre className="max-h-48 overflow-auto font-mono text-xs">
+                  {JSON.stringify(artifact.design_contracts ?? [], null, 2)}
+                </pre>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader><CardTitle>Security checklist</CardTitle></CardHeader>
+              <CardContent>
+                <pre className="max-h-48 overflow-auto font-mono text-xs">
+                  {JSON.stringify(artifact.security_checklist ?? [], null, 2)}
+                </pre>
+              </CardContent>
+            </Card>
+          </div>
+        </>
       )}
 
       {artifact.drift_report && (

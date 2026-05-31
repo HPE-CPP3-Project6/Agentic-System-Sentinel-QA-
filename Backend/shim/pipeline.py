@@ -99,17 +99,34 @@ def load_state(run: RunRow) -> ProjectState | None:
     path = _state_path(run)
     if not path.exists():
         return None
-    return ProjectState.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    try:
+        return ProjectState.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    except (json.JSONDecodeError, OSError, ValueError):
+        # Transient: worker mid-write / os.replace window. The next poll
+        # (1.5s) will read the committed file. Degrade to "no partial yet"
+        # rather than 500 the status endpoint.
+        return None
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write via a temp file + os.replace so a concurrent reader (e.g. a 1.5s
+    status poll calling load_state) never sees a half-written file. Without
+    this, the worker thread writing state.json mid-poll caused intermittent
+    json.JSONDecodeError → 500 on GET /api/runs/{id}, which read as a UI
+    'integration broke mid-run' glitch."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def save_state(run: RunRow, state: ProjectState) -> None:
-    _state_path(run).write_text(state.model_dump_json(indent=2), encoding="utf-8")
+    _atomic_write(_state_path(run), state.model_dump_json(indent=2))
 
 
 def save_artifact(run: RunRow, state: ProjectState) -> Path:
     payload = state_to_artifact(state)
     path = _artifact_path(run)
-    path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
+    _atomic_write(path, json.dumps(payload, indent=2, default=str))
     return path
 
 
