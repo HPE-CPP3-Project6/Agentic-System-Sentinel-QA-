@@ -35,21 +35,9 @@ database/chroma_store/
 # Note: `state/` is NOT ignored — that's the Pydantic models module
 #       (state/project_state.py is tracked source code, not runtime state).
 
-# Smart Task Manager cache (entire directory excluded)
-# P1-10 (Cursor) — repo_cache/ is the Smart Task Manager target app, baked
-# into the Docker image and indexed by the RAG layer. It MUST be tracked
-# in git so fresh clones are buildable and HPE reviewers can audit what
-# the pipeline runs against. Only generated artifacts under it are ignored.
-repo_cache/venv/
-repo_cache/.venv/
-repo_cache/__pycache__/
-repo_cache/*.db
-repo_cache/*.sqlite3
-repo_cache/frontend/node_modules/
-repo_cache/frontend/.vite/
-repo_cache/frontend/dist/
-repo_cache/frontend/build/
-repo_cache/frontend/coverage/
+# Smart Task Manager target app — populated locally via github_sync / ingest;
+# not committed (pipeline repo stays lean; clone then sync the target repo).
+repo_cache/
 
 # Phase-bridge snapshots (per-story Phase-1 JSON, written by phase_bridge.save_phase1)
 phase_bridge_data/
