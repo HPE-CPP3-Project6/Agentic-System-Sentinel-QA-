@@ -1,0 +1,145 @@
+@import "tailwindcss";
+
+/* Light default — Fortify/Jenkins enterprise palette */
+:root {
+  color-scheme: light;
+  --background: #eef0f3;
+  --surface: #ffffff;
+  --surface-elevated: #f5f6f8;
+  --border: #c8cdd3;
+  --muted: #5c6670;
+  --foreground: #1a2332;
+  --primary: #0066cc;
+  --primary-hover: #0052a3;
+  --nav-bg: #002b5c;
+  --nav-fg: #ffffff;
+  --nav-muted: #a8c4e8;
+  --success: #1e7e34;
+  --success-bg: #d4edda;
+  --caution: #856404;
+  --caution-bg: #fff3cd;
+  --danger: #c82333;
+  --danger-bg: #f8d7da;
+  --console-bg: #1e1e1e;
+  --console-fg: #d4d4d4;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: #1a1d21;
+  --surface: #25282e;
+  --surface-elevated: #2d3139;
+  --border: #3d4450;
+  --muted: #9aa3ad;
+  --foreground: #e8eaed;
+  --primary: #4d9fff;
+  --primary-hover: #3a8fef;
+  --nav-bg: #001a3d;
+  --nav-fg: #e8eaed;
+  --nav-muted: #7aa8d4;
+  --success: #3dd68c;
+  --success-bg: #1a3d2e;
+  --caution: #f5c542;
+  --caution-bg: #3d3520;
+  --danger: #ff6b6b;
+  --danger-bg: #3d2020;
+  --console-bg: #0d1117;
+  --console-fg: #c9d1d9;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-nav: var(--nav-bg);
+  --color-nav-fg: var(--nav-fg);
+  --color-nav-muted: var(--nav-muted);
+  --color-success: var(--success);
+  --color-success-bg: var(--success-bg);
+  --color-caution: var(--caution);
+  --color-caution-bg: var(--caution-bg);
+  --color-danger: var(--danger);
+  --color-danger-bg: var(--danger-bg);
+  --color-console-bg: var(--console-bg);
+  --color-console-fg: var(--console-fg);
+  --font-sans: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: Consolas, "Courier New", monospace;
+  --radius-sm: 2px;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html {
+    @apply antialiased;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans min-h-screen text-sm;
+  }
+
+  a {
+    @apply text-primary hover:underline;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply border border-border bg-surface;
+  }
+
+  .panel-header {
+    @apply border-b border-border bg-surface-elevated px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted;
+  }
+
+  .data-table {
+    @apply w-full border-collapse text-sm;
+  }
+
+  .data-table th {
+    @apply border-b border-border bg-surface-elevated px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted;
+  }
+
+  .data-table td {
+    @apply border-b border-border px-3 py-2 align-middle;
+  }
+
+  .data-table tbody tr:hover {
+    @apply bg-surface-elevated;
+  }
+
+  .nav-tab {
+    @apply px-4 py-3 text-xs font-semibold uppercase tracking-wide text-nav-muted transition-colors;
+  }
+
+  .nav-tab-active {
+    @apply border-b-2 border-nav-fg text-nav-fg;
+  }
+
+  .severity-critical {
+    @apply bg-[#c82333] text-white;
+  }
+
+  .severity-high {
+    @apply bg-[#e8590c] text-white;
+  }
+
+  .severity-medium {
+    @apply bg-[#f0ad4e] text-[#1a2332];
+  }
+
+  .severity-low {
+    @apply bg-[#ffc107] text-[#1a2332];
+  }
+
+  .severity-pass {
+    @apply bg-success-bg text-success;
+  }
+}
