@@ -159,12 +159,24 @@ export function unlockedTabsForRun(
 ): Set<WorkspaceTab> {
   const tabs = new Set<WorkspaceTab>(["input"]);
   if (!runId) return tabs;
+  if (status === "completed" || status === "failed") {
+    tabs.add("surface");
+    tabs.add("scenarios");
+    tabs.add("scripts");
+    tabs.add("run");
+    tabs.add("report");
+    return tabs;
+  }
   tabs.add("surface");
   if (isTabAccessible("scenarios", runId, status, currentPhase)) tabs.add("scenarios");
   if (isTabAccessible("scripts", runId, status, currentPhase)) tabs.add("scripts");
   if (isTabAccessible("run", runId, status, currentPhase)) tabs.add("run");
   if (isTabAccessible("report", runId, status, currentPhase)) tabs.add("report");
   return tabs;
+}
+
+function isCompilerPhase(phase?: PhaseName | null): boolean {
+  return phase === "security_compiler" || phase === "compiler";
 }
 
 /** Best tab for the run's current backend state. */
@@ -175,20 +187,18 @@ export function tabForRun(
   if (isReportReady(status)) return "report";
   if (status === "running" || status === "queued") {
     if (currentPhase === "executor") return "run";
-    if (currentPhase === "generator" || currentPhase === "security_compiler") {
-      return "scenarios";
-    }
+    if (isCompilerPhase(currentPhase)) return "scripts";
+    if (currentPhase === "generator") return "scenarios";
     return "surface";
   }
   if (status === "paused") {
-    if (currentPhase === "security_compiler") return "scenarios";
-    if (isScriptReady(status, currentPhase) && currentPhase === "executor") {
-      return "run";
-    }
+    if (isCompilerPhase(currentPhase)) return "scripts";
+    if (currentPhase === "surface_resolver") return "surface";
     if (isSurfaceGateDone(status, currentPhase)) return "surface";
   }
   if (status === "failed") {
     if (currentPhase === "executor") return "run";
+    if (isCompilerPhase(currentPhase)) return "scripts";
     if (isScenariosGateDone(status, currentPhase)) return "scenarios";
     if (isSurfaceGateDone(status, currentPhase)) return "surface";
   }

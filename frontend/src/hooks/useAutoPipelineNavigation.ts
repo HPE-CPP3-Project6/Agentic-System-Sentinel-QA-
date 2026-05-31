@@ -13,6 +13,8 @@ export function useAutoPipelineNavigation(
 ) {
   useEffect(() => {
     if (flowMode !== "auto" || !runId || !activeRun) return;
+    // After the run ends, let the user browse earlier stages freely.
+    if (activeRun.status === "completed" || activeRun.status === "failed") return;
     const next = tabForRun(activeRun.status, activeRun.current_phase);
     if (next !== "input" && next !== activeTab) {
       goToTab(next);

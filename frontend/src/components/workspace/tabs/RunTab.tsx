@@ -63,8 +63,14 @@ export function RunTab({ runId, onTabChange }: RunTabProps) {
     }
   }, [logLines, paused]);
 
+  // Only jump to Report when execution *just* finished — not when reviewing a completed run.
+  const prevRunStatus = useRef(run?.status);
   useEffect(() => {
-    if (runStatus === "completed" || run?.status === "completed") {
+    const prev = prevRunStatus.current;
+    const now = run?.status ?? (runStatus !== "idle" ? runStatus : undefined);
+    prevRunStatus.current = now;
+    const wasInFlight = prev === "running" || prev === "queued";
+    if (wasInFlight && now === "completed") {
       onTabChange("report");
     }
   }, [runStatus, run?.status, onTabChange]);

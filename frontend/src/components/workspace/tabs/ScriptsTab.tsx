@@ -32,7 +32,11 @@ export function ScriptsTab({ runId, flowMode = "regular", onTabChange }: Scripts
     return <div className="panel p-6 text-muted">No run selected.</div>;
   }
 
-  if (isRunInFlight(run?.status)) {
+  const compiling =
+    isRunInFlight(run?.status) &&
+    (run?.current_phase === "security_compiler" || run?.current_phase === "compiler");
+
+  if (compiling) {
     return (
       <div className="panel p-6 space-y-4">
         <div className="flex items-center gap-2 text-sm">

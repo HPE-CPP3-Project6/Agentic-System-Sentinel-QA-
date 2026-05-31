@@ -13,6 +13,7 @@ import {
   unlockedTabsForRun,
 } from "@/api/runLifecycle";
 import { useRunStream } from "@/api/ws";
+import { useAutoAdvanceExecution } from "@/hooks/useAutoAdvanceExecution";
 import { useAutoPipelineNavigation } from "@/hooks/useAutoPipelineNavigation";
 import { useMockRunStream } from "@/hooks/useMockRunStream";
 import { useRunProgressSync } from "@/hooks/useRunProgressSync";
@@ -98,6 +99,7 @@ export function WorkspacePage() {
   const goToTab = useCallback((tab: WorkspaceTab) => setQuery({ tab }), [setQuery]);
 
   useAutoPipelineNavigation(flowMode, runId, activeRun, activeTab, goToTab);
+  useAutoAdvanceExecution(flowMode, runId, activeRun);
 
   const unlockedTabs = useMemo(
     () => unlockedTabsForRun(runId, activeRun?.status, activeRun?.current_phase),

@@ -117,8 +117,10 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
           <Button onClick={() => void continueToScripts()} disabled={!scenariosReady || isRunInFlight(run?.status)}>
             Continue to Scripts
           </Button>
+        ) : run?.current_phase === "generator" && isRunInFlight(run?.status) ? (
+          <span className="text-xs text-muted">Auto flow — generating scenarios, then Scripts</span>
         ) : (
-          <span className="text-xs text-muted">Auto flow — continuing to Scripts when compiler finishes</span>
+          <span className="text-xs text-muted">Auto flow — opening Scripts when the compiler phase starts</span>
         )}
       </div>
       <div className="panel overflow-hidden">
