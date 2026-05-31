@@ -1,0 +1,28 @@
+"""Mentor FR §1.1 — User Management (FR 1–5)."""
+
+from __future__ import annotations
+
+from samples.mentor_requirements._types import MentorStory
+
+STORY = (
+    "As a registered user, I want to register, log in, log out, and access only "
+    "my own tasks, so that my account and data stay private and sessions are "
+    "managed securely."
+)
+
+ACS = [
+    "POST /register with a valid email and password must return HTTP 201 and persist the user without storing the password in plain text (FR 1, NFR 8).",
+    "POST /login with valid OAuth2 form credentials (username=email, password) must return HTTP 200 and a bearer access token (FR 2).",
+    "POST /login with invalid credentials must return HTTP 401 with a generic error message that does not reveal whether the email exists (FR 2).",
+    "POST /logout must return HTTP 200 and instruct the client to discard the session token (FR 3).",
+    "GET /tasks/{task_id} for a task owned by another user must return HTTP 404, not HTTP 403, so users cannot enumerate other users' tasks (FR 4, NFR 9).",
+    "JWT access tokens must expire after the configured inactivity/ttl period so stale sessions cannot be reused indefinitely (FR 5).",
+]
+
+STORY_ENTRY: MentorStory = {
+    "story": STORY,
+    "acs": ACS,
+    "title": "User Management (FR 1–5)",
+    "story_id": "REQ-FR-01",
+    "module": "UserManagement",
+}

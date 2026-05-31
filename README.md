@@ -73,6 +73,10 @@ python main.py lifecycle          # post_code is default
 
 Default CLI story: `taskshare`.
 
+**Mentor FR/NFR catalog** (19 category stories from the assignment requirements doc):
+see [`samples/mentor_requirements/README.md`](Backend/samples/mentor_requirements/README.md).
+Run e.g. `python main.py post_code req-fr-filter` or `req-nfr-security`.
+
 ---
 
 ## Quick start

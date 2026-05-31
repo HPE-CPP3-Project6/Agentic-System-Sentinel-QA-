@@ -71,6 +71,29 @@ SAMPLE_LIFECYCLE_ACS: List[str] = [
 ]
 
 
+SAMPLE_TASKVALIDATION_STORY = (
+    "As a project manager rolling the Smart Task Manager out across the "
+    "organization, I want the task-creation API to validate and sanitize every "
+    "field before it persists, so that no client — web, mobile, or integration "
+    "— can write malformed, oversized, or unsafe data into the shared task store."
+)
+
+# Every AC below is grounded in a REAL validator the app already enforces in
+# repo_cache/schemas.py (TaskCreate): title constr(min_length=1, max_length=255)
+# + HTML strip, PriorityEnum {Low,Medium,High}, due_date not-in-past validator,
+# description max_length=200 + HTML strip. This is a positive data-integrity
+# story (not a deliberately-vulnerable one) — it should attest GREEN and
+# showcase equivalence-partitioning + boundary-value coverage.
+SAMPLE_TASKVALIDATION_ACS: List[str] = [
+    "POST /tasks/ with a non-empty title (1-255 characters), a priority of Low, Medium, or High, and a due_date in the future must succeed with HTTP 201 and echo the created task id.",
+    "POST /tasks/ with a missing or empty title must be rejected with HTTP 422 — title is required (minimum length 1).",
+    "POST /tasks/ with a title longer than 255 characters must be rejected with HTTP 422.",
+    "POST /tasks/ with a priority value outside {Low, Medium, High} must be rejected with HTTP 422.",
+    "POST /tasks/ with a due_date in the past must be rejected with HTTP 422.",
+    "POST /tasks/ with HTML or script markup in the title or description must persist the sanitized (HTML-stripped) value and never store the raw markup, returning HTTP 201.",
+]
+
+
 # --------------------------------------------------------------------------- #
 # Security-focused stories (deliberately vulnerable ACs)                      #
 # --------------------------------------------------------------------------- #
@@ -177,6 +200,13 @@ SAMPLE_STORIES: Dict[str, SampleStory] = {
         "story_id": "LIFE-001",
         "module": "TaskManager",
     },
+    "validation": {
+        "story": SAMPLE_TASKVALIDATION_STORY,
+        "acs": SAMPLE_TASKVALIDATION_ACS,
+        "title": "Task Input Validation & Sanitization",
+        "story_id": "VALID-001",
+        "module": "TaskManager",
+    },
     "org": {
         "story": SAMPLE_ORGANIZATION_STORY,
         "acs": SAMPLE_ORGANIZATION_ACS,
@@ -220,10 +250,15 @@ SAMPLE_STORIES: Dict[str, SampleStory] = {
         "module": "DataHandling",
     },
     "taskshare": {
-    "story": SAMPLE_TASKSHARE_STORY,
-    "acs": SAMPLE_TASKSHARE_ACS,
-    "title": "Share Task via Public Link",
-    "story_id": "TASK-002",
-    "module": "TaskSharing",
+        "story": SAMPLE_TASKSHARE_STORY,
+        "acs": SAMPLE_TASKSHARE_ACS,
+        "title": "Share Task via Public Link",
+        "story_id": "TASK-002",
+        "module": "TaskSharing",
     },
 }
+
+# Mentor FR/NFR catalog — one pipeline story per requirements section.
+from samples.mentor_requirements.registry import MENTOR_REQUIREMENT_STORIES  # noqa: E402
+
+SAMPLE_STORIES.update(MENTOR_REQUIREMENT_STORIES)
