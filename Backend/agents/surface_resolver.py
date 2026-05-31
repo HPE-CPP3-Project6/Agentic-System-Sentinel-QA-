@@ -520,12 +520,37 @@ def _surface_map_from_design_contracts(
     method ARE the planned surface. Confidence is "medium" because the code
     doesn't exist yet — the binding is a design intent, not a code fact.
     """
+    _VALID_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+
+    def _split_method_path(dc: DesignContract) -> tuple[str, str]:
+        """Design contracts often phrase `endpoint` as 'POST /tasks/' (method +
+        path in one string). Split so BackendEndpoint.path is just '/tasks/'
+        (otherwise pytest-style routing + path-matching break)."""
+        method = (dc.method or "").strip().upper()
+        ep = (dc.endpoint or "").strip()
+        path = ep
+        if ep:
+            toks = ep.split()
+            # If the endpoint leads with an HTTP method, drop it; take the path token.
+            if toks and toks[0].upper() in _VALID_METHODS:
+                if not method:
+                    method = toks[0].upper()
+                path = next((t for t in toks[1:] if t.startswith("/")), ep)
+            else:
+                path = next((t for t in toks if t.startswith("/")), ep)
+        if method not in _VALID_METHODS:
+            method = "POST"  # safe default for a creation-style contract
+        if path and not path.startswith("/"):
+            path = "/" + path
+        return method, path
+
     by_req: Dict[str, List[BackendEndpoint]] = {}
     for dc in contracts:
+        method, path = _split_method_path(dc)
         by_req.setdefault(dc.requirement_id, []).append(
             BackendEndpoint(
-                method=dc.method.upper(),  # type: ignore[arg-type]
-                path=dc.endpoint,
+                method=method,  # type: ignore[arg-type]
+                path=path,
                 handler_file="(pre-code: not yet implemented)",
                 request_schema=", ".join(dc.request_fields.keys()) or None,
                 response_schema=", ".join(dc.response_fields.keys()) or None,

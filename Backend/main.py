@@ -227,7 +227,14 @@ def _dump_artifact(final: ProjectState, mode: str, story_key: str) -> Path:
     run_validity = final.metadata.get("run_validity", "OK")
     coverage_quality = final.metadata.get("coverage_quality") or final.metadata.get("suite_quality")
     attestation_banner = None
-    if run_validity != "OK":
+    if run_validity == "DESIGN_ONLY":
+        # PRE_CODE: not a suppressed posture — a design artifact by construction.
+        attestation_banner = (
+            "PRE_CODE design artifact — no execution. Read design_contracts, "
+            "security_checklist, and surface_map; execution sections (posture, "
+            "logs, SAST) are intentionally empty."
+        )
+    elif run_validity != "OK":
         ev = final.metadata.get("run_validity_evidence") or {}
         attestation_banner = (
             f"⚠ run_validity={run_validity} — security posture suppressed. "
@@ -262,6 +269,15 @@ def _dump_artifact(final: ProjectState, mode: str, story_key: str) -> Path:
         # needing run-validity must migrate to the run_validity field above.
         "suite_quality": final.metadata.get("suite_quality"),
         "test_suite_summary": final.metadata.get("test_suite_summary"),
+        # PRE_CODE analog of test_suite_summary (null in POST_CODE). Always
+        # present so a UI's "summary" panel has a stable key in both modes.
+        "design_summary": final.metadata.get("design_summary"),
+        # SurfaceMap — bindings per requirement. Always present (empty dict
+        # when the Resolver didn't bind anything). Was previously missing from
+        # the artifact entirely.
+        "surface_map": {
+            req_id: b.model_dump() for req_id, b in (final.surface_map or {}).items()
+        },
         "heal_attempts": final.heal_attempts,
         "validated_requirements": [r.model_dump() for r in final.validated_requirements],
         "security_risks": [r.model_dump() for r in final.security_risks],
@@ -291,18 +307,14 @@ def _dump_artifact(final: ProjectState, mode: str, story_key: str) -> Path:
         "metadata": md,
     }
 
-    # Stage 3: PRE_CODE-only artifacts (design_contracts, security_checklist)
-    # are produced by the Critic and Security+Compiler nodes during PRE_CODE
-    # mode. In POST_CODE they are only present when a Phase 1 snapshot was
-    # loaded (see main() phase-bridge block). Suppressing empty PRE_CODE
-    # fields in POST_CODE artifacts keeps the JSON honest — an empty list
-    # previously read as "the pipeline considered these and found nothing",
-    # which is misleading. If POST_CODE loaded a snapshot, the lists are
-    # non-empty and we surface them; otherwise we omit the keys entirely.
-    if final.pipeline_mode == "PRE_CODE" or final.design_contracts:
-        payload["design_contracts"] = [c.model_dump() for c in final.design_contracts]
-    if final.pipeline_mode == "PRE_CODE" or final.security_checklist:
-        payload["security_checklist"] = [i.model_dump() for i in final.security_checklist]
+    # design_contracts / security_checklist — PRE_CODE shift-left artifacts.
+    # ALWAYS present (empty list when absent) so the artifact has a uniform
+    # shape across modes: a UI can rely on the keys existing and read
+    # `pipeline_mode` to know which sections carry content. (PRE_CODE
+    # populates these; POST_CODE leaves them empty unless a Phase-1 snapshot
+    # was loaded for drift.)
+    payload["design_contracts"] = [c.model_dump() for c in final.design_contracts]
+    payload["security_checklist"] = [i.model_dump() for i in final.security_checklist]
 
     target.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     return target

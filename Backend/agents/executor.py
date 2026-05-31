@@ -947,12 +947,43 @@ def executor_node(
     # ------------------------------------------------------------------
     if state.pipeline_mode == "PRE_CODE":
         state.metadata["executor_skipped"] = "PRE_CODE: no test suite to execute"
-        # Stage 1: stamp suite_quality on the PRE_CODE branch too so the
-        # artifact has a single field a release-gate can read regardless of
-        # which mode produced it. PRE_CODE is by construction "no executable
-        # suite yet" — emit NO_TESTS_GENERATED rather than leaving the field
-        # absent (which previously read as "looks ok").
-        state.metadata["suite_quality"] = "NO_TESTS_GENERATED"
+        # PRE_CODE produces a DESIGN artifact (contracts + checklist), not test
+        # results. Give it MODE-APPROPRIATE attestation + a design_summary so a
+        # UI sees the SAME envelope shape as POST_CODE (run_validity /
+        # coverage_quality / a summary block), with execution-only sections
+        # honestly empty. Previously this stamped only suite_quality=
+        # NO_TESTS_GENERATED and left run_validity to default to "OK" — which a
+        # UI reads as a *failed* POST_CODE run, not "this is a design artifact".
+        reqs = state.validated_requirements
+        reqs_with_contract = {dc.requirement_id for dc in state.design_contracts}
+        n_reqs = len(reqs)
+        n_covered = sum(1 for r in reqs if r.requirement_id in reqs_with_contract)
+        if not n_reqs:
+            coverage_quality = "NO_REQUIREMENTS"
+        elif n_covered == n_reqs:
+            coverage_quality = "DESIGN_COMPLETE"
+        else:
+            coverage_quality = "DESIGN_INSUFFICIENT"
+
+        # run_validity: PRE_CODE never executes the app, so OK/UNREACHABLE/
+        # UNRELIABLE don't apply. DESIGN_ONLY is the honest fourth value.
+        state.metadata["run_validity"] = "DESIGN_ONLY"
+        state.metadata["coverage_quality"] = coverage_quality
+        state.metadata["suite_quality"] = coverage_quality  # deprecated alias
+
+        # design_summary — PRE_CODE analog of test_suite_summary so the UI's
+        # "summary" panel has content in BOTH modes.
+        from collections import Counter as _Counter
+        by_method = _Counter((dc.method or "?").upper() for dc in state.design_contracts)
+        by_owasp = _Counter(item.owasp_id for item in state.security_checklist)
+        state.metadata["design_summary"] = {
+            "contracts_total": len(state.design_contracts),
+            "contracts_by_method": dict(by_method),
+            "requirements_total": n_reqs,
+            "requirements_with_contract": n_covered,
+            "checklist_total": len(state.security_checklist),
+            "checklist_by_owasp": dict(by_owasp),
+        }
         return state
 
     # ------------------------------------------------------------------

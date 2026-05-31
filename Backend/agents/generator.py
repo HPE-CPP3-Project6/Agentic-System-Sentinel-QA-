@@ -1946,6 +1946,19 @@ def generator_node(state: ProjectState) -> ProjectState:
                     continue
 
         state.design_contracts.extend(new_contracts)
+        # Populate surface_map from the contracts we just produced. The Surface
+        # Resolver runs BEFORE the Generator in the graph, so in PRE_CODE its
+        # branch saw an empty design_contracts list and produced an empty map.
+        # Derive it HERE, where the contracts now exist, so the PRE_CODE
+        # artifact carries a real surface_map (uniform with POST_CODE).
+        if state.design_contracts and not state.surface_map:
+            try:
+                from .surface_resolver import _surface_map_from_design_contracts
+                state.surface_map = _surface_map_from_design_contracts(
+                    state.design_contracts
+                )
+            except Exception:  # noqa: BLE001 — never let this abort PRE_CODE
+                pass
         state.metadata["generator_raw"] = raw_outputs
         state.metadata["generator_mode"] = "PRE_CODE"
         return state
