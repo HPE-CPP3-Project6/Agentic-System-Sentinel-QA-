@@ -887,7 +887,25 @@ For every TestCase:
 7. If an AC is UNVERIFIABLE ("fast", "intuitive", "secure" with no measurable
    threshold) OR the retrieved context is insufficient to ground a test, do
    NOT invent one — emit a `coverage_gaps` entry instead.
-8. Output STRICT JSON. No prose, no markdown fences, no trailing commentary.
+8. TEST-DESIGN TECHNIQUE (ISTQB / ISO 29119-4). For each test, set
+   `test_technique` to the design discipline it embodies:
+     - equivalence_partition : one representative test per INPUT CLASS
+     - boundary_value        : a value at/adjacent to a limit (min, max, ±1)
+     - decision_table        : one row of a condition→action table
+     - state_transition      : an ordered multi-step workflow (workflow_steps)
+     - requirements_based     : a direct AC restatement with no sharper technique
+     - security_adversarial   : an attack/abuse case (adversarial)
+   EQUIVALENCE PARTITIONING — for each input field a requirement validates,
+   enumerate its CLASSES and emit at least one test per MEANINGFUL class
+   (do NOT emit two tests for the same class):
+     valid              — a representative in-range value
+     invalid-empty      — missing/empty/null
+     invalid-type       — wrong type / malformed
+     invalid-boundary   — just outside the accepted range (pairs with boundary_value)
+     auth-missing       — required auth absent (where applicable)
+   Tag each such test with `equivalence_class` naming its class. One test per
+   class is the goal — breadth of classes over depth of duplicates.
+9. Output STRICT JSON. No prose, no markdown fences, no trailing commentary.
 
 ============================================================
 OUTPUT SCHEMA
@@ -906,6 +924,8 @@ OUTPUT SCHEMA
       "response_match_regex": "<optional regex>",
       "boundary_value_used": "<exact value used for boundary tests>",
       "test_category": "positive|negative|boundary|security|state_transition",
+      "test_technique": "equivalence_partition|boundary_value|decision_table|state_transition|requirements_based|security_adversarial",
+      "equivalence_class": "<class name when test_technique=equivalence_partition, e.g. invalid-empty; else null>",
       "workflow_steps": [
         {{
           "method": "POST|GET|PATCH|DELETE|PUT",
@@ -1219,6 +1239,43 @@ def _canonical_task_crud_workflow(
     }
 
 
+_VALID_TECHNIQUES = {
+    "equivalence_partition", "boundary_value", "decision_table",
+    "state_transition", "requirements_based", "security_adversarial",
+}
+
+
+def _infer_test_technique(normalized: Dict[str, Any]) -> str:
+    """Map a test case to its ISTQB/ISO-29119-4 design technique.
+
+    Honors an explicit `test_technique` from the LLM if it's a known value;
+    otherwise infers from shape + category. Inference order (most specific
+    first):
+      workflow_steps present        -> state_transition
+      adversarial / security        -> security_adversarial
+      explicit equivalence_class    -> equivalence_partition
+      boundary category / value     -> boundary_value
+      positive|negative category    -> equivalence_partition
+      everything else               -> requirements_based
+    """
+    explicit = (normalized.get("test_technique") or "").strip().lower()
+    if explicit in _VALID_TECHNIQUES:
+        return explicit
+
+    if normalized.get("workflow_steps"):
+        return "state_transition"
+    cat = (normalized.get("test_category") or "").strip().lower()
+    if normalized.get("is_adversarial") or cat == "security":
+        return "security_adversarial"
+    if normalized.get("equivalence_class"):
+        return "equivalence_partition"
+    if cat == "boundary" or (normalized.get("boundary_value_used") or "").strip():
+        return "boundary_value"
+    if cat in ("positive", "negative"):
+        return "equivalence_partition"
+    return "requirements_based"
+
+
 def _normalize_workflow_steps(value: Any) -> List[Dict[str, Any]]:
     """Normalize LLM-emitted workflow_steps for state_transition tests."""
     if not value or not isinstance(value, list):
@@ -1251,6 +1308,91 @@ def _normalize_workflow_steps(value: Any) -> List[Dict[str, Any]]:
             step["expected_json_keys"] = ej
         steps.append(step)
     return steps
+
+
+# Framework error-envelope keys that legitimately appear in EVERY FastAPI /
+# Pydantic error body. Forbidding them is always a test defect — a 422/4xx
+# response is literally `{"detail":[{"loc":[...],"msg":"...","type":"..."}]}`.
+_ENVELOPE_KEYS = {
+    "detail", "loc", "msg", "type", "ctx", "input", "url", "errors",
+}
+
+# High-signal leakage tokens that ARE legitimate forbidden content even on a
+# validation response — these indicate the app spilled internals. Never
+# stripped. Substring match, lowercased.
+_LEAKAGE_ALLOWLIST = (
+    "traceback", "psycopg2", "sqlite3", "sqlstate", "operationalerror",
+    "programmingerror", "integrityerror", "stack trace", "stacktrace",
+    "password_hash", "hashed_password", "passwordhash", "salt", "secret",
+    "private_key", "bearer ", "authorization:", 'near "--"', "syntax error",
+    "unterminated", "/users/", "/home/", "c:\\\\", "file \"",
+)
+
+# Validation status codes whose bodies STRUCTURALLY echo the offending field
+# name (Pydantic loc/msg). A negative test that posts a missing/short `title`
+# and forbids "title" contradicts itself — the 422 body names the field.
+_VALIDATION_STATUSES = {400, 422}
+
+
+def _sanitize_forbidden_content(
+    forbidden: List[str],
+    *,
+    input_data: Any,
+    expected_json_keys: List[str],
+    expected_status_code: Optional[int],
+) -> Tuple[List[str], List[str]]:
+    """Strip self-contradictory tokens from forbidden_response_content.
+
+    Returns (kept, dropped). The Generator routinely poisons this field with
+    legitimate response/field names, producing FALSE functional failures
+    (lifecycle TC-REQ-001-03/04/06 forbade "title" on a 422 that names the
+    title field; 003-02 forbade "detail", the error envelope key). None of
+    those are app bugs — they are test defects the pipeline then counted as
+    red and chased with patches.
+
+    Removal rules (a token is dropped if ANY fires):
+      1. It is a framework envelope key (detail/loc/msg/...).
+      2. It equals a request input field name (you can't forbid what you sent).
+      3. It equals an expected_json_key (contradictory: expect AND forbid).
+      4. The response is a validation error (400/422) AND the token is not a
+         high-signal leakage indicator — on these structured bodies, only
+         genuine internals-leakage (Traceback, SQL tokens, password_hash)
+         is a valid forbidden assertion; field-name echoes are not.
+
+    Legitimate OUTPUT_REDACTION / IMPLICIT_FILTER / ERROR_SANITIZATION
+    forbidden lists (password_hash on 200, peer ids on 200, Traceback on 500)
+    are preserved because they are 2xx/5xx and/or on the leakage allowlist.
+    """
+    if not forbidden:
+        return [], []
+
+    input_keys = set()
+    if isinstance(input_data, dict):
+        input_keys = {str(k).strip().lower() for k in input_data.keys()}
+    expected_keys = {str(k).strip().lower() for k in (expected_json_keys or [])}
+    is_validation = expected_status_code in _VALIDATION_STATUSES
+
+    def _is_leakage(tok: str) -> bool:
+        t = tok.lower()
+        return any(sig in t for sig in _LEAKAGE_ALLOWLIST)
+
+    kept: List[str] = []
+    dropped: List[str] = []
+    for raw in forbidden:
+        tok = (raw or "").strip()
+        if not tok:
+            continue
+        low = tok.lower()
+        if low in _ENVELOPE_KEYS:
+            dropped.append(tok); continue
+        if low in input_keys:
+            dropped.append(tok); continue
+        if low in expected_keys:
+            dropped.append(tok); continue
+        if is_validation and not _is_leakage(tok):
+            dropped.append(tok); continue
+        kept.append(tok)
+    return kept, dropped
 
 
 def _normalize_setup_fixtures(value: Any) -> List[str]:
@@ -1291,6 +1433,11 @@ def _normalize_test_case_payload(
     workflow_steps = _normalize_workflow_steps(normalized.get("workflow_steps"))
     normalized["workflow_steps"] = workflow_steps
 
+    # P1 — infer the formal test-design technique when the LLM omits it.
+    normalized["test_technique"] = _infer_test_technique(normalized)
+    if normalized.get("equivalence_class") is not None:
+        normalized["equivalence_class"] = str(normalized["equivalence_class"]).strip() or None
+
     expected_result = normalized.get("expected_result")
     if expected_result is None:
         expected_result = "Expected outcome matches acceptance criterion"
@@ -1301,9 +1448,17 @@ def _normalize_test_case_payload(
     )
 
     normalized["expected_json_keys"] = _to_str_list(normalized.get("expected_json_keys"))
-    normalized["forbidden_response_content"] = _to_str_list(
-        normalized.get("forbidden_response_content")
+    # Fix #1 — sanitize forbidden_response_content before it can drive a false
+    # functional failure. See _sanitize_forbidden_content for the rules.
+    _forbidden_kept, _forbidden_dropped = _sanitize_forbidden_content(
+        _to_str_list(normalized.get("forbidden_response_content")),
+        input_data=normalized.get("input_data"),
+        expected_json_keys=normalized["expected_json_keys"],
+        expected_status_code=normalized.get("expected_status_code"),
     )
+    normalized["forbidden_response_content"] = _forbidden_kept
+    if _forbidden_dropped:
+        normalized["_forbidden_dropped"] = _forbidden_dropped
     normalized["mutated_fields"] = _to_str_list(normalized.get("mutated_fields"))
 
     if normalized.get("response_match_regex") is not None:

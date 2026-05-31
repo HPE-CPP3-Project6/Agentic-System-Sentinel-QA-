@@ -21,6 +21,41 @@ CATEGORY_ORDER: tuple[str, ...] = (
 
 _VALID_CATEGORIES = frozenset(CATEGORY_ORDER)
 
+# P1 — ISTQB / ISO 29119-4 test-design techniques (display order).
+TECHNIQUE_ORDER: tuple[str, ...] = (
+    "equivalence_partition",
+    "boundary_value",
+    "decision_table",
+    "state_transition",
+    "requirements_based",
+    "security_adversarial",
+)
+_VALID_TECHNIQUES = frozenset(TECHNIQUE_ORDER)
+
+
+def normalize_test_technique(tc: TestCase) -> str:
+    """Resolve the design technique for rollup (honors explicit, else infers).
+
+    Mirrors the Generator's inference so Compiler-synthesized adversarial
+    tests (which never pass through the Generator normalizer) still bucket
+    correctly.
+    """
+    tech = (tc.test_technique or "").strip().lower()
+    if tech in _VALID_TECHNIQUES:
+        return tech
+    if len(tc.workflow_steps or []) >= 2:
+        return "state_transition"
+    if tc.is_adversarial or (tc.test_category or "").lower() == "security":
+        return "security_adversarial"
+    if (tc.equivalence_class or "").strip():
+        return "equivalence_partition"
+    cat = (tc.test_category or "").strip().lower()
+    if cat == "boundary" or (tc.boundary_value_used or "").strip():
+        return "boundary_value"
+    if cat in ("positive", "negative"):
+        return "equivalence_partition"
+    return "requirements_based"
+
 
 def _empty_category_bucket() -> Dict[str, int]:
     return {
@@ -143,9 +178,23 @@ def build_test_suite_summary(
     }
     by_owasp: Dict[str, Dict[str, int]] = {}
     by_defense_kind: Dict[str, Dict[str, int]] = {}
+    # P1 — technique + equivalence-class rollups.
+    by_technique: Dict[str, Dict[str, int]] = {}
+    equivalence_partitions: Dict[str, Dict[str, List[str]]] = {}  # req_id -> class -> [test_ids]
 
     for tc in test_suite:
         category = normalize_test_category(tc)
+
+        technique = normalize_test_technique(tc)
+        tb = by_technique.setdefault(technique, {"planned": 0, "executed": 0})
+        tb["planned"] += 1
+        if tc.test_id in logs_by_id:
+            tb["executed"] += 1
+        if technique == "equivalence_partition" and (tc.equivalence_class or "").strip():
+            req = tc.covered_requirement_id or "unspecified"
+            equivalence_partitions.setdefault(req, {}).setdefault(
+                tc.equivalence_class.strip(), []
+            ).append(tc.test_id)
         if category not in by_category:
             by_category[category] = _empty_category_bucket()
             tests_by_category[category] = []
@@ -203,6 +252,9 @@ def build_test_suite_summary(
     return {
         "totals": totals,
         "by_category": {k: v for k, v in by_category.items() if v["planned"] > 0},
+        "by_technique": by_technique,
+        "technique_order": list(TECHNIQUE_ORDER),
+        "equivalence_partitions": equivalence_partitions,
         "by_owasp": by_owasp,
         "by_defense_kind": by_defense_kind,
         "tests_by_category": tests_by_category,
