@@ -771,24 +771,27 @@ def _validate_threat_class(
 ) -> SurfaceBinding:
     """Enforce the DEFENSIVE_INVERTED gate (Refinement 1).
 
-    A DEFENSIVE_INVERTED classification REQUIRES three preconditions:
-      1. The Critic listed at least one security risk against this REQ.
-      2. The binding has at least one backend_endpoint (the defense must
-         live somewhere concrete).
-      3. defense_assertion is non-empty (Generator needs the assertion
-         text to know what counts as "defense holds").
+    A DEFENSIVE_INVERTED classification requires a GROUNDED backend endpoint
+    (the defense must live somewhere concrete) plus a defense_assertion and a
+    defense_kind (so the Generator knows the test shape).
 
-    Without all three, the binding is downgraded:
-      - If risk OR endpoint missing → NOT_IMPLEMENTED (the Resolver was
-        fabricating an inverted defense without backing evidence).
-      - If only defense_assertion is missing → keep BACKEND_API but blank
+    Downgrade rules:
+      - No grounded endpoint → NOT_IMPLEMENTED (the Resolver was fabricating
+        an inverted defense without code to back it).
+      - Endpoint present but assertion/kind missing → keep BACKEND_API, blank
         the threat_class; Generator falls through to standard Rule 11.
 
-    The gate exists because DEFENSIVE_INVERTED is the most powerful
-    label — it forces a security-test emission. Without grounding it in
-    BOTH a Critic flag AND retrieval evidence of a real defense, the
-    Resolver could hallucinate adversarial coverage on stories where
-    nothing testable exists.
+    NOTE (fixed after the `validation` story bound 5/7 REQs to NOT_IMPLEMENTED):
+    we DELIBERATELY do NOT require a Critic security-risk anymore. A positive
+    data-validation requirement ("reject empty title with 422") has a real,
+    grounded defense (the Pydantic validator) but the Critic flags NO OWASP
+    risk for it — it's not a vulnerability story. Requiring a Critic risk on
+    top of endpoint-grounding wrongly downgraded every such validation REQ to
+    NOT_IMPLEMENTED. The endpoint-grounding check (_validate_endpoint_grounding,
+    run BEFORE this) is the real anti-hallucination guard: if the cited
+    endpoint isn't in the source, its endpoints are already stripped, so a
+    surviving `has_endpoint` means the defense is genuinely present. The
+    presence/absence of a Critic risk is recorded for telemetry only.
     """
     if binding.threat_class != "DEFENSIVE_INVERTED":
         return binding
@@ -798,13 +801,8 @@ def _validate_threat_class(
     has_assertion = bool((binding.defense_assertion or "").strip())
     has_kind = bool(binding.defense_kind)
 
-    if not has_risk or not has_endpoint:
-        # Cannot justify INVERTED — fold back to NOT_IMPLEMENTED with cause.
-        cause: List[str] = []
-        if not has_risk:
-            cause.append("no Critic risk targets this REQ")
-        if not has_endpoint:
-            cause.append("no backend endpoint cited as defense")
+    if not has_endpoint:
+        # No grounded endpoint — the inverted defense has nowhere to live.
         return binding.model_copy(update={
             "state": "NOT_IMPLEMENTED",
             "threat_class": None,
@@ -813,7 +811,8 @@ def _validate_threat_class(
             "defense_kind": None,
             "backend_endpoints": [],
             "rationale": (
-                f"[auto-downgrade from DEFENSIVE_INVERTED: {', '.join(cause)}] "
+                "[auto-downgrade from DEFENSIVE_INVERTED: no grounded backend "
+                "endpoint cited as defense] "
                 + binding.rationale
             ),
         })
@@ -841,6 +840,17 @@ def _validate_threat_class(
             ),
         })
 
+    # Grounded endpoint + assertion + kind present → keep INVERTED. Annotate
+    # when there's no backing Critic risk (a positive-validation defense) so
+    # the artifact is honest about why this is INVERTED without an OWASP flag.
+    if not has_risk:
+        return binding.model_copy(update={
+            "rationale": (
+                "[DEFENSIVE_INVERTED on a grounded validation defense; no Critic "
+                "OWASP risk — positive data-validation, not a vulnerability] "
+                + binding.rationale
+            ),
+        })
     return binding
 
 

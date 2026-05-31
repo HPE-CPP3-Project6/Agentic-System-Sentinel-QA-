@@ -1883,7 +1883,22 @@ def _generate_for_requirement(
             ),
         },
     )
-    payload = parse_llm_json(response.content)
+    parsed = parse_llm_json(response.content)
+    # LLMs intermittently return a BARE top-level array of test cases instead
+    # of the documented {"test_cases": [...]} object. Calling parsed["_raw"]
+    # on a list raised `TypeError: list indices must be integers` and lost the
+    # whole requirement (observed: REQ-006b on the validation story). Normalize
+    # to the dict shape — same top-level-array tolerance the Surface Resolver's
+    # _extract_raw_bindings already has.
+    if isinstance(parsed, list):
+        payload: Dict[str, Any] = {"test_cases": parsed, "_bindings_shape": "top_level_array"}
+    elif isinstance(parsed, dict):
+        payload = parsed
+    else:
+        payload = {
+            "test_cases": [],
+            "_parse_warning": f"unexpected LLM root type: {type(parsed).__name__}",
+        }
     payload["_raw"] = stringify_response(response.content)
     return payload, vertical_slice, intent
 
