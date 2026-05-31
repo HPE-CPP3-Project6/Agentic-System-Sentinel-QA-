@@ -24,7 +24,7 @@ Supported languages: Python, JavaScript, JSX, TypeScript, TSX.
 from __future__ import annotations
 
 import logging
-from typing import Iterator, Optional, Tuple
+from typing import Any, Iterator, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +127,61 @@ def _get_parser(language: str):
 
 
 # --------------------------------------------------------------------------- #
+# tree-sitter 0.23 vs 0.25 API compatibility
+# --------------------------------------------------------------------------- #
+
+def _call_if_callable(value: Any) -> Any:
+    return value() if callable(value) else value
+
+
+def _tree_root(tree: Any) -> Any:
+    """Return the parse tree root node (property in 0.23, method in 0.25)."""
+    return _call_if_callable(tree.root_node)
+
+
+def _node_kind(node: Any) -> str:
+    """Node type string — `.type` in 0.23, `.kind()` in 0.25."""
+    kind = getattr(node, "type", None)
+    if kind is None:
+        kind = node.kind
+    return _call_if_callable(kind)
+
+
+def _node_start_line(node: Any) -> int:
+    """0-indexed start line — `.start_point[0]` in 0.23, `.start_position().row` in 0.25."""
+    if hasattr(node, "start_point"):
+        sp = node.start_point
+        return int(sp[0])
+    pt = _call_if_callable(node.start_position)
+    return int(pt.row)
+
+
+def _node_end_line(node: Any) -> int:
+    """0-indexed end line — `.end_point[0]` in 0.23, `.end_position().row` in 0.25."""
+    if hasattr(node, "end_point"):
+        ep = node.end_point
+        return int(ep[0])
+    pt = _call_if_callable(node.end_position)
+    return int(pt.row)
+
+
+def _iter_root_children(root: Any) -> Iterator[Any]:
+    """Yield direct children of a module/file root node."""
+    children = getattr(root, "children", None)
+    if children is not None and not callable(children):
+        yield from children
+        return
+    count = _call_if_callable(getattr(root, "child_count", None))
+    if count is not None:
+        for i in range(count):
+            yield root.child(i)
+        return
+    count = _call_if_callable(root.named_child_count)
+    for i in range(count):
+        yield root.named_child(i)
+
+
+# --------------------------------------------------------------------------- #
 # Public API
 # --------------------------------------------------------------------------- #
 
@@ -178,7 +233,7 @@ def ast_chunk_source(
     except TypeError:
         source_bytes = source.encode("utf-8", errors="replace")
         tree = parser.parse(source_bytes)
-    root = tree.root_node
+    root = _tree_root(tree)
 
     boundary_types = _CHUNK_NODES[language]
     lines = source.splitlines(keepends=True)
@@ -189,9 +244,9 @@ def ast_chunk_source(
     # Gather the ranges of all top-level boundary nodes.
     # (start_line, end_line) are 0-indexed inclusive.
     boundaries: list[tuple[int, int, object]] = []
-    for child in root.children:
-        if child.type in boundary_types:
-            boundaries.append((child.start_point[0], child.end_point[0], child))
+    for child in _iter_root_children(root):
+        if _node_kind(child) in boundary_types:
+            boundaries.append((_node_start_line(child), _node_end_line(child), child))
 
     # If the file has no declarations tree-sitter recognizes as a boundary
     # (e.g. a config file that's JSON syntax pretending to be TS), fall
