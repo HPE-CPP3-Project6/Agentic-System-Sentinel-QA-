@@ -37,3 +37,8 @@ google-cloud-storage>=2.16.0
 # SAST sidecar (tools/sast_scan.py) — static analysis of the target source,
 # reported in a separate `sast_summary` bucket. Disable a run with SENTINEL_SAST=0.
 bandit>=1.7.0
+
+# API shim (shim/) — FastAPI service for the React frontend
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9

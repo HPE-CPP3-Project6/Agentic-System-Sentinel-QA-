@@ -137,7 +137,7 @@ export function HomePage() {
                             : "—"}
                         </td>
                         <td>
-                          <Link href={`/workspace/${story.id}?tab=input&run=r_demo_8f`}>
+                          <Link href={`/workspace/${story.id}?tab=input`}>
                             <Button size="icon" variant="ghost" aria-label="Open workspace">
                               <Play className="h-4 w-4 text-success" strokeWidth={1.75} />
                             </Button>

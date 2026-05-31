@@ -61,6 +61,7 @@ export const PhaseNameSchema = z.enum([
   "critic",
   "surface_resolver",
   "generator",
+  "security_compiler",
   "compiler",
   "executor",
 ]);
@@ -85,8 +86,8 @@ export const RunHistoryItemSchema = z.object({
   started_at: z.string(),
   pipeline_mode: PipelineModeSchema,
   run_validity: RunValiditySchema,
-  suite_quality: SuiteQualitySchema.optional(),
-  resilience_pct: z.number().nullable().optional(),
+  suite_quality: SuiteQualitySchema.nullish(),
+  resilience_pct: z.number().nullish(),
 });
 
 export const BackendEndpointSchema = z.object({

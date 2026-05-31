@@ -46,7 +46,14 @@ Open http://localhost:5173 — MSW mock API is enabled by default (`VITE_USE_MSW
 | `VITE_API_URL` | *(proxy)* | REST base URL |
 | `VITE_WS_URL` | *(same host)* | WebSocket base URL |
 
-When the FastAPI shim is running on port 8000, set `VITE_USE_MSW=false` and use the Vite proxy (configured in `vite.config.ts`).
+When the API shim is running on port 8080, set `VITE_USE_MSW=false` and use the Vite proxy (configured in `vite.config.ts`).
+
+### Backend shim
+
+```bash
+cd Backend
+python run_shim.py   # http://localhost:8080
+```
 
 ## Scripts
 

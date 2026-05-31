@@ -7,9 +7,7 @@ import {
   Play,
   XCircle,
 } from "lucide-react";
-import { useRunStream } from "@/api/ws";
 import { useArtifact, useHealth } from "@/api/hooks";
-import { useMockRunStream } from "@/hooks/useMockRunStream";
 import { useRunStreamStore } from "@/stores/runStreamStore";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { PatchInbox } from "@/components/PatchInbox";
@@ -26,13 +24,12 @@ const PHASE_LABELS: Record<string, string> = {
   critic: "Critic",
   surface_resolver: "Surface",
   generator: "Generator",
+  security_compiler: "Compiler",
   compiler: "Compiler",
   executor: "Executor",
 };
 
 export function RunTab({ runId, onTabChange }: RunTabProps) {
-  useRunStream(runId);
-  useMockRunStream(runId);
   const { data: health } = useHealth();
   const { data: artifact } = useArtifact(runId, Boolean(runId));
   const phases = useRunStreamStore((s) => s.phases);

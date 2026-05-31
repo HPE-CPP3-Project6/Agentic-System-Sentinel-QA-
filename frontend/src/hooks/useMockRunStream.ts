@@ -16,7 +16,7 @@ export function useMockRunStream(runId: string | undefined) {
       "critic",
       "surface_resolver",
       "generator",
-      "compiler",
+      "security_compiler",
       "executor",
     ] as const;
 

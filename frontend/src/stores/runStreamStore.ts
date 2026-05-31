@@ -29,7 +29,7 @@ const DEFAULT_PHASES: PhaseName[] = [
   "critic",
   "surface_resolver",
   "generator",
-  "compiler",
+  "security_compiler",
   "executor",
 ];
 

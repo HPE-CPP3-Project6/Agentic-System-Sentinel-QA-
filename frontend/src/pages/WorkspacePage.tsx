@@ -2,6 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo } from "react";
 import { useParams, useSearch } from "wouter";
 import { Loader2 } from "lucide-react";
 import { useStory } from "@/api/hooks";
+import { useRunStream } from "@/api/ws";
+import { useMockRunStream } from "@/hooks/useMockRunStream";
 import type { WorkspaceTab } from "@/api/types";
 import { AppShell } from "@/components/AppShell";
 import { PipelineStepper } from "@/components/workspace/PipelineStepper";
@@ -51,7 +53,8 @@ export function WorkspacePage() {
 
   const setQuery = useCallback(
     (patch: Record<string, string | undefined>) => {
-      const next = new URLSearchParams(search);
+      // Read live URL so back-to-back updates (e.g. run + tab) don't clobber each other.
+      const next = new URLSearchParams(window.location.search);
       for (const [k, v] of Object.entries(patch)) {
         if (v === undefined) next.delete(k);
         else next.set(k, v);
@@ -60,8 +63,11 @@ export function WorkspacePage() {
       window.history.replaceState(null, "", `/workspace/${storyId}${qs ? `?${qs}` : ""}`);
       window.dispatchEvent(new PopStateEvent("popstate"));
     },
-    [search, storyId],
+    [storyId],
   );
+
+  useRunStream(runId);
+  useMockRunStream(runId);
 
   const onTabChange = useCallback((tab: WorkspaceTab) => setQuery({ tab }), [setQuery]);
   const onRunStarted = useCallback((id: string) => setQuery({ run: id, tab: "surface" }), [setQuery]);
@@ -83,7 +89,7 @@ export function WorkspacePage() {
       <div className="mx-auto grid max-w-7xl gap-4 p-4 lg:grid-cols-[1fr_240px]">
         <div>
           {activeTab === "input" && (
-            <InputTab storyId={storyId} onRunStarted={onRunStarted} onTabChange={() => onTabChange("surface")} />
+            <InputTab storyId={storyId} onRunStarted={onRunStarted} />
           )}
           {activeTab === "surface" && (
             <SurfaceMapTab runId={runId} onTabChange={() => onTabChange("scenarios")} />

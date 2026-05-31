@@ -8,10 +8,9 @@ import { Input, Label, Textarea } from "@/components/ui/input";
 interface InputTabProps {
   storyId: string;
   onRunStarted: (runId: string) => void;
-  onTabChange: (tab: "surface") => void;
 }
 
-export function InputTab({ storyId, onRunStarted, onTabChange }: InputTabProps) {
+export function InputTab({ storyId, onRunStarted }: InputTabProps) {
   const { data: story } = useStory(storyId);
   const updateStory = useUpdateStory(storyId);
   const startRun = useStartRun(storyId);
@@ -51,7 +50,6 @@ export function InputTab({ storyId, onRunStarted, onTabChange }: InputTabProps) 
       stop_after: "surface_resolver",
     });
     onRunStarted(result.run_id);
-    onTabChange("surface");
     toast.success("Surface resolution started");
   }
 

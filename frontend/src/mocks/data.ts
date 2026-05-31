@@ -192,7 +192,7 @@ export const mockRunSummary: RunSummary = {
     { phase: "critic", status: "completed", duration_ms: 2100 },
     { phase: "surface_resolver", status: "completed", duration_ms: 18044 },
     { phase: "generator", status: "pending" },
-    { phase: "compiler", status: "pending" },
+    { phase: "security_compiler", status: "pending" },
     { phase: "executor", status: "pending" },
   ],
   partial_artifact: mockArtifact,

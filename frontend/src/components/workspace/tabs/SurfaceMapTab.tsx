@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { GitBranch, RefreshCw } from "lucide-react";
+import { GitBranch, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { ApiError } from "@/api/client";
 import {
   useAdvanceRun,
   useArtifact,
@@ -30,8 +31,9 @@ const STATE_BADGE: Record<string, "success" | "danger" | "caution" | "muted"> = 
 
 export function SurfaceMapTab({ runId, onTabChange }: SurfaceMapTabProps) {
   const { data: health } = useHealth();
-  const { data: run } = useRun(runId);
-  const { data: artifact } = useArtifact(runId, Boolean(runId));
+  const { data: run, isError: runError, error: runFetchError } = useRun(runId);
+  const artifactReady = run?.status === "paused" || run?.status === "completed";
+  const { data: artifact } = useArtifact(runId, Boolean(runId) && artifactReady);
   const advance = useAdvanceRun(runId);
   const override = useSurfaceOverride(runId ?? "");
   const [selectedReq, setSelectedReq] = useState<string | null>(null);
@@ -56,6 +58,68 @@ export function SurfaceMapTab({ runId, onTabChange }: SurfaceMapTabProps) {
       <div className="panel p-6 text-muted">
         Start from Input and click Resolve Surface to populate the traceability map.
       </div>
+    );
+  }
+
+  if (runError) {
+    const notFound = runFetchError instanceof ApiError && runFetchError.code === "not_found";
+    return (
+      <ErrorBanner
+        code={notFound ? "not_found" : "response_invalid"}
+        message={
+          notFound
+            ? "Run not found — it may have been deleted or the URL is stale."
+            : "Could not load run status from the API."
+        }
+        detail={
+          notFound
+            ? "Return to Input and click Resolve Surface again, or pick a run from Run history."
+            : runFetchError instanceof Error
+              ? runFetchError.message
+              : "Check the browser console and shim logs."
+        }
+      />
+    );
+  }
+
+  const inFlight = run?.status === "queued" || run?.status === "running";
+  if (inFlight && !entries.length) {
+    return (
+      <div className="panel p-6 space-y-4">
+        <div className="flex items-center gap-2 text-sm">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" strokeWidth={1.75} />
+          <span>Resolving surfaces…</span>
+          <Badge variant="muted">{run?.status ?? "queued"}</Badge>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(run?.phases ?? []).map((p) => (
+            <Badge
+              key={p.phase}
+              variant={
+                p.status === "completed" ? "success" :
+                p.status === "running" ? "caution" : "muted"
+              }
+              className="normal-case"
+            >
+              {p.phase.replace("_", " ")} · {p.status}
+            </Badge>
+          ))}
+        </div>
+        <p className="text-xs text-muted">
+          Progress updates via polling every 2s. Critic + surface resolver may take a minute while
+          Chroma and the LLM run.
+        </p>
+      </div>
+    );
+  }
+
+  if (run?.status === "failed") {
+    return (
+      <ErrorBanner
+        code="run_failed"
+        message="Surface resolution failed."
+        detail="Check the shim terminal for errors, then retry from Input."
+      />
     );
   }
 

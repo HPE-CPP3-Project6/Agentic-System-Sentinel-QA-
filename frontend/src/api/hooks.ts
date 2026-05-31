@@ -182,6 +182,7 @@ export function useStoryRuns(storyId: string | undefined) {
       return z.array(RunHistoryItemSchema).parse(data.runs);
     },
     enabled: Boolean(storyId),
+    refetchInterval: 5000,
   });
 }
 
