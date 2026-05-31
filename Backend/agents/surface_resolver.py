@@ -605,6 +605,13 @@ _HTTP_METHOD_VALUES = {
 }
 
 
+def _coerce_http_method(value: Any) -> Any:
+    """Normalize HTTP method; map LLM ``ANY`` to ``GET`` (authenticated read probe)."""
+    if isinstance(value, str) and value.strip().upper() == "ANY":
+        return "GET"
+    return _coerce_enum(value, _HTTP_METHOD_VALUES, "upper")
+
+
 def _coerce_enum(value, allowed: set, case: str = "upper"):
     """Best-effort case normalization for an LLM-emitted enum value.
 
@@ -651,7 +658,11 @@ def _normalize_binding_enums(entry: Dict[str, Any]) -> Dict[str, Any]:
     eps = normalized.get("backend_endpoints")
     if isinstance(eps, list):
         normalized["backend_endpoints"] = [
-            {**ep, "method": _coerce_enum(ep.get("method"), _HTTP_METHOD_VALUES, "upper")}
+            {
+                **ep,
+                "method": _coerce_http_method(ep.get("method"))
+                if isinstance(ep, dict) else ep,
+            }
             if isinstance(ep, dict) else ep
             for ep in eps
         ]

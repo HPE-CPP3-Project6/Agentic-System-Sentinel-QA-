@@ -870,6 +870,8 @@ For every TestCase:
 4. Technical assertions (populate ALL applicable fields):
      - `expected_status_code`: a SINGLE integer (emit separate tests for
        multiple possible statuses; no arrays)
+     - For POST /login use OAuth2 form fields: `username` (email) and
+       `password` — not `email` alone (the harness maps email→username).
      - `expected_json_keys`: list, grounded in the retrieved response schema
      - `forbidden_response_content`: strings that MUST NOT appear in the
        response (e.g. "SQL", "stack trace", "bcrypt", "hashed_password",
@@ -882,8 +884,11 @@ For every TestCase:
    exact numeric/length boundary being probed.
 6. When a string of a SPECIFIC character length is required, emit the
    placeholder `<STRING:len=N>` as the value — the runtime will expand it
-   to exactly N alphanumeric characters. Use literal strings only when the
-   exact content matters (a specific email, a named duplicate, etc.).
+   to exactly N alphanumeric characters. For dates/datetimes (especially
+   `due_date`), NEVER emit literal calendar dates — they go stale. Use
+   `<DATETIME:future:Nd>` (N days ahead, UTC) or `<TODAY_ISO_UTC>` (alias
+   for tomorrow UTC). Use literal strings only when the exact content
+   matters (a specific email, a named duplicate, etc.).
 7. If an AC is UNVERIFIABLE ("fast", "intuitive", "secure" with no measurable
    threshold) OR the retrieved context is insufficient to ground a test, do
    NOT invent one — emit a `coverage_gaps` entry instead.
@@ -1332,6 +1337,24 @@ _LEAKAGE_ALLOWLIST = (
 # name (Pydantic loc/msg). A negative test that posts a missing/short `title`
 # and forbids "title" contradicts itself — the 422 body names the field.
 _VALIDATION_STATUSES = {400, 422}
+_SUCCESS_STATUSES = frozenset(range(200, 300))
+
+
+def _collect_input_strings(value: Any) -> List[str]:
+    """Gather all string leaf values from nested input_data."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        out: List[str] = []
+        for v in value.values():
+            out.extend(_collect_input_strings(v))
+        return out
+    if isinstance(value, list):
+        out = []
+        for v in value:
+            out.extend(_collect_input_strings(v))
+        return out
+    return []
 
 
 def _sanitize_forbidden_content(
@@ -1358,6 +1381,10 @@ def _sanitize_forbidden_content(
          high-signal leakage indicator — on these structured bodies, only
          genuine internals-leakage (Traceback, SQL tokens, password_hash)
          is a valid forbidden assertion; field-name echoes are not.
+      5. The expected status is a success (2xx) AND the token appears inside
+         a request input value — a 201/200 body often echoes submitted fields
+         (SQLi payloads in description, etc.); forbidding the literal attack
+         string on success is self-contradictory unless it is a leakage token.
 
     Legitimate OUTPUT_REDACTION / IMPLICIT_FILTER / ERROR_SANITIZATION
     forbidden lists (password_hash on 200, peer ids on 200, Traceback on 500)
@@ -1371,6 +1398,8 @@ def _sanitize_forbidden_content(
         input_keys = {str(k).strip().lower() for k in input_data.keys()}
     expected_keys = {str(k).strip().lower() for k in (expected_json_keys or [])}
     is_validation = expected_status_code in _VALIDATION_STATUSES
+    is_success = expected_status_code in _SUCCESS_STATUSES
+    input_strings = _collect_input_strings(input_data)
 
     def _is_leakage(tok: str) -> bool:
         t = tok.lower()
@@ -1391,6 +1420,9 @@ def _sanitize_forbidden_content(
             dropped.append(tok); continue
         if is_validation and not _is_leakage(tok):
             dropped.append(tok); continue
+        if is_success and not _is_leakage(tok):
+            if any(tok.lower() in s.lower() for s in input_strings):
+                dropped.append(tok); continue
         kept.append(tok)
     return kept, dropped
 

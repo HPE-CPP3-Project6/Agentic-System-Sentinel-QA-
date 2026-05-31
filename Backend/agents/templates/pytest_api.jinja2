@@ -7,114 +7,53 @@
 from __future__ import annotations
 
 import os
-import uuid
+import sys
 from pathlib import Path
 
 import httpx
 import pytest
 
 
-# P1-7 (Cursor) — kill 409-duplicate-email fixture pollution.
-#
-# Background: prior generated pytest hardcoded literal emails like
-# `test_user_sql_wildcard@example.com` in /register payloads. The first run
-# created the user; subsequent runs got 409 Conflict and reported the test
-# as failed (and the executor flipped it to "vulnerable" before the P0-1 fix).
-# In exec-demo-login-post_code-20260528_195120 this was the last residual
-# pytest failure — a fixture-pollution false positive, not an app bug.
-#
-# This helper substitutes the email/username field in a payload with a
-# fresh UUID-suffixed address ONLY for tests where uniqueness is the
-# intent (functional /register and adversarial /register tests where the
-# attack payload sits in a non-email field). Login tests keep their
-# literal email so the lookup still hits the registered user. Tests that
-# intentionally embed the attack vector in the email field (SQLi-as-email,
-# XSS-as-email) are detected and left alone — randomising the email would
-# destroy the attack payload.
-_EMAIL_KEYS = ("email", "username", "user_email", "useremail")
-_ATTACK_SIGILS = ("'", "--", "<", ">", "/*", "*/", "${", "{$", "OR 1", "../", "..\\")
+def _import_runtime_placeholders():
+    """Locate Backend root (walk up until utils/placeholders.py exists)."""
+    for ancestor in Path(__file__).resolve().parents:
+        if (ancestor / "utils" / "placeholders.py").is_file():
+            root = str(ancestor)
+            if root not in sys.path:
+                sys.path.insert(0, root)
+            from utils.placeholders import inflate_runtime_placeholders
+            return inflate_runtime_placeholders
+    raise RuntimeError(
+        "Sentinel pytest harness: could not import utils.placeholders "
+        "(walked up from " + str(Path(__file__).resolve()) + ")",
+    )
 
 
-def _payload_email_field(payload):
+_inflate_runtime_placeholders = _import_runtime_placeholders()
+
+
+def _import_pytest_harness():
+    for ancestor in Path(__file__).resolve().parents:
+        if (ancestor / "utils" / "pytest_harness.py").is_file():
+            root = str(ancestor)
+            if root not in sys.path:
+                sys.path.insert(0, root)
+            from utils import pytest_harness as ph
+            return ph
+    raise RuntimeError("Sentinel pytest harness: utils/pytest_harness.py not found")
+
+
+_ph = _import_pytest_harness()
+
+
+def _prepare_payload(payload):
+    """Expand STRING/DATETIME placeholders at request time."""
     if isinstance(payload, dict):
-        for k in _EMAIL_KEYS:
-            if k in payload and isinstance(payload[k], str):
-                return k
-    return None
+        return _inflate_runtime_placeholders(dict(payload))
+    if isinstance(payload, list):
+        return _inflate_runtime_placeholders(list(payload))
+    return payload
 
-
-def _looks_like_attack_payload(value: str) -> bool:
-    """True iff the value already carries an attack signature — leave it alone."""
-    if not isinstance(value, str):
-        return False
-    return any(sig in value for sig in _ATTACK_SIGILS)
-
-
-def _maybe_randomise_email(payload, *, path: str, is_adversarial: bool):
-    """Return a (possibly modified) shallow-copy of payload with a unique email.
-
-    Only fires when:
-      - path ends with /register (creates a row keyed on email), AND
-      - the email-like field's existing value does NOT itself look like an
-        attack payload (otherwise we'd be neutering the test).
-
-    Login tests do NOT get rewritten — the literal email is the lookup key.
-    """
-    if not isinstance(payload, dict):
-        return payload
-    if not path.endswith("/register"):
-        return payload
-    field = _payload_email_field(payload)
-    if field is None:
-        return payload
-    original = payload[field]
-    if _looks_like_attack_payload(original):
-        return payload  # attack lives in this field — preserve it verbatim
-    new_payload = dict(payload)
-    new_payload[field] = f"sentinel-{uuid.uuid4().hex[:12]}@example.com"
-    return new_payload
-
-
-# Stage-2 follow-up (login fixture coordination).
-#
-# Background: P1-7 randomises /register email per run so subsequent runs
-# don't 409 on the same identity. Side effect: functional /login tests that
-# hardcoded `test@example.com` now hit "user not found" because /register
-# no longer seeds that specific identity. Observed in
-# exec-demo-login-post_code-20260528_202228 — 2 of 3 functional_failed
-# entries were "user does not exist" Healer opt-outs.
-#
-# Fix: before a functional /login test fires, idempotently POST /register
-# with the same credentials. 201 = freshly created; 409 = already exists;
-# either way the subsequent login finds the user. Adversarial /login tests
-# (SQLi/XSS-in-credentials) skip this bootstrap — Pydantic EmailStr would
-# reject the attack payload anyway, and we want to see how the login route
-# itself handles the malicious input.
-def _ensure_credential(payload, *, path: str, is_adversarial: bool) -> None:
-    """Idempotently register the credential pair before a functional /login.
-
-    Best-effort — silent on every failure mode (already-exists, network
-    glitch, Pydantic rejecting a non-email username, etc.). The test that
-    follows is the source of truth for the actual login behaviour.
-    """
-    if is_adversarial:
-        return
-    if not path.endswith("/login"):
-        return
-    if not isinstance(payload, dict):
-        return
-    # OAuth2PasswordRequestForm sends `username` (carrying the email).
-    email = payload.get("username") or payload.get("email")
-    password = payload.get("password") or payload.get("passwd") or payload.get("pwd")
-    if not (email and password):
-        return
-    if _looks_like_attack_payload(str(email)) or _looks_like_attack_payload(str(password)):
-        return  # do NOT register the attack value — preserves login-route test
-    try:
-        with httpx.Client(base_url=BASE_URL, timeout=10.0, follow_redirects=False) as _client:
-            _client.post("/register", json={"email": email, "password": password})
-    except Exception:
-        pass  # swallowed by design — the actual test follows
 
 try:
     from dotenv import load_dotenv
@@ -204,13 +143,8 @@ def _assert_forbidden(text: str, forbidden: list[str]) -> None:
 
 
 def _resolve_path_placeholders(path: str, payload: dict) -> str:
-    """Replace ``{task_id}`` in a path from payload keys when not workflow-captured."""
-    if "{" not in path:
-        return path
-    tid = payload.get("task_id") or payload.get("id")
-    if tid is not None:
-        return path.replace("{task_id}", str(tid))
-    return path
+    """Replace ``{task_id}`` — delegates to shared harness (peer bootstrap)."""
+    return _ph.resolve_path_template(path, payload, base_url=BASE_URL)
 
 
 def _substitute_workflow_path(path: str, captured: dict[str, str]) -> str:
@@ -243,26 +177,51 @@ def _run_workflow_steps(
         payload = step.get("input_data") or {}
         if not isinstance(payload, dict):
             pytest.fail(f"workflow step {idx + 1}: input_data must be a dict")
+        payload = _prepare_payload(payload)
+        expected = int(step["expected_status_code"])
         if "{" in raw_path and "task_id" not in captured and "id" not in captured:
             pytest.skip(
                 f"workflow step {idx + 1} needs a task id from an earlier "
                 "capture_json_key step (POST create)",
             )
         path = _substitute_workflow_path(raw_path, captured)
+        _ph.seed_register_duplicate(
+            BASE_URL,
+            payload,
+            path=path,
+            expected_status_code=expected,
+        )
+        payload = _ph.maybe_randomise_register_email(
+            payload,
+            path=path,
+            is_adversarial=is_adversarial,
+            expected_status_code=expected,
+        )
+        payload = _ph.normalize_login_form(payload, path=path)
+        _ph.ensure_login_credential(
+            BASE_URL,
+            payload,
+            path=path,
+            is_adversarial=is_adversarial,
+        )
         path = _resolve_path_placeholders(path, payload)
         if "{" in path:
             pytest.skip(
                 f"workflow step {idx + 1}: unresolved path template {raw_path!r}",
             )
-        payload = _maybe_randomise_email(
-            payload, path=path, is_adversarial=is_adversarial
-        )
-        expected = int(step["expected_status_code"])
         m = method
         if m == "GET":
             response = client.request("GET", path, params=payload)
         elif m in ("POST", "PUT", "PATCH", "DELETE"):
-            response = client.request(m, path, json=payload)
+            is_form = path.endswith("/login") or (
+                isinstance(payload, dict)
+                and payload.get("_content_type") == "application/x-www-form-urlencoded"
+            )
+            if is_form and isinstance(payload, dict):
+                form_data = {k: v for k, v in payload.items() if k != "_content_type"}
+                response = client.request(m, path, data=form_data)
+            else:
+                response = client.request(m, path, json=payload)
         else:
             pytest.fail("Unsupported workflow method: " + method)
         assert response.status_code == expected, (
@@ -337,20 +296,30 @@ def test_{{ tc.slug }}() -> None:
     path = {{ tc.path | tojson }}
     payload = {{ tc.payload_literal }}
     assert isinstance(payload, (dict, list)), "payload must be dict or list for httpx"
-    # P1-7: randomise the email on /register-class tests so subsequent runs
-    # don't 409 on the same identity. Skipped if the payload's email field
-    # already carries an attack signature (preserves the exploit vector).
-    payload = _maybe_randomise_email(
-        payload, path=path, is_adversarial={{ "True" if tc.is_adversarial else "False" }}
+    payload = _prepare_payload(payload)
+    _ph.seed_register_duplicate(
+        BASE_URL,
+        payload,
+        path=path,
+        expected_status_code={{ tc.expected_status_code if tc.expected_status_code is not none else "None" }},
     )
-    # Stage-2 follow-up: idempotent pre-register for functional /login tests
-    # so the credential exists before the login attempt. Adversarial /login
-    # tests bypass this (we want to see how the route handles attack values).
-    _ensure_credential(
-        payload, path=path, is_adversarial={{ "True" if tc.is_adversarial else "False" }}
+    payload = _ph.maybe_randomise_register_email(
+        payload,
+        path=path,
+        is_adversarial={{ "True" if tc.is_adversarial else "False" }},
+        expected_status_code={{ tc.expected_status_code if tc.expected_status_code is not none else "None" }},
+    )
+    payload = _ph.normalize_login_form(payload, path=path)
+    _ph.ensure_login_credential(
+        BASE_URL,
+        payload,
+        path=path,
+        is_adversarial={{ "True" if tc.is_adversarial else "False" }},
     )
     if isinstance(payload, dict):
         path = _resolve_path_placeholders(path, payload)
+    if "{" in path:
+        pytest.skip("Unresolved path template: " + path)
 
     m = method.upper()
     # P0-3: when repeat_count > 1, every request + assertion runs N times so
