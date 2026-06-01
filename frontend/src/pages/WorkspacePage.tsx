@@ -115,7 +115,7 @@ export function WorkspacePage() {
   const goToTab = useCallback((tab: WorkspaceTab) => setQuery({ tab }), [setQuery]);
 
   useAutoPipelineNavigation(flowMode, runId, activeRun, activeTab, goToTab, effectiveMode);
-  useAutoAdvanceExecution(flowMode, runId, activeRun);
+  useAutoAdvanceExecution(flowMode, runId, activeRun, effectiveMode);
 
   const unlockedTabs = useMemo(
     () => unlockedTabsForRun(runId, activeRun?.status, activeRun?.current_phase, effectiveMode),
@@ -133,8 +133,14 @@ export function WorkspacePage() {
   );
 
   const onRunStarted = useCallback(
-    (id: string) => setQuery({ run: id, tab: "surface" }),
-    [setQuery],
+    (id: string) =>
+      setQuery({
+        run: id,
+        tab: "surface",
+        pmode: pipelineMode,
+        flow: flowMode,
+      }),
+    [setQuery, pipelineMode, flowMode],
   );
 
   const onSelectRun = useCallback(
@@ -190,7 +196,8 @@ export function WorkspacePage() {
             <SurfaceMapTab
               runId={runId}
               flowMode={flowMode}
-              onTabChange={() => goToTab("scenarios")}
+              mode={effectiveMode}
+              onTabChange={(tab) => goToTab(tab)}
             />
           )}
           {activeTab === "scenarios" && tabAccessible && (

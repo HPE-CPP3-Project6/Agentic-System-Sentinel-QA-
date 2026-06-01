@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { GitBranch, Loader2, RefreshCw } from "lucide-react";
+import { BarChart3, GitBranch, Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError } from "@/api/client";
 import {
@@ -11,7 +11,9 @@ import {
 } from "@/api/hooks";
 import { canGenerateTests, isArtifactReady, isRunInFlight } from "@/api/runLifecycle";
 import type { FlowMode } from "@/api/pipelineSettings";
-import type { SurfaceBinding } from "@/api/types";
+import type { RunPhase, SurfaceBinding, WorkspaceTab } from "@/api/types";
+import { isPreCode } from "@/api/types";
+import { isReportReady } from "@/api/runLifecycle";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,7 +23,56 @@ import { cn } from "@/lib/cn";
 interface SurfaceMapTabProps {
   runId?: string;
   flowMode?: FlowMode;
-  onTabChange: (tab: "scenarios") => void;
+  mode?: string;
+  onTabChange: (tab: WorkspaceTab) => void;
+}
+
+// PRE_CODE runs the same nodes but the Generator emits DESIGN CONTRACTS and the
+// Security Compiler emits a CHECKLIST (not a test suite / pytest), and the
+// Executor is a no-op (no app to run). So the live progress should read as a
+// design pipeline and drop the executor entirely.
+const PRE_CODE_PHASE_LABELS: Partial<Record<string, string>> = {
+  critic: "critic",
+  surface_resolver: "surface resolver",
+  generator: "design contracts",
+  security_compiler: "security checklist",
+};
+
+function progressPhases(
+  phases: RunPhase[],
+  mode?: string,
+): { phase: string; status: string; label: string }[] {
+  if (!isPreCode(mode)) {
+    return phases.map((p) => ({ ...p, label: p.phase.replace(/_/g, " ") }));
+  }
+  return phases
+    .filter((p) => p.phase !== "executor")
+    .map((p) => ({
+      ...p,
+      label: PRE_CODE_PHASE_LABELS[p.phase] ?? p.phase.replace(/_/g, " "),
+    }));
+}
+
+function PhaseProgressChips({ phases, mode }: { phases: RunPhase[]; mode?: string }) {
+  const rows = progressPhases(phases, mode);
+  if (!rows.length) return null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {rows.map((p) => (
+        <Badge
+          key={p.phase}
+          variant={
+            p.status === "completed" ? "success" :
+            p.status === "running" ? "caution" :
+            p.status === "failed" ? "danger" : "muted"
+          }
+          className="normal-case"
+        >
+          {p.label} · {p.status}
+        </Badge>
+      ))}
+    </div>
+  );
 }
 
 const STATE_BADGE: Record<string, "success" | "danger" | "caution" | "muted"> = {
@@ -32,7 +83,7 @@ const STATE_BADGE: Record<string, "success" | "danger" | "caution" | "muted"> = 
   CLIENT_SIDE_ONLY: "muted",
 };
 
-export function SurfaceMapTab({ runId, flowMode = "regular", onTabChange }: SurfaceMapTabProps) {
+export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }: SurfaceMapTabProps) {
   const { data: health } = useHealth();
   const { data: run, isError: runError, error: runFetchError, isLoading: runLoading } = useRun(runId);
   const artifactReady = isArtifactReady(run?.status);
@@ -105,23 +156,11 @@ export function SurfaceMapTab({ runId, flowMode = "regular", onTabChange }: Surf
           <span>Resolving surfaces…</span>
           <Badge variant="muted">{run?.status ?? "queued"}</Badge>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {(run?.phases ?? []).map((p) => (
-            <Badge
-              key={p.phase}
-              variant={
-                p.status === "completed" ? "success" :
-                p.status === "running" ? "caution" : "muted"
-              }
-              className="normal-case"
-            >
-              {p.phase.replace("_", " ")} · {p.status}
-            </Badge>
-          ))}
-        </div>
+        <PhaseProgressChips phases={run?.phases ?? []} mode={mode} />
         <p className="text-xs text-muted">
-          Progress updates via polling every 2s. Critic + surface resolver may take a minute while
-          Chroma and the LLM run.
+          {isPreCode(mode)
+            ? "Design-only pipeline — produces design contracts, a security checklist and the surface map (no test execution). Polling every 2s while the LLM runs."
+            : "Progress updates via polling every 2s. Critic + surface resolver may take a minute while Chroma and the LLM run."}
         </p>
       </div>
     );
@@ -186,8 +225,44 @@ export function SurfaceMapTab({ runId, flowMode = "regular", onTabChange }: Surf
       ? entries
       : entries.filter((e) => e.state === groupFilter);
 
+  const reportReady = isReportReady(run?.status);
+  const preCode = isPreCode(mode);
+
   return (
     <div className="space-y-3">
+      {inFlight && (
+        <div className="panel space-y-3 p-4">
+          <div className="flex items-center gap-2 text-sm">
+            {preCode ? (
+              <span>Building design artifact…</span>
+            ) : (
+              <span>Pipeline running…</span>
+            )}
+            <Badge variant="muted">{run?.status ?? "queued"}</Badge>
+          </div>
+          <PhaseProgressChips phases={run?.phases ?? []} mode={mode} />
+        </div>
+      )}
+
+      {reportReady && (
+        <div className="panel flex flex-wrap items-center justify-between gap-3 border border-primary/40 bg-primary/5 p-4">
+          <div>
+            <p className="text-sm font-semibold text-foreground">
+              {preCode ? "Design pipeline complete" : "Run complete"}
+            </p>
+            <p className="text-xs text-muted">
+              {preCode
+                ? "Surface map, design contracts, and security checklist are in the Report tab."
+                : "Open Report for attestation, test results, and security posture."}
+            </p>
+          </div>
+          <Button size="sm" onClick={() => onTabChange("report")}>
+            <BarChart3 className="h-3.5 w-3.5" strokeWidth={1.75} />
+            {preCode ? "View design report" : "View report"}
+          </Button>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
         <div className="flex items-center gap-2">
           <GitBranch className="h-4 w-4 text-primary" strokeWidth={1.75} />

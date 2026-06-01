@@ -74,7 +74,25 @@ export function RunHistorySidebar({
       </div>
       {sorted[0] && (
         <div className="border-t border-border p-2">
-          <Button size="sm" variant="outline" className="w-full" onClick={() => onSelectRun(sorted[0].run_id, sorted[0].status, sorted[0].current_phase)}>
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full"
+            onClick={() => {
+              const latest = sorted[0];
+              onSelectRun(
+                latest.run_id,
+                latest.status,
+                latest.current_phase,
+              );
+            }}
+            disabled={sorted[0].status !== "completed"}
+            title={
+              sorted[0].status === "completed"
+                ? "Open the latest finished run in Report"
+                : "Available when the latest run has completed"
+            }
+          >
             <RotateCw className="h-3.5 w-3.5" strokeWidth={1.75} />
             Open latest report
           </Button>

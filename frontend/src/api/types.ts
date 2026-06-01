@@ -282,6 +282,7 @@ export type PipelineMode = z.infer<typeof PipelineModeSchema>;
 export type SuiteQuality = z.infer<typeof SuiteQualitySchema>;
 export type RunStatus = z.infer<typeof RunStatusSchema>;
 export type PhaseName = z.infer<typeof PhaseNameSchema>;
+export type RunPhase = z.infer<typeof RunPhaseSchema>;
 
 export type WorkspaceTab =
   | "input"

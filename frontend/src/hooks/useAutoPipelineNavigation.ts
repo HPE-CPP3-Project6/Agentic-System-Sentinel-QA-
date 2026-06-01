@@ -14,8 +14,18 @@ export function useAutoPipelineNavigation(
 ) {
   useEffect(() => {
     if (flowMode !== "auto" || !runId || !activeRun) return;
-    // After the run ends, let the user browse earlier stages freely.
-    if (activeRun.status === "completed" || activeRun.status === "failed") return;
+
+    if (activeRun.status === "completed") {
+      const next = tabForRun(activeRun.status, activeRun.current_phase, mode);
+      // PRE_CODE deliverable is the design report; post-code auto flow lands on Report too.
+      if (next === "report" && activeTab !== "report") {
+        goToTab("report");
+      }
+      return;
+    }
+
+    if (activeRun.status === "failed") return;
+
     const next = tabForRun(activeRun.status, activeRun.current_phase, mode);
     if (next !== "input" && next !== activeTab) {
       goToTab(next);

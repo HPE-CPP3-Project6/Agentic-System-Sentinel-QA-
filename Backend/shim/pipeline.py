@@ -284,6 +284,9 @@ def execute_run(store: Store, hub: WsHub, run_id: str) -> None:
         save_state(run, state)
         art = state_to_artifact(state)
         posture = state.metadata.get("security_posture") or {}
+        final_phase = (
+            "security_compiler" if run.mode.lower() == "pre_code" else "executor"
+        )
         store.update_run(
             run_id,
             status="completed",
@@ -292,7 +295,7 @@ def execute_run(store: Store, hub: WsHub, run_id: str) -> None:
             suite_quality=art.get("coverage_quality") or art.get("suite_quality"),
             run_validity=art.get("run_validity"),
             resilience_pct=posture.get("resilience_pct"),
-            current_phase="executor",
+            current_phase=final_phase,
         )
         hub.emit(
             run_id,
