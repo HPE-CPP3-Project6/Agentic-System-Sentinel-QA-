@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -192,6 +193,18 @@ class Store:
                 ),
             )
         return story
+
+    def delete_story(self, story_id: str) -> bool:
+        if not self.get_story(story_id):
+            return False
+        for run in self.list_runs_for_story(story_id):
+            ws = Path(run.workspace_dir)
+            if ws.is_dir():
+                shutil.rmtree(ws, ignore_errors=True)
+        with self._conn() as conn:
+            conn.execute("DELETE FROM runs WHERE story_id=?", (story_id,))
+            conn.execute("DELETE FROM stories WHERE id=?", (story_id,))
+        return True
 
     def story_has_active_run(self, story_id: str) -> bool:
         with self._conn() as conn:

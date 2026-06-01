@@ -1,4 +1,5 @@
 import type { PhaseName, RunStatus, WorkspaceTab } from "./types";
+import { isPreCode } from "./types";
 
 const PHASE_ORDER: PhaseName[] = [
   "critic",
@@ -7,6 +8,34 @@ const PHASE_ORDER: PhaseName[] = [
   "security_compiler",
   "executor",
 ];
+
+// PRE_CODE is design-only: it produces design contracts + checklist + surface
+// map, never a test suite, pytest script, or execution. So the Scenarios /
+// Scripts / Run stages don't apply — only Input, Surface Map and Report do.
+const PRE_CODE_TABS: WorkspaceTab[] = ["input", "surface", "report"];
+const POST_CODE_TABS: WorkspaceTab[] = [
+  "input",
+  "surface",
+  "scenarios",
+  "scripts",
+  "run",
+  "report",
+];
+
+/** Which workspace tabs are meaningful for a run of the given pipeline mode. */
+export function tabsForMode(mode?: string): WorkspaceTab[] {
+  return isPreCode(mode) ? PRE_CODE_TABS : POST_CODE_TABS;
+}
+
+export function isTabVisibleForMode(tab: WorkspaceTab, mode?: string): boolean {
+  return tabsForMode(mode).includes(tab);
+}
+
+function filterTabsByMode(tabs: Set<WorkspaceTab>, mode?: string): Set<WorkspaceTab> {
+  if (!isPreCode(mode)) return tabs;
+  const visible = new Set(tabsForMode(mode));
+  return new Set([...tabs].filter((t) => visible.has(t)));
+}
 
 export function isRunInFlight(status?: RunStatus): boolean {
   return status === "queued" || status === "running";
@@ -113,7 +142,9 @@ export function isTabAccessible(
   runId: string | undefined,
   status?: RunStatus,
   currentPhase?: PhaseName | null,
+  mode?: string,
 ): boolean {
+  if (!isTabVisibleForMode(tab, mode)) return false;
   if (tab === "input") return true;
   if (!runId) return false;
   switch (tab) {
@@ -156,23 +187,24 @@ export function unlockedTabsForRun(
   runId: string | undefined,
   status?: RunStatus,
   currentPhase?: PhaseName | null,
+  mode?: string,
 ): Set<WorkspaceTab> {
   const tabs = new Set<WorkspaceTab>(["input"]);
-  if (!runId) return tabs;
+  if (!runId) return filterTabsByMode(tabs, mode);
   if (status === "completed" || status === "failed") {
     tabs.add("surface");
     tabs.add("scenarios");
     tabs.add("scripts");
     tabs.add("run");
     tabs.add("report");
-    return tabs;
+    return filterTabsByMode(tabs, mode);
   }
   tabs.add("surface");
-  if (isTabAccessible("scenarios", runId, status, currentPhase)) tabs.add("scenarios");
-  if (isTabAccessible("scripts", runId, status, currentPhase)) tabs.add("scripts");
-  if (isTabAccessible("run", runId, status, currentPhase)) tabs.add("run");
-  if (isTabAccessible("report", runId, status, currentPhase)) tabs.add("report");
-  return tabs;
+  if (isTabAccessible("scenarios", runId, status, currentPhase, mode)) tabs.add("scenarios");
+  if (isTabAccessible("scripts", runId, status, currentPhase, mode)) tabs.add("scripts");
+  if (isTabAccessible("run", runId, status, currentPhase, mode)) tabs.add("run");
+  if (isTabAccessible("report", runId, status, currentPhase, mode)) tabs.add("report");
+  return filterTabsByMode(tabs, mode);
 }
 
 function isCompilerPhase(phase?: PhaseName | null): boolean {
@@ -183,26 +215,35 @@ function isCompilerPhase(phase?: PhaseName | null): boolean {
 export function tabForRun(
   status?: RunStatus,
   currentPhase?: PhaseName | null,
+  mode?: string,
 ): WorkspaceTab {
-  if (isReportReady(status)) return "report";
-  if (status === "running" || status === "queued") {
-    if (currentPhase === "executor") return "run";
-    if (isCompilerPhase(currentPhase)) return "scripts";
-    if (currentPhase === "generator") return "scenarios";
-    return "surface";
+  const raw = ((): WorkspaceTab => {
+    if (isReportReady(status)) return "report";
+    if (status === "running" || status === "queued") {
+      if (currentPhase === "executor") return "run";
+      if (isCompilerPhase(currentPhase)) return "scripts";
+      if (currentPhase === "generator") return "scenarios";
+      return "surface";
+    }
+    if (status === "paused") {
+      if (isCompilerPhase(currentPhase)) return "scripts";
+      if (currentPhase === "surface_resolver") return "surface";
+      if (isSurfaceGateDone(status, currentPhase)) return "surface";
+    }
+    if (status === "failed") {
+      if (currentPhase === "executor") return "run";
+      if (isCompilerPhase(currentPhase)) return "scripts";
+      if (isScenariosGateDone(status, currentPhase)) return "scenarios";
+      if (isSurfaceGateDone(status, currentPhase)) return "surface";
+    }
+    return "input";
+  })();
+  // PRE_CODE has no Scenarios/Scripts/Run stage — fold those into the nearest
+  // meaningful tab: Surface while the design pipeline runs, Report once done.
+  if (isPreCode(mode) && !isTabVisibleForMode(raw, mode)) {
+    return status === "completed" ? "report" : "surface";
   }
-  if (status === "paused") {
-    if (isCompilerPhase(currentPhase)) return "scripts";
-    if (currentPhase === "surface_resolver") return "surface";
-    if (isSurfaceGateDone(status, currentPhase)) return "surface";
-  }
-  if (status === "failed") {
-    if (currentPhase === "executor") return "run";
-    if (isCompilerPhase(currentPhase)) return "scripts";
-    if (isScenariosGateDone(status, currentPhase)) return "scenarios";
-    if (isSurfaceGateDone(status, currentPhase)) return "surface";
-  }
-  return "input";
+  return raw;
 }
 
 export { PHASE_ORDER };

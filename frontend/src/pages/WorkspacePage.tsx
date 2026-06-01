@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo } from "react";
 import { useParams, useSearch } from "wouter";
 import { Loader2 } from "lucide-react";
-import { useRun, useStory } from "@/api/hooks";
+import { useRun, useStory, useStoryRuns } from "@/api/hooks";
 import {
   parseFlowMode,
   parsePipelineMode,
@@ -10,6 +10,7 @@ import {
 import {
   isTabAccessible,
   tabForRun,
+  tabsForMode,
   unlockedTabsForRun,
 } from "@/api/runLifecycle";
 import { useRunStream } from "@/api/ws";
@@ -18,6 +19,7 @@ import { useAutoPipelineNavigation } from "@/hooks/useAutoPipelineNavigation";
 import { useMockRunStream } from "@/hooks/useMockRunStream";
 import { useRunProgressSync } from "@/hooks/useRunProgressSync";
 import type { PipelineMode, PhaseName, RunStatus, WorkspaceTab } from "@/api/types";
+import { WORKSPACE_TABS } from "@/api/types";
 import { AppShell } from "@/components/AppShell";
 import { PipelineStepper } from "@/components/workspace/PipelineStepper";
 import { RunHistorySidebar } from "@/components/workspace/RunHistorySidebar";
@@ -62,6 +64,20 @@ export function WorkspacePage() {
   const pipelineMode = parsePipelineMode(query.get("pmode"));
 
   const { data: activeRun } = useRun(runId);
+  const { data: storyRuns } = useStoryRuns(storyId);
+
+  // The run's ACTUAL mode is the source of truth for which tabs apply. Prefer
+  // the run-history record (correct even for runs opened from history without a
+  // ?pmode in the URL); fall back to the URL pmode for a run just started this
+  // session; finally the user's selection on the (run-less) Input tab.
+  const runMode = storyRuns?.find((r) => r.run_id === runId)?.pipeline_mode;
+  const effectiveMode: PipelineMode = runId
+    ? parsePipelineMode(runMode ?? query.get("pmode"))
+    : pipelineMode;
+  const visibleTabs = useMemo(
+    () => WORKSPACE_TABS.filter((t) => tabsForMode(effectiveMode).includes(t.id)),
+    [effectiveMode],
+  );
 
   useEffect(() => {
     setActiveRunId(runId ?? null);
@@ -98,22 +114,22 @@ export function WorkspacePage() {
   /** Forward navigation after an explicit user action (Generate Tests, Continue, etc.). */
   const goToTab = useCallback((tab: WorkspaceTab) => setQuery({ tab }), [setQuery]);
 
-  useAutoPipelineNavigation(flowMode, runId, activeRun, activeTab, goToTab);
+  useAutoPipelineNavigation(flowMode, runId, activeRun, activeTab, goToTab, effectiveMode);
   useAutoAdvanceExecution(flowMode, runId, activeRun);
 
   const unlockedTabs = useMemo(
-    () => unlockedTabsForRun(runId, activeRun?.status, activeRun?.current_phase),
-    [runId, activeRun?.status, activeRun?.current_phase],
+    () => unlockedTabsForRun(runId, activeRun?.status, activeRun?.current_phase, effectiveMode),
+    [runId, activeRun?.status, activeRun?.current_phase, effectiveMode],
   );
 
   const onTabChange = useCallback(
     (tab: WorkspaceTab) => {
-      if (!isTabAccessible(tab, runId, activeRun?.status, activeRun?.current_phase)) {
+      if (!isTabAccessible(tab, runId, activeRun?.status, activeRun?.current_phase, effectiveMode)) {
         return;
       }
       setQuery({ tab });
     },
-    [setQuery, runId, activeRun?.status, activeRun?.current_phase],
+    [setQuery, runId, activeRun?.status, activeRun?.current_phase, effectiveMode],
   );
 
   const onRunStarted = useCallback(
@@ -123,28 +139,31 @@ export function WorkspacePage() {
 
   const onSelectRun = useCallback(
     (id: string, status?: RunStatus, currentPhase?: PhaseName | null) => {
-      setQuery({ run: id, tab: tabForRun(status, currentPhase) });
+      // A history run may have a different mode than the one currently open.
+      const selectedMode = storyRuns?.find((r) => r.run_id === id)?.pipeline_mode;
+      setQuery({ run: id, tab: tabForRun(status, currentPhase, selectedMode) });
     },
-    [setQuery],
+    [setQuery, storyRuns],
   );
 
   // Redirect deep-links to tabs that are not yet reachable for this run.
   useEffect(() => {
     if (!runId || !activeRun) return;
-    if (isTabAccessible(activeTab, runId, activeRun.status, activeRun.current_phase)) {
+    if (isTabAccessible(activeTab, runId, activeRun.status, activeRun.current_phase, effectiveMode)) {
       return;
     }
-    const fallback = tabForRun(activeRun.status, activeRun.current_phase);
+    const fallback = tabForRun(activeRun.status, activeRun.current_phase, effectiveMode);
     if (fallback !== activeTab) {
       setQuery({ tab: fallback });
     }
-  }, [activeTab, activeRun, runId, setQuery]);
+  }, [activeTab, activeRun, runId, setQuery, effectiveMode]);
 
   const tabAccessible = isTabAccessible(
     activeTab,
     runId,
     activeRun?.status,
     activeRun?.current_phase,
+    effectiveMode,
   );
 
   return (
@@ -153,9 +172,10 @@ export function WorkspacePage() {
         activeTab={activeTab}
         onTabChange={onTabChange}
         unlockedTabs={unlockedTabs}
+        tabs={visibleTabs}
       />
-      <div className="mx-auto grid max-w-7xl gap-4 p-4 lg:grid-cols-[1fr_240px]">
-        <div>
+      <div className="mx-auto grid w-full max-w-7xl gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_240px]">
+        <div className="min-w-0">
           {activeTab === "input" && (
             <InputTab
               storyId={storyId}

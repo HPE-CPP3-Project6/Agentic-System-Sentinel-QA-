@@ -79,6 +79,21 @@ export function useCreateStory() {
   });
 }
 
+export function useDeleteStory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (storyId: string) => {
+      await apiFetch<void>(`/api/stories/${storyId}`, { method: "DELETE" });
+      return storyId;
+    },
+    onSuccess: (storyId) => {
+      qc.removeQueries({ queryKey: queryKeys.story(storyId) });
+      qc.removeQueries({ queryKey: queryKeys.storyRuns(storyId) });
+      qc.invalidateQueries({ queryKey: queryKeys.stories });
+    },
+  });
+}
+
 export function useUpdateStory(storyId: string) {
   const qc = useQueryClient();
   return useMutation({

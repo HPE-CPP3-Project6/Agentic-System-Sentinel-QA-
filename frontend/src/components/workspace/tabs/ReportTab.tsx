@@ -3,13 +3,14 @@ import { Download, FileSpreadsheet, Loader2 } from "lucide-react";
 import { useArtifact, useRun } from "@/api/hooks";
 import { isReportReady, isRunInFlight } from "@/api/runLifecycle";
 import { isPreCode } from "@/api/types";
-import { apiFetch } from "@/api/client";
 import { buildOwaspChartData, OwaspBarChart } from "@/components/charts/OwaspBarChart";
 import { ResilienceGauge } from "@/components/charts/ResilienceGauge";
 import { SuiteQualityBadge } from "@/components/SuiteQualityBadge";
 import { RunValidityHero } from "@/components/report/RunValidityHero";
 import { TechniquePanel } from "@/components/report/TechniquePanel";
 import { FindingsTable } from "@/components/report/FindingsTable";
+import { SummaryTile } from "@/components/report/SummaryTile";
+import { exportPdf, exportXlsx } from "@/lib/exportReport";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -78,10 +79,11 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
 
   async function exportFile(format: "pdf" | "xlsx") {
     try {
-      await apiFetch(`/api/runs/${runId}/export?format=${format}`);
-      toast.success(`Export ${format.toUpperCase()} requested`);
-    } catch {
-      toast.error("Export failed — backend export worker may be unavailable.");
+      if (format === "pdf") await exportPdf(artifact!, runId);
+      else await exportXlsx(artifact!, runId);
+      toast.success(`Exported ${format.toUpperCase()}`);
+    } catch (e) {
+      toast.error(`Export failed: ${e instanceof Error ? e.message : "unknown error"}`);
     }
   }
 
@@ -108,6 +110,9 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
 
       {/* Two-axis attestation hero — the headline trustworthiness signal. */}
       <RunValidityHero artifact={artifact} />
+
+      {/* Execution summary dashboard (total / passed / failed / success%). */}
+      {!preCode && <SummaryTile artifact={artifact} />}
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>

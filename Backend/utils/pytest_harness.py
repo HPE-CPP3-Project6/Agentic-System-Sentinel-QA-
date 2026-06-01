@@ -132,25 +132,58 @@ def ensure_login_credential(
     *,
     path: str,
     is_adversarial: bool,
-) -> None:
-    """Idempotently register before a functional POST /login."""
+    expected_status_code: Optional[int] = None,
+) -> Any:
+    """Guarantee a functional POST /login credential; return the payload to use.
+
+    Pre-registers the login identity so a happy-path login can authenticate.
+    Because ``/register`` is create-only (not upsert), an email already claimed
+    by an earlier test with a *different* password would leave the login
+    returning 401. For the happy path (``expected_status_code == 200``) we
+    therefore verify the credential actually logs in, and if it does not, mint a
+    unique email, register it with the test's password, and rewrite the form
+    identity to it — keeping positive-login tests hermetic regardless of test
+    ordering. Negative/boundary logins (expect 401/422) are never rewritten, so
+    their intended rejection is preserved. Returns the (possibly rewritten)
+    payload; callers must use the return value.
+    """
     if is_adversarial or not path.endswith("/login") or not isinstance(payload, dict):
-        return
+        return payload
     if httpx is None:
-        return
+        return payload
     form = normalize_login_form(payload, path=path)
     email = form.get("username") or form.get("email")
     password = form.get("password") or form.get("passwd") or form.get("pwd")
     if not (email and password):
-        return
+        return payload
     if looks_like_attack_payload(str(email)) or looks_like_attack_payload(str(password)):
-        return
-    body = {"email": email, "password": password}
+        return payload
     try:
         with httpx.Client(base_url=base_url, timeout=10.0, follow_redirects=False) as client:
-            client.post("/register", json=body)
+            # Idempotent register of the intended identity (no-op if it exists).
+            client.post("/register", json={"email": email, "password": password})
+            # Only the happy path must be guaranteed to authenticate. If the
+            # email was claimed by an earlier test with a different password,
+            # the register above no-ops (409) and this login would 401 — so we
+            # fall back to a fresh, unconflicted identity.
+            if expected_status_code == 200 and looks_like_valid_email(str(email)):
+                login = client.post(
+                    "/login",
+                    data={"username": email, "password": password},
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                )
+                if login.status_code != 200:
+                    fresh = f"sentinel-login-{uuid.uuid4().hex[:12]}@example.com"
+                    client.post("/register", json={"email": fresh, "password": password})
+                    rewritten = dict(payload)
+                    if "username" in rewritten:
+                        rewritten["username"] = fresh
+                    if "email" in rewritten:
+                        rewritten["email"] = fresh
+                    return rewritten
     except Exception:
-        pass
+        return payload
+    return payload
 
 
 def bootstrap_peer_task_id(base_url: str) -> Optional[str]:

@@ -160,6 +160,15 @@ def patch_story(story_id: str, payload: StoryPatch) -> dict[str, Any]:
     return story.to_dict()
 
 
+@app.delete("/api/stories/{story_id}", status_code=204)
+def delete_story(story_id: str) -> None:
+    if not store.get_story(story_id):
+        raise api_error(404, "not_found", "Story not found")
+    if store.story_has_active_run(story_id):
+        raise api_error(409, "run_in_progress", "Story has an active run")
+    store.delete_story(story_id)
+
+
 @app.post("/api/stories/bulk", status_code=201)
 async def bulk_stories(file: UploadFile = File(...)) -> dict[str, Any]:
     raw = await file.read()

@@ -82,7 +82,7 @@
   }
 
   body {
-    @apply bg-background text-foreground font-sans min-h-screen text-sm;
+    @apply bg-background text-foreground font-sans min-h-screen overflow-x-hidden text-sm;
   }
 
   a {
@@ -141,5 +141,16 @@
 
   .severity-pass {
     @apply bg-success-bg text-success;
+  }
+
+  /* Shiki output: scroll inside panel, never widen the page */
+  .code-panel {
+    @apply min-w-0 max-w-full;
+  }
+
+  .code-panel pre {
+    margin: 0;
+    width: max-content;
+    min-width: 100%;
   }
 }

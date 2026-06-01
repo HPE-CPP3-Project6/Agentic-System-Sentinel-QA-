@@ -98,8 +98,10 @@ export const RunHistoryItemSchema = z.object({
 export const BackendEndpointSchema = z.object({
   method: z.string(),
   path: z.string(),
-  handler_file: z.string().optional(),
-  handler_line: z.number().optional(),
+  // PRE_CODE bindings are design intent with no code yet, so the shim emits
+  // handler_file/handler_line as null — accept null, not just undefined.
+  handler_file: z.string().nullish(),
+  handler_line: z.number().nullish(),
 });
 
 export const SurfaceBindingSchema = z.object({
@@ -225,6 +227,8 @@ export const SecurityPostureSchema = z.object({
 
 export const ProjectStateSchema = z
   .object({
+    story_id: z.string().nullish(),
+    story_title: z.string().nullish(),
     pipeline_mode: PipelineModeSchema,
     run_validity: RunValiditySchema,
     coverage_quality: SuiteQualitySchema.nullish(),

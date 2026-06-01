@@ -24,12 +24,15 @@ interface PipelineStepperProps {
   activeTab: WorkspaceTab;
   onTabChange: (tab: WorkspaceTab) => void;
   unlockedTabs?: Set<WorkspaceTab>;
+  /** Tabs to display — defaults to all. PRE_CODE passes a design-only subset. */
+  tabs?: { id: WorkspaceTab; label: string; step: number }[];
 }
 
 export function PipelineStepper({
   activeTab,
   onTabChange,
   unlockedTabs,
+  tabs = WORKSPACE_TABS,
 }: PipelineStepperProps) {
   return (
     <nav
@@ -37,7 +40,7 @@ export function PipelineStepper({
       className="border-b border-border bg-surface"
     >
       <ol className="flex overflow-x-auto">
-        {WORKSPACE_TABS.map((tab, i) => {
+        {tabs.map((tab, i) => {
           const unlocked = !unlockedTabs || unlockedTabs.has(tab.id);
           const active = activeTab === tab.id;
           const Icon = TAB_ICONS[tab.id];
@@ -58,7 +61,7 @@ export function PipelineStepper({
                 <Icon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
                 <span className="hidden sm:inline">{tab.label}</span>
               </button>
-              {i < WORKSPACE_TABS.length - 1 && (
+              {i < tabs.length - 1 && (
                 <ChevronRight
                   className="h-3 w-3 shrink-0 text-muted"
                   strokeWidth={1.75}

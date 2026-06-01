@@ -46,7 +46,7 @@ export function CodePanel({ code, lang = "python" }: CodePanelProps) {
 
   if (loading) {
     return (
-      <pre className="overflow-auto bg-console-bg p-4 font-mono text-xs text-console-fg">
+      <pre className="min-w-0 max-w-full overflow-x-auto bg-console-bg p-4 font-mono text-xs text-console-fg">
         {code}
       </pre>
     );
@@ -54,7 +54,7 @@ export function CodePanel({ code, lang = "python" }: CodePanelProps) {
 
   return (
     <div
-      className="code-panel max-h-[65vh] overflow-auto border border-border bg-console-bg text-xs [&_pre]:!bg-transparent [&_pre]:p-4 [&_pre]:font-mono"
+      className="code-panel max-h-[65vh] w-full min-w-0 max-w-full overflow-x-auto overflow-y-auto border border-border bg-console-bg text-xs [&_pre]:!bg-transparent [&_pre]:p-4 [&_pre]:font-mono"
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

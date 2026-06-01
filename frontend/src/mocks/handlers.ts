@@ -57,6 +57,29 @@ export const handlers = [
     return HttpResponse.json(stories[idx]);
   }),
 
+  http.delete("/api/stories/:id", ({ params }) => {
+    const idx = stories.findIndex((s) => s.id === params.id);
+    if (idx === -1) {
+      return HttpResponse.json(
+        { error: { code: "not_found", message: "Story not found" } },
+        { status: 404 },
+      );
+    }
+    const storyId = params.id as string;
+    const active = (mockRuns[storyId] ?? []).some(
+      (r) => r.status === "running" || r.status === "queued",
+    );
+    if (active) {
+      return HttpResponse.json(
+        { error: { code: "run_in_progress", message: "Story has an active run" } },
+        { status: 409 },
+      );
+    }
+    stories.splice(idx, 1);
+    delete mockRuns[storyId];
+    return new HttpResponse(null, { status: 204 });
+  }),
+
   http.post("/api/stories/bulk", async ({ request }) => {
     const form = await request.formData();
     const file = form.get("file");
