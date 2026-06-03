@@ -804,9 +804,57 @@ _MISSING_CONTROL_RE = re.compile(
     r"(?:rate[\s_-]?limit|throttl|lockout|brute[\s_-]?force|credential[\s_-]?stuff|"
     r"429|retry[\s_-]?after|captcha|csrf|account[\s_-]?lock|unlimited[\s_-]?retr|"
     r"injection|sqli|xss|idor|broken[\s_-]?access|enumeration|too\s+many\s+requests|"
-    r"password[\s_-]?reset\s+flood|saniti[sz]e|parameteri[sz]ed)",
+    r"password[\s_-]?reset\s+flood|saniti[sz]e|parameteri[sz]ed|"
+    # Stage-3 — response-header controls. Header-presence requirements
+    # (X-Frame-Options, CSP, HSTS, etc.) imply a defense the binding must
+    # actually find evidence of; otherwise the third-path promotion below
+    # flips defense_confirming → missing_control so the Generator's gap
+    # tests assert presence honestly (style-2: pytest fail = header
+    # absent = vulnerable).
+    r"x[\s_-]?frame[\s_-]?options|x[\s_-]?content[\s_-]?type[\s_-]?options|"
+    r"content[\s_-]?security[\s_-]?policy|strict[\s_-]?transport[\s_-]?security|"
+    r"referrer[\s_-]?policy|permissions[\s_-]?policy|security[\s_-]?header|"
+    r"\bcsp\b|\bhsts\b|nosniff)",
     re.IGNORECASE,
 )
+
+# Stage-3 — retrieval evidence that a security-header defense actually
+# exists in code. If ANY of these tokens appear in the binding's rationale
+# or grounding context, the Resolver leaves attestation_mode alone (the
+# defense is present in retrieval). If none appear AND _MISSING_CONTROL_RE
+# fires on the rationale, the third-path promotion flips to missing_control.
+_HEADER_MIDDLEWARE_TOKENS = (
+    "add_middleware",
+    "securityheadersmiddleware",
+    "starlettecorsmiddleware",
+    "trustedhostmiddleware",
+    "httpsredirectmiddleware",
+    "response.headers[",
+    "response.headers.update",
+    "set_cookie(",  # for Secure / SameSite cookie defenses
+    "secure=true",
+    "httponly=true",
+    "samesite=",
+    "x-frame-options",
+    "x-content-type-options",
+    "content-security-policy",
+    "strict-transport-security",
+)
+
+
+def _retrieval_shows_header_defense(binding: "SurfaceBinding") -> bool:
+    """Stage-3: True iff the binding's rationale / grounding refs contain
+    any token that would prove a security-header defense actually exists
+    in the retrieved code. The check is intentionally permissive — a
+    single positive token blocks the missing_control promotion, so this
+    only catches the case where retrieval shows ZERO defense evidence.
+    """
+    haystack = (
+        (binding.rationale or "")
+        + " "
+        + " ".join(binding.grounding_refs or [])
+    ).lower()
+    return any(token in haystack for token in _HEADER_MIDDLEWARE_TOKENS)
 
 _HTTP_PATH_IN_TEXT_RE = re.compile(
     r"\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(/[\w{}/.\-]+)",
@@ -1495,22 +1543,56 @@ def surface_resolver_node(state: ProjectState) -> ProjectState:
             missing_control_promotions
         )
 
+    # ---- Stage-3 — third-path missing_control promotion --------------------
+    #
+    # The first two promotion paths (NOT_IMPLEMENTED recovery + DEFENSIVE_
+    # INVERTED-without-endpoint) miss the false-green pattern observed on
+    # run r_7f0025d2: a BACKEND_API binding for /health where the
+    # requirement demanded security headers but retrieval showed no
+    # SecurityHeadersMiddleware. The Resolver said "endpoint exists →
+    # defense_confirming" and adversarial tests for header presence
+    # silently passed on any 200 OK.
+    #
+    # This third path: BACKEND_API + Critic risk + missing-control regex
+    # match on the requirement text + retrieval shows ZERO header-defense
+    # tokens → promote to missing_control. Generator inherits the stamp;
+    # Generator's header tests become style-2 (expect header present);
+    # pytest fail = header absent = vulnerable. Honest verdict.
+    for rid, b in list(bindings.items()):
+        if b.state != "BACKEND_API" or not b.backend_endpoints:
+            continue
+        if b.attestation_mode is not None:
+            continue
+        owasp_ids_for_rid = risks_by_req.get(rid, [])
+        req_obj = req_by_id.get(rid)
+        context_text = _requirement_context_text(req_obj, b)
+        if not _signals_missing_security_control(context_text, owasp_ids_for_rid):
+            continue
+        if _retrieval_shows_header_defense(b):
+            continue
+        bindings[rid] = b.model_copy(update={
+            "attestation_mode": "missing_control",
+            "rationale": (
+                "[Stage-3 third-path promotion: requirement signals a "
+                "security control AND retrieval shows no defense evidence] "
+                + (b.rationale or "")
+            ),
+        })
+
     # ---- Default attestation_mode on grounded BACKEND_API bindings ---------
     #
     # By this point, every binding has been through:
     #   • DEFENSIVE_INVERTED validation (which stamps `defense_confirming`)
     #   • NOT_IMPLEMENTED recovery (which stamps `missing_control` when
     #     an attack surface exists)
+    #   • Stage-3 third-path promotion (above) — header / control-absent
+    #     stories without retrieval evidence of the defense.
     #
     # Anything still BACKEND_API without an attestation_mode is an
     # ordinary feature binding where the Resolver examined retrieval,
     # found a real implementation, and didn't promote it to missing_control.
     # For these, default to `defense_confirming` so adversarial tests
-    # against the feature inherit the right verdict semantics. Without
-    # this default, the Generator would emit security tests that reach
-    # the Classifier UNCLASSIFIED — they would all show inconclusive,
-    # inflating the unclassified bucket and depressing resilience_pct
-    # for ordinary stories.
+    # against the feature inherit the right verdict semantics.
     for rid, b in list(bindings.items()):
         if (
             b.state == "BACKEND_API"

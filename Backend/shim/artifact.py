@@ -86,6 +86,13 @@ def state_to_artifact(state: ProjectState) -> dict[str, Any]:
                 "forbidden_response_content": tc.forbidden_response_content,
                 "input_data": _serialize_input_data(tc),
                 "source_refs": tc.source_refs,
+                # Stage-3 — surfaces the actual header assertions so the
+                # frontend findings table can show "verifies X-Frame-Options"
+                # next to the test row, and so a reviewer eyeballing the
+                # artifact JSON can confirm the test isn't a header-claim
+                # false-green.
+                "required_response_headers": getattr(tc, "required_response_headers", None) or {},
+                "attestation_mode": getattr(tc, "attestation_mode", None),
             }
         )
 

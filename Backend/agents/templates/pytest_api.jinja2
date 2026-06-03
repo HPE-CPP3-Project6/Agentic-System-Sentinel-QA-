@@ -384,6 +384,37 @@ def test_{{ tc.slug }}() -> None:
             {% if tc.forbidden %}
             _assert_forbidden(response.text, {{ tc.forbidden | tojson }})
             {% endif %}
+            {% if tc.required_response_headers %}
+            # Stage-3 — honest header attestation. The Generator declared
+            # this test verifies specific response headers; assert each
+            # one ACTUALLY appears on the response. Without these
+            # assertions a test titled "GET /health includes X-Frame-
+            # Options" would pass on an app with no security headers at
+            # all — the false-green pattern observed on r_7f0025d2.
+            _hdrs_lc = {k.lower(): v for k, v in response.headers.items()}
+            _required_headers = {{ tc.required_response_headers | tojson }}
+            for _hname, _hval in _required_headers.items():
+                _hname_lc = _hname.lower()
+                assert _hname_lc in _hdrs_lc, (
+                    "Required response header missing: " + _hname
+                    + " — observed: " + ", ".join(sorted(_hdrs_lc.keys()))[:600]
+                )
+                if _hval is not None:
+                    _observed = _hdrs_lc[_hname_lc] or ""
+                    # Permissive value check for policy-style headers
+                    # (CSP / Permissions-Policy) — directive substring;
+                    # exact match for simple sentinel-style headers.
+                    if any(d in _hname_lc for d in ("content-security-policy", "permissions-policy", "feature-policy")):
+                        assert str(_hval).lower() in _observed.lower(), (
+                            "Required directive '" + str(_hval) + "' not found in "
+                            + _hname + " — observed value: " + _observed[:400]
+                        )
+                    else:
+                        assert _observed.lower() == str(_hval).lower(), (
+                            "Required " + _hname + "=" + str(_hval)
+                            + " — observed: " + _observed[:400]
+                        )
+            {% endif %}
     {% endif %}
 
 

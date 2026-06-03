@@ -949,7 +949,8 @@ OUTPUT SCHEMA
       "is_adversarial": false,
       "attestation_mode": null,
       "vulnerability_signature": null,
-      "resilience_signature": null
+      "resilience_signature": null,
+      "required_response_headers": {{}}
     }}
   ],
   "coverage_gaps": [
@@ -1023,6 +1024,55 @@ VIOLATION HANDLING:
     actually documents a gap (e.g. titled "User Enumeration") will
     return the wrong verdict. If you see a gap, emit "missing_control"
     even when your test title sounds defensive.
+
+============================================================
+RESPONSE-HEADER CONTRACT (HARD CONSTRAINT — Stage 3)
+============================================================
+
+When a test verifies a SPECIFIC RESPONSE HEADER (X-Frame-Options,
+X-Content-Type-Options, Content-Security-Policy, Strict-Transport-
+Security, Referrer-Policy, Permissions-Policy, X-XSS-Protection,
+HSTS, CSP), the assertion lives in `required_response_headers`. It
+is NOT enough to mention the header in the title — the test code
+must actually check it.
+
+  required_response_headers
+    A dict keyed by HEADER NAME (lowercase, e.g. "x-frame-options")
+    with the REQUIRED value as the value, or `null` to assert
+    presence-only.
+
+    Examples (correct):
+      "required_response_headers": {{ "x-frame-options": null }}
+      "required_response_headers": {{ "x-content-type-options": "nosniff" }}
+      "required_response_headers": {{
+        "content-security-policy": "default-src 'self'"
+      }}
+      "required_response_headers": {{
+        "strict-transport-security": null,
+        "x-frame-options": null
+      }}
+
+    The harness emits assertions like:
+      assert "x-frame-options" in {{h.lower() for h in r.headers}}
+      assert r.headers.get("x-content-type-options", "").lower() == "nosniff"
+
+    For CSP value checks, the harness uses substring containment
+    so directive checks like "default-src" work without forcing the
+    LLM to specify the full policy string.
+
+REQUIREMENTS:
+  - If the test title contains any of these tokens (case-insensitive)
+    you MUST populate required_response_headers:
+      x-frame-options · x-content-type-options · content-security-policy
+      strict-transport-security · referrer-policy · permissions-policy
+      x-xss-protection · csp · hsts · "security header" · "csp header"
+  - A test titled "GET /health includes X-Frame-Options" with
+    `required_response_headers: {{}}` will be DROPPED by post-
+    validation as a header-claim coverage gap — the test would have
+    passed on any 200 OK regardless of headers (false positive).
+  - Conversely, do NOT populate required_response_headers when the
+    test isn't verifying headers — content-only tests should leave
+    it as `{{}}`.
 """
 
 
@@ -1963,7 +2013,60 @@ def _validate_test_against_binding(
                     f"{tc.expected_status_code}. {message}",
                 )
 
+    # Stage-3 — honest header attestation. If the title claims a specific
+    # response header, the test MUST carry that assertion in
+    # required_response_headers. Empty dict + header-claim title means
+    # the test would have passed on any 200 OK regardless of headers —
+    # the exact false-green pattern observed on run r_7f0025d2.
+    header_violation = _header_claim_without_assertion(tc)
+    if header_violation is not None:
+        return (False, method, inferred_path, header_violation)
+
     return (True, method, inferred_path, None)
+
+
+# Tokens that indicate the test is verifying a specific response header.
+# Case-insensitive match against the test title. Each token is a
+# real header name or a common alias the Generator uses in titles.
+_HEADER_CLAIM_TOKENS = (
+    "x-frame-options",
+    "x-content-type-options",
+    "content-security-policy",
+    "strict-transport-security",
+    "referrer-policy",
+    "permissions-policy",
+    "x-xss-protection",
+    "csp header",
+    "csp directive",
+    "hsts header",
+    "security header",
+)
+
+
+def _header_claim_without_assertion(tc: TestCase) -> Optional[str]:
+    """Return a drop reason if the test title claims a header but the
+    required_response_headers dict is empty; else None.
+
+    Why this exists: the Generator can write a test titled "GET /health
+    includes X-Frame-Options: DENY" whose code only asserts status_code
+    == 200. On an app with NO security headers, /health returns 200, the
+    test passes, the cascade reads defense_confirming + pass → resilient.
+    Headline-100% but the headers are missing. This validator catches
+    the lie at the schema level.
+    """
+    title = (tc.title or "").lower()
+    if not any(tok in title for tok in _HEADER_CLAIM_TOKENS):
+        return None
+    if tc.required_response_headers:
+        return None
+    return (
+        "header-claim coverage gap: test title claims a specific response "
+        "header but required_response_headers is empty — the emitted test "
+        "would have passed on any 200 OK regardless of headers (false-"
+        "green vector observed on run r_7f0025d2). Populate "
+        "required_response_headers with the header name(s) the title "
+        "claims to verify."
+    )
 
 
 # --------------------------------------------------------------------------- #

@@ -681,6 +681,12 @@ def _materialize_pytest_workspace(state: ProjectState) -> None:
                 # P0-3 — when > 1, the template wraps the request+asserts in
                 # a `for _iter in range(N)` loop. 1 = single-shot (default).
                 "repeat_count": repeat_count,
+                # Stage-3 — honest header attestation. Carries the dict the
+                # template's _required_headers block consumes; defaults to
+                # {} which the template's `{% if %}` evaluates False on.
+                "required_response_headers": dict(
+                    getattr(tc, "required_response_headers", None) or {}
+                ),
             }
         )
 

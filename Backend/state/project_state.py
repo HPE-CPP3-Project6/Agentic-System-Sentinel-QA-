@@ -248,6 +248,22 @@ class TestCase(BaseModel):
     bound_surface_state: Optional[SurfaceState] = None
     # Rule 4 missing-control: pytest pass confirms vulnerability, not resilience.
     attestation_mode: Optional[AttestationMode] = None
+    # Stage-3 — honest header attestation.
+    #
+    # When a test title or AC claims to verify a specific response header
+    # (X-Frame-Options, X-Content-Type-Options, Content-Security-Policy,
+    # Strict-Transport-Security, Referrer-Policy, etc.), this dict carries
+    # the actual assertions the pytest harness will emit. Key is the
+    # header name (case-insensitive — runner normalises to lowercase on
+    # read); value is the required value, or None to assert presence only.
+    #
+    # Without this field, the Generator could emit a test titled
+    # "GET /health includes X-Frame-Options" whose code only asserted
+    # status_code == 200 — passing on an app with no security headers at
+    # all. The template uses this dict to emit the real assertion;
+    # Generator post-validation DROPS tests whose title claims a header
+    # and whose required_response_headers is empty.
+    required_response_headers: Dict[str, Optional[str]] = Field(default_factory=dict)
 
 
 class CoverageGap(BaseModel):

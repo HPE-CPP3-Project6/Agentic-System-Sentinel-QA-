@@ -166,6 +166,16 @@ export const TestCaseSchema = z.object({
   // a gap (missing_control)" or "this test was verifying a defense
   // (defense_confirming)" at a glance.
   attestation_mode: AttestationModeSchema.nullish(),
+  // Stage-3 honest header attestation — keyed by header name (lowercase);
+  // value is the required value or null for presence-only. Empty dict
+  // means the test does NOT verify a response header. Populated by the
+  // Generator when test title claims a header (X-Frame-Options, CSP,
+  // HSTS, etc.); the harness asserts each header is actually present
+  // on the response, killing the false-green pattern where status-200
+  // counted as "headers OK".
+  required_response_headers: z
+    .record(z.string(), z.string().nullable())
+    .nullish(),
 });
 
 export const VerdictRecordSchema = z.object({
