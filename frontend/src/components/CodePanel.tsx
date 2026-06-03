@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createHighlighter, type Highlighter } from "shiki";
+import { useUiStore } from "@/stores/uiStore";
 
 interface CodePanelProps {
   code: string;
@@ -18,7 +19,15 @@ function getHighlighter() {
   return highlighterPromise;
 }
 
+function panelSurfaceClasses(isDark: boolean) {
+  return isDark
+    ? "bg-console-bg text-console-fg"
+    : "bg-code-panel-bg text-foreground";
+}
+
 export function CodePanel({ code, lang = "python" }: CodePanelProps) {
+  const theme = useUiStore((s) => s.theme);
+  const isDark = theme === "dark";
   const [html, setHtml] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
@@ -28,10 +37,10 @@ export function CodePanel({ code, lang = "python" }: CodePanelProps) {
 
     void (async () => {
       const hl = await getHighlighter();
-      const isDark = document.documentElement.classList.contains("dark");
+      const shikiTheme = isDark ? "github-dark" : "github-light";
       const themed = hl.codeToHtml(code, {
         lang,
-        theme: isDark ? "github-dark" : "github-light",
+        theme: shikiTheme,
       });
       if (!cancelled) {
         setHtml(themed);
@@ -42,11 +51,15 @@ export function CodePanel({ code, lang = "python" }: CodePanelProps) {
     return () => {
       cancelled = true;
     };
-  }, [code, lang]);
+  }, [code, lang, isDark]);
+
+  const surface = panelSurfaceClasses(isDark);
 
   if (loading) {
     return (
-      <pre className="min-w-0 max-w-full overflow-x-auto bg-console-bg p-4 font-mono text-xs text-console-fg">
+      <pre
+        className={`min-w-0 max-w-full overflow-x-auto p-4 font-mono text-xs ${surface}`}
+      >
         {code}
       </pre>
     );
@@ -54,7 +67,7 @@ export function CodePanel({ code, lang = "python" }: CodePanelProps) {
 
   return (
     <div
-      className="code-panel max-h-[65vh] w-full min-w-0 max-w-full overflow-x-auto overflow-y-auto border border-border bg-console-bg text-xs [&_pre]:!bg-transparent [&_pre]:p-4 [&_pre]:font-mono"
+      className={`code-panel max-h-[65vh] w-full min-w-0 max-w-full overflow-x-auto overflow-y-auto border border-border text-xs [&_pre]:!bg-transparent [&_pre]:p-4 [&_pre]:font-mono ${surface}`}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

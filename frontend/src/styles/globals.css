@@ -22,6 +22,8 @@
   --danger-bg: #f8d7da;
   --console-bg: #1e1e1e;
   --console-fg: #d4d4d4;
+  /* Shiki github-light expects a light surface (not the dark console strip) */
+  --code-panel-bg: #f6f8fa;
 }
 
 .dark {
@@ -45,6 +47,7 @@
   --danger-bg: #3d2020;
   --console-bg: #0d1117;
   --console-fg: #c9d1d9;
+  --code-panel-bg: var(--console-bg);
 }
 
 @theme inline {
@@ -67,6 +70,7 @@
   --color-danger-bg: var(--danger-bg);
   --color-console-bg: var(--console-bg);
   --color-console-fg: var(--console-fg);
+  --color-code-panel-bg: var(--code-panel-bg);
   --font-sans: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   --font-mono: Consolas, "Courier New", monospace;
   --radius-sm: 2px;
