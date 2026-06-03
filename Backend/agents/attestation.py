@@ -1,16 +1,27 @@
 """Shared adversarial attestation semantics — single source of truth.
 
-ARCHITECTURE (Stage 1 of the attestation refactor)
-==================================================
+ARCHITECTURE (Stage 2 — needles removed)
+========================================
 
-`attestation_mode` is a property of the BINDING, not the test. The Resolver
-classifies each requirement's binding as ``missing_control`` (control
-absent in code, gap-attestation needed) or ``defense_confirming`` (defense
-present, verify it holds). The Generator inherits the binding's mode onto
-each adversarial TestCase. The Classifier (pytest_runner) reads the
-stamped value and decides the verdict. Title / expected_result needles
-NEVER drive the verdict — they only contribute diagnostic evidence when
-the cascade returned UNCLASSIFIED.
+``attestation_mode`` is a property of the BINDING, not the test. The
+Resolver classifies each requirement's binding as ``missing_control``
+(control absent in code, gap-attestation needed) or ``defense_confirming``
+(defense present, verify it holds). The Generator inherits the binding's
+mode onto each adversarial TestCase. The Classifier (pytest_runner) reads
+the stamped value and decides the verdict.
+
+There are NO title / expected_result needles in the verdict path. The
+legacy ``test_signals_missing_control`` and ``attestation_diagnostic_hint``
+helpers were retired in Stage 2 after the Stage-1 cascade proved stable.
+If a verdict is wrong, the fix is at one of these layers — never here:
+
+  1. Resolver tagged the binding wrong → fix the Resolver prompt /
+     ``_promote_missing_control_binding`` heuristic.
+  2. Generator dropped the stamp → tighten the OUTPUT SCHEMA constraint
+     on attestation_mode in generator.py.
+  3. The test was authored in the wrong style → the Generator emitted
+     a style-1 design for what should have been style-2 (or vice versa);
+     fix at the prompt level.
 
 CASCADE (highest precedence first)
 ----------------------------------
@@ -45,16 +56,6 @@ Style-1 vs style-2 for missing_control:
 
 The split is driven entirely by ``tc.expected_status_code`` via
 ``_is_style_2_design`` — no string matching.
-
-NEEDLES (legacy)
-----------------
-``test_signals_missing_control`` survives as a DIAGNOSTIC helper only.
-``attestation_diagnostic_hint`` returns a short string that the
-Classifier attaches to the evidence list of UNCLASSIFIED verdicts so a
-reviewer can see what the test *looked like* it wanted to assert — but
-the verdict stays ``inconclusive`` until the Resolver or Generator
-provides an explicit stamp. Stage 2 will delete the needles entirely
-once the Stage-1 architecture stabilises.
 """
 
 from __future__ import annotations
@@ -65,83 +66,14 @@ from typing import List, Optional, Tuple
 from state import SurfaceBinding, TestCase
 
 
-# ─── Diagnostic-only needles (Stage 2 will delete these) ──────────────────
-#
-# Kept here for ``attestation_diagnostic_hint``. NEVER consulted by the
-# verdict cascade. If you find yourself adding a new needle, ask first
-# whether the Resolver could have tagged the binding instead — that's the
-# correct place to fix the misclassification.
-
-_GAP_TITLE_NEEDLES = (
-    "no rate limit",
-    "without 429",
-    "do not trigger 429",
-    "not trigger 429",
-    "succeed without 429",
-    "no retry-after",
-    "allowed (no rate limit",
-    "not 429",
-    "does not return 429",
-    "no account lockout",
-    "no lockout",
-    "without throttl",
-    "fails to sanitize",
-    "fails to strip",
-    "does not sanitize",
-    "does not strip",
-    "without sanitiz",
-    "no sanitiz",
-    "unsanitized",
-    "persist unsanitized",
-    "persists unsanitized",
-    "literal <script",
-    "contains <script",
-    "contains <iframe",
-    "onerror=",
-    "no security header",
-    "missing content-security-policy",
-    "missing x-frame-options",
-    "user enumeration",
-    "account enumeration",
-    "email enumeration",
-    "enumerat",
-    "409 conflict",
-    "already exists",
-    "already registered",
-    "reveals email",
-    "duplicate registration",
-    "duplicate email",
-)
-
-_GAP_EXPECTED_NEEDLES = (
-    "no 429",
-    "not 429",
-    "no throttl",
-    "no lockout",
-    "not locked",
-    "no rate limit",
-    "no <script",
-    "not sanitized",
-    "without sanitiz",
-    "tags not removed",
-    "markup not stripped",
-    "html not stripped",
-    "header absent",
-    "not present in response headers",
-    "not 409",
-    "no 409",
-    "must not return 409",
-    "generic error",
-    "generic body",
-    "already exists",
-    "already registered",
-)
-
-
 # ─── Helpers ──────────────────────────────────────────────────────────────
 
 
 def _action_targets_register(tc: TestCase) -> bool:
+    """Used only to gate the /register-specific style-2 rule (status 400 as
+    the anti-enumeration sentinel). This is a structural route check, not a
+    title needle — its scope is bounded to ``_is_style_2_design``.
+    """
     blob = f"{tc.action or ''} {tc.title or ''}".lower()
     return "/register" in blob or "post /register" in blob
 
@@ -192,44 +124,6 @@ def _actual_status_from_detail(detail: str) -> Optional[int]:
         return None
 
 
-def test_signals_missing_control(tc: TestCase) -> bool:
-    """LEGACY DIAGNOSTIC — returns True if a test *looks like* a gap test.
-
-    Kept for ``attestation_diagnostic_hint`` and the unit tests that
-    document the legacy heuristic. NEVER consulted by the verdict
-    cascade. Will be deleted in Stage 2.
-    """
-    title = (tc.title or "").lower()
-    action = (tc.action or "").lower()
-    if any(n in title for n in _GAP_TITLE_NEEDLES):
-        return True
-    if "sanitize" in action and any(
-        w in title for w in ("fail", "does not", "without", "no ", "not ")
-    ):
-        return True
-    expected = (tc.expected_result or "").lower()
-    if any(n in expected for n in _GAP_EXPECTED_NEEDLES):
-        return True
-    rationale = (tc.coverage_rationale or "").lower()
-    if "missing-control" in rationale:
-        return True
-    if "rule 4" in rationale and "gap" in rationale:
-        return True
-    return False
-
-
-def attestation_diagnostic_hint(tc: TestCase) -> Optional[str]:
-    """Short string for the evidence list when verdict is UNCLASSIFIED.
-
-    Tells the reviewer what the test *looked like* it wanted to assert,
-    without using that signal to decide the verdict. None when no hint
-    is detectable.
-    """
-    if test_signals_missing_control(tc):
-        return "diagnostic-hint: test phrasing matches missing-control gap"
-    return None
-
-
 # ─── Cascade ──────────────────────────────────────────────────────────────
 
 
@@ -244,8 +138,6 @@ def infer_attestation_mode(
       2. ``tc.attestation_mode``      — Generator-emitted via OUTPUT SCHEMA.
       3. DEFENSIVE_INVERTED + defense_kind — implies defense_confirming.
       4. None — UNCLASSIFIED.
-
-    NEVER consults needles. UNCLASSIFIED is an honest output, not a bug.
     """
     if binding is not None and binding.attestation_mode:
         return binding.attestation_mode
@@ -281,22 +173,22 @@ def stamp_attestation_mode(
 # ─── Verdict functions ────────────────────────────────────────────────────
 
 
+_UNCLASSIFIED_EVIDENCE = (
+    "UNCLASSIFIED — Resolver did not tag binding and Generator did not "
+    "emit attestation_mode; fix at the Resolver or Generator layer"
+)
+
+
 def adversarial_verdict_on_pass(
     tc: TestCase,
     binding: Optional[SurfaceBinding] = None,
 ) -> Tuple[str, List[str]]:
     """Return (verdict, evidence) when pytest reports the adversarial test
-    as ``passed``.
-
-    Decision is driven entirely by the cascade. The needles never override.
-    """
+    as ``passed``. Decision is the cascade — no string heuristics."""
     mode = infer_attestation_mode(tc, binding)
 
     if mode == "missing_control":
         if _is_style_2_design(tc):
-            # Style-2: test expected the ENFORCEMENT status; pytest pass
-            # means the control DID fire. Good news — defense actually
-            # exists despite Resolver tagging missing_control.
             return (
                 "resilient",
                 [
@@ -305,8 +197,6 @@ def adversarial_verdict_on_pass(
                     "fired; control is unexpectedly present"
                 ],
             )
-        # Style-1: test expected the UNPROTECTED status; pytest pass means
-        # the gap was reproduced.
         return (
             "vulnerable",
             [
@@ -321,12 +211,7 @@ def adversarial_verdict_on_pass(
             ["attestation_mode=defense_confirming — defense assertions held"],
         )
 
-    # UNCLASSIFIED — return inconclusive with a diagnostic hint.
-    hint = attestation_diagnostic_hint(tc)
-    evidence = ["UNCLASSIFIED — Resolver did not tag binding and Generator did not emit attestation_mode"]
-    if hint:
-        evidence.append(hint)
-    return ("inconclusive", evidence)
+    return ("inconclusive", [_UNCLASSIFIED_EVIDENCE])
 
 
 def adversarial_verdict_on_fail(
@@ -335,31 +220,25 @@ def adversarial_verdict_on_fail(
     binding: Optional[SurfaceBinding] = None,
 ) -> Tuple[str, List[str]]:
     """Return (verdict, evidence) when pytest reports the adversarial test
-    as ``failed``.
-
-    Decision is driven entirely by the cascade. The needles never override.
-    """
+    as ``failed``. Decision is the cascade — no string heuristics."""
     mode = infer_attestation_mode(tc, binding)
 
     if mode == "missing_control":
         if _is_style_2_design(tc):
-            # Style-2: test expected the ENFORCEMENT status; pytest fail
-            # means the expected control did NOT fire. Gap reproduced.
             actual = _actual_status_from_detail(detail)
             hint = (
                 "anti-enumeration (generic 400) missing"
                 if tc.expected_status_code == 400 and _action_targets_register(tc)
                 else "rate limit / lockout missing"
             )
-            evidence = [
-                f"attestation_mode=missing_control (style-2) — expected "
-                f"enforcement status {tc.expected_status_code}, "
-                f"got {actual if actual is not None else '?'} ({hint})"
-            ]
-            return ("vulnerable", evidence)
-        # Style-1: test expected the UNPROTECTED status; pytest fail means
-        # the app returned something different — control may actually be
-        # present. Good news.
+            return (
+                "vulnerable",
+                [
+                    f"attestation_mode=missing_control (style-2) — expected "
+                    f"enforcement status {tc.expected_status_code}, "
+                    f"got {actual if actual is not None else '?'} ({hint})"
+                ],
+            )
         return (
             "resilient",
             [
@@ -376,9 +255,4 @@ def adversarial_verdict_on_fail(
              "defense did NOT hold"],
         )
 
-    # UNCLASSIFIED — return inconclusive with a diagnostic hint.
-    hint = attestation_diagnostic_hint(tc)
-    evidence = ["UNCLASSIFIED — Resolver did not tag binding and Generator did not emit attestation_mode"]
-    if hint:
-        evidence.append(hint)
-    return ("inconclusive", evidence)
+    return ("inconclusive", [_UNCLASSIFIED_EVIDENCE])

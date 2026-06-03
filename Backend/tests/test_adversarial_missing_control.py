@@ -1,23 +1,23 @@
-"""Attestation Stage-1 — cascade is the authority; needles are diagnostic.
+"""Attestation Stage-2 — cascade is the SOLE authority; no needles.
 
-These tests encode the post-Stage-1 architectural invariant:
+These tests encode the post-Stage-2 architectural invariant:
 
   Verdict = f(binding.attestation_mode, tc.attestation_mode, threat_class)
 
-The legacy needles (``test_signals_missing_control``) never decide the
-verdict; they only contribute a diagnostic hint when the cascade returns
-UNCLASSIFIED.
+There are NO title / expected_result heuristics anywhere in the verdict
+path. Tests that reach the Classifier without an explicit stamp produce
+``inconclusive`` — no silent default, no needle override, no diagnostic
+contamination of the evidence string.
 
 Coverage:
 
   • Explicit binding stamps drive the verdict (binding wins).
   • Style-1 vs style-2 missing_control gives opposite verdicts on the
-    same mode (driven by ``expected_status_code``).
-  • UNCLASSIFIED produces ``inconclusive`` — no silent green / red.
-  • Needles produce a *hint* on UNCLASSIFIED verdicts; they do NOT
-    flip an explicit stamp.
-  • Legacy ``test_signals_missing_control`` still returns True on gap-
-    phrased tests (Stage 2 will delete the function entirely).
+    same mode (driven by ``expected_status_code``, not strings).
+  • UNCLASSIFIED produces ``inconclusive`` with a single honest evidence
+    message pointing at the Resolver/Generator as the right fix layer.
+  • Gap-phrased test titles do NOT override an explicit defense_confirming
+    stamp — the smoking-gun architectural invariant.
 """
 
 from __future__ import annotations
@@ -25,14 +25,9 @@ from __future__ import annotations
 from agents.attestation import (
     adversarial_verdict_on_fail,
     adversarial_verdict_on_pass,
-    attestation_diagnostic_hint,
     infer_attestation_mode,
     stamp_attestation_mode,
 )
-# Aliased import — the function name starts with "test_" which makes pytest
-# try to collect it as a test case when imported into a test module. Rename
-# locally to disable that.
-from agents.attestation import test_signals_missing_control as _signals_missing_control
 from state import BackendEndpoint, SurfaceBinding, TestCase
 
 
@@ -263,32 +258,32 @@ def test_unclassified_fail_is_inconclusive():
     assert any("UNCLASSIFIED" in e for e in ev)
 
 
-def test_unclassified_with_gap_title_includes_diagnostic_hint():
-    """Needles still surface a hint on UNCLASSIFIED verdicts — diagnostic
-    only. The verdict stays inconclusive; the hint helps reviewers see
-    what the test looked like it wanted to assert."""
-    tc = _adv_test(
+def test_unclassified_evidence_is_one_honest_message():
+    """Stage-2 invariant: the UNCLASSIFIED evidence string does NOT include
+    any diagnostic hint inferred from the test's title. Gap-phrased titles
+    must not contaminate the evidence (let alone the verdict). The single
+    message points the reviewer at the right fix layer — Resolver /
+    Generator — not at the classifier."""
+    gap_phrased = _adv_test(
         title="GET /tasks/{task_id} fails to sanitize <script> tag in title",
         expected_status_code=200,
     )
-    v, ev = adversarial_verdict_on_pass(tc)
+    v, ev = adversarial_verdict_on_pass(gap_phrased)
     assert v == "inconclusive"
-    assert any("diagnostic-hint" in e for e in ev)
+    assert len(ev) == 1
+    assert "UNCLASSIFIED" in ev[0]
+    assert "Resolver" in ev[0] and "Generator" in ev[0]
+    # No needle-derived strings leak into the evidence.
+    for needle in ("sanitize", "<script", "diagnostic-hint"):
+        assert needle not in ev[0]
 
 
-# ─── Legacy diagnostic — needles function still works for telemetry ──────
-
-
-def test_legacy_needles_still_detect_gap_phrasing():
-    tc = _adv_test(title="No rate limit: 10 failed logins return 401 without 429")
-    assert _signals_missing_control(tc) is True
-
-
-def test_diagnostic_hint_returns_string_for_gap_test():
-    tc = _adv_test(title="fails to sanitize HTML in title")
-    assert attestation_diagnostic_hint(tc) is not None
-
-
-def test_diagnostic_hint_returns_none_for_clean_test():
-    tc = _adv_test(title="Reject email > 255 chars at /register")
-    assert attestation_diagnostic_hint(tc) is None
+def test_unclassified_fail_evidence_is_also_clean():
+    gap_phrased = _adv_test(
+        title="No rate limit: 10 failed logins return 401 without 429",
+        expected_status_code=200,
+    )
+    v, ev = adversarial_verdict_on_fail(gap_phrased, "Expected 200, got 500")
+    assert v == "inconclusive"
+    assert len(ev) == 1
+    assert "UNCLASSIFIED" in ev[0]
