@@ -212,8 +212,9 @@ def _tier0_off_target(
 
       Arm B — binding IS BACKEND_API but the test's bound_path (or, as a
       fallback, the path inferred from action) does not match any bound
-      endpoint. This catches Rule 11 escapes (test sneaked past
-      validation) and Compiler bugs that re-routed a mutation.
+      endpoint. Multi-step workflows are exempt when *any* workflow step
+      matches this requirement's endpoints (POST setup + PATCH assert is OK).
+      This catches Rule 11 escapes and Compiler bugs that re-routed a mutation.
 
     Both functional and adversarial tests are gated — a wrong-path
     functional failure should NOT trigger the Healer, which is what
@@ -229,14 +230,33 @@ def _tier0_off_target(
         return ("off_target", [f"binding state {binding.state} — API test not valid"])
 
     if binding.state == "BACKEND_API":
-        # Prefer the Generator-stamped bound_path; fall back to inference.
+        bound_paths = [ep.path for ep in binding.backend_endpoints]
+        steps = tc.workflow_steps or []
+        if len(steps) >= 2 and bound_paths:
+            from .generator import _probe_workflow_path
+
+            matching = [
+                f"{step.method} {step.path}"
+                for step in steps
+                if _paths_match_any(_probe_workflow_path(step.path), bound_paths)
+            ]
+            if matching:
+                return None
+            return (
+                "off_target",
+                [
+                    f"no workflow step matches binding endpoints {bound_paths}; "
+                    f"steps={[f'{s.method} {s.path}' for s in steps]}"
+                ],
+            )
+
+        # Single-shot: prefer Generator-stamped bound_path; fall back to inference.
         bound = tc.bound_path
         if not bound:
             from .security_compiler import _method_path_from_action
             _m, bound, _err = _method_path_from_action(
                 tc.action or "", title=tc.title or "", input_data=tc.input_data,
             )
-        bound_paths = [ep.path for ep in binding.backend_endpoints]
         if bound and bound_paths and not _paths_match_any(bound, bound_paths):
             return (
                 "off_target",

@@ -1754,6 +1754,30 @@ def _workflow_allowed_paths(
     return paths
 
 
+def _workflow_stamp_for_binding(
+    tc: TestCase,
+    binding: SurfaceBinding,
+) -> Tuple[str, str]:
+    """Pick bound_method/bound_path for a workflow test.
+
+    Stamp the first step whose path matches *this requirement's* endpoints
+    (e.g. PATCH /tasks/{task_id} for REQ-003), not the first step of the
+    workflow (often POST /tasks/ setup). Tier-0 and Compiler use bound_path.
+    """
+    req_paths = [ep.path for ep in binding.backend_endpoints]
+    fallback_method: Optional[str] = None
+    fallback_path: Optional[str] = None
+    for step in tc.workflow_steps:
+        method = step.method.upper()
+        path = step.path
+        if fallback_method is None:
+            fallback_method, fallback_path = method, path
+        probe = _probe_workflow_path(path)
+        if req_paths and _paths_match_any(probe, req_paths):
+            return method, path
+    return fallback_method or "POST", fallback_path or "/"
+
+
 def _validate_workflow_test_against_binding(
     tc: TestCase,
     binding: SurfaceBinding,
@@ -1767,21 +1791,17 @@ def _validate_workflow_test_against_binding(
         )
     if binding.state != "BACKEND_API":
         return (False, None, None, "workflow test requires BACKEND_API binding")
-    bound_paths = _workflow_allowed_paths(binding, surface_map)
-    first_method: Optional[str] = None
-    first_path: Optional[str] = None
+    allowed_paths = _workflow_allowed_paths(binding, surface_map)
     for step in tc.workflow_steps:
         probe = _probe_workflow_path(step.path)
-        if not _binding_is_app_wide(binding) and not _paths_match_any(probe, bound_paths):
+        if not _binding_is_app_wide(binding) and not _paths_match_any(probe, allowed_paths):
             return (
                 False, step.method, probe,
                 f"workflow step {step.method} {step.path} not allowed by surface binding "
                 f"{[(ep.method, ep.path) for ep in binding.backend_endpoints]}",
             )
-        if first_method is None:
-            first_method = step.method.upper()
-            first_path = step.path
-    return (True, first_method, first_path, None)
+    stamp_method, stamp_path = _workflow_stamp_for_binding(tc, binding)
+    return (True, stamp_method, stamp_path, None)
 
 
 def _validate_test_against_binding(

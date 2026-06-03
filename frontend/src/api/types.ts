@@ -137,7 +137,7 @@ export const TestCaseSchema = z.object({
 
 export const VerdictRecordSchema = z.object({
   test_id: z.string(),
-  status: z.enum(["passed", "failed", "skipped", "error"]),
+  status: z.enum(["passed", "failed", "skipped", "error", "off_target"]),
   verdict: z
     .enum(["resilient", "vulnerable", "off_target", "inconclusive", "n/a"])
     .nullish(),

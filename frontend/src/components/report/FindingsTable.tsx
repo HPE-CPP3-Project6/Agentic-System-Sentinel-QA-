@@ -16,6 +16,7 @@ const STATUS_BADGE: Record<string, "success" | "danger" | "caution" | "muted"> =
   failed: "danger",
   error: "caution",
   skipped: "muted",
+  off_target: "muted",
 };
 
 const VERDICT_BADGE: Record<string, "success" | "danger" | "muted" | "outline"> = {
@@ -35,7 +36,13 @@ export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
   const counts = useMemo(() => {
     return {
       all: rows.length,
-      issues: rows.filter((r) => r.status === "failed" || r.status === "error" || r.verdict === "vulnerable").length,
+      issues: rows.filter(
+        (r) =>
+          r.status === "failed" ||
+          r.status === "error" ||
+          r.verdict === "vulnerable" ||
+          r.status === "off_target",
+      ).length,
       adversarial: rows.filter((r) => r.is_adversarial).length,
       passed: rows.filter((r) => r.status === "passed").length,
     };
@@ -44,7 +51,13 @@ export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
   const filtered = useMemo(() => {
     switch (filter) {
       case "issues":
-        return rows.filter((r) => r.status === "failed" || r.status === "error" || r.verdict === "vulnerable");
+        return rows.filter(
+          (r) =>
+            r.status === "failed" ||
+            r.status === "error" ||
+            r.verdict === "vulnerable" ||
+            r.status === "off_target",
+        );
       case "adversarial":
         return rows.filter((r) => r.is_adversarial);
       case "passed":
