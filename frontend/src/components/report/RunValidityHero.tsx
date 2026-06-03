@@ -41,6 +41,13 @@ const VALIDITY_META: Record<
     Icon: FileCode2,
     blurb: "Contracts + checklist generated before code exists; nothing executed.",
   },
+  NOT_ATTESTED: {
+    label: "Not attested",
+    tone: "text-caution",
+    accent: "border-l-caution bg-caution-bg/40",
+    Icon: ShieldAlert,
+    blurb: "No tests ran — dynamic security posture is not trustworthy.",
+  },
 };
 
 function metricFor(artifact: ProjectState): { label: string; value: string } | null {

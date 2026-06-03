@@ -200,6 +200,10 @@ function lastRunBadge(
       return { variant: "default", label: "Design only" };
     case "FUNCTIONALLY_UNRELIABLE":
       return { variant: "caution", label: "Unreliable" };
+    case "NOT_ATTESTED":
+      return { variant: "caution", label: "Not attested" };
+    case "TARGET_UNREACHABLE":
+      return { variant: "danger", label: "Unreachable" };
     default:
       return { variant: "muted", label: run.run_validity };
   }

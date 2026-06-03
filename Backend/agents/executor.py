@@ -687,15 +687,18 @@ def _security_posture(logs: List[ExecutionLog]) -> Dict[str, object]:
     resilient = sum(1 for l in adv if l.resilient is True)
     vulnerable = sum(1 for l in adv if l.is_vulnerable is True)
 
-    # Two distinct failure-to-decide modes — must NOT be conflated:
-    #   skipped — pytest.skip fired (no JWT, parametrize filter, etc.).
-    #             The attack never ran. NOT evidence of resilience.
-    #   error   — pytest_runner timeout, collect error, target unreachable.
-    #             The attack tried to run and infrastructure failed.
-    #             NOT evidence of resilience either — but ALSO not evidence
-    #             that the test was deliberately filtered out.
-    # Previous version lumped both into "skipped", which lied about how
-    # much was deliberately deferred vs how much fell over.
+    # Three distinct failure-to-decide modes — must NOT be conflated:
+    #   skipped      — pytest.skip fired (no JWT, parametrize filter, etc.).
+    #                  Attack never ran. NOT evidence of resilience.
+    #   errored      — pytest_runner timeout, collect error, target unreachable.
+    #                  Attack tried to run; infrastructure failed.
+    #   unclassified — attestation cascade returned None and body-evidence
+    #                  tier did not promote to vulnerable. Verdict was
+    #                  honestly inconclusive. The Resolver did not tag the
+    #                  binding and the Generator did not emit
+    #                  attestation_mode. Counts as a coverage problem, NOT
+    #                  as resilient. Surfaces in its own bucket so the
+    #                  dashboard can call out the tagging gap.
     skipped = sum(
         1 for l in adv
         if l.resilient is None and l.is_vulnerable is None and l.status == "skipped"
@@ -704,6 +707,7 @@ def _security_posture(logs: List[ExecutionLog]) -> Dict[str, object]:
         1 for l in adv
         if l.resilient is None and l.is_vulnerable is None and l.status == "error"
     )
+    unclassified = sum(1 for l in adv if l.verdict == "inconclusive")
     decided = resilient + vulnerable
 
     by_target: Dict[str, Dict[str, int]] = {}
@@ -711,13 +715,16 @@ def _security_posture(logs: List[ExecutionLog]) -> Dict[str, object]:
         key = l.exploit_target or "unknown"
         bucket = by_target.setdefault(
             key,
-            {"attempted": 0, "resilient": 0, "vulnerable": 0, "skipped": 0, "errored": 0},
+            {"attempted": 0, "resilient": 0, "vulnerable": 0,
+             "skipped": 0, "errored": 0, "unclassified": 0},
         )
         bucket["attempted"] += 1
         if l.resilient is True:
             bucket["resilient"] += 1
         elif l.is_vulnerable is True:
             bucket["vulnerable"] += 1
+        elif l.verdict == "inconclusive":
+            bucket["unclassified"] += 1
         elif l.status == "error":
             bucket["errored"] += 1
         else:
@@ -729,8 +736,13 @@ def _security_posture(logs: List[ExecutionLog]) -> Dict[str, object]:
         "vulnerable": vulnerable,
         "skipped": skipped,
         "errored": errored,
-        # Percentage is computed against DECIDED tests only — skipped AND
-        # errored are excluded so partial runs do not understate resilience.
+        # UNCLASSIFIED tests had no explicit attestation stamp (Resolver
+        # didn't tag the binding; Generator didn't emit a mode). They are
+        # NOT counted as resilient — that would inflate the dashboard.
+        "unclassified": unclassified,
+        # Percentage is computed against DECIDED tests only — skipped,
+        # errored, and unclassified are all excluded so partial / weakly-
+        # tagged runs cannot understate or fake resilience.
         "resilience_pct": round(100 * resilient / decided, 1) if decided else None,
         "by_exploit_target": by_target,
     }
@@ -784,6 +796,16 @@ def _suite_quality(
     floor = max(3, validated_requirements_count)
     if test_suite_size < floor:
         return "INSUFFICIENT"
+    # Stage-1 attestation gate: too many UNCLASSIFIED adversarial verdicts
+    # means the Resolver / Generator didn't tag the bindings, so the
+    # resilience % is computed on a sliver of the suite. Surface this as
+    # INCONCLUSIVE_HEAVY rather than letting the headline number lie.
+    # Threshold: > 30% of adversarial logs were unclassified.
+    adv_logs = [l for l in run_logs if l.is_adversarial]
+    if adv_logs:
+        unclassified = sum(1 for l in adv_logs if l.verdict == "inconclusive")
+        if unclassified / len(adv_logs) > 0.30:
+            return "INCONCLUSIVE_HEAVY"
     # Empty-adversarial is honest when there are no risks to attack.
     if security_risks_count == 0:
         return "NO_RISKS_PREDICTED"
@@ -1203,12 +1225,23 @@ def executor_node(
         state.metadata["run_validity"] = "TARGET_UNREACHABLE"
         state.metadata["run_validity_evidence"] = _unreachable
     else:
-        _unreliable = _detect_functional_unreliability(run_logs, new_patches)
-        if _unreliable is not None:
-            state.metadata["run_validity"] = "FUNCTIONALLY_UNRELIABLE"
-            state.metadata["run_validity_evidence"] = _unreliable
+        if _coverage_quality in ("NO_TESTS_GENERATED", "ALL_SKIPPED"):
+            state.metadata["run_validity"] = "NOT_ATTESTED"
+            state.metadata["run_validity_evidence"] = {
+                "reason": (
+                    "no tests executed against the target — "
+                    f"coverage_quality={_coverage_quality}"
+                ),
+                "coverage_quality": _coverage_quality,
+                "test_suite_size": len(state.test_suite),
+            }
         else:
-            state.metadata["run_validity"] = "OK"
+            _unreliable = _detect_functional_unreliability(run_logs, new_patches)
+            if _unreliable is not None:
+                state.metadata["run_validity"] = "FUNCTIONALLY_UNRELIABLE"
+                state.metadata["run_validity_evidence"] = _unreliable
+            else:
+                state.metadata["run_validity"] = "OK"
 
     # Posture is only trustworthy when run_validity == OK. When it isn't, keep
     # the RAW counts for forensics but suppress the headline resilience_pct so

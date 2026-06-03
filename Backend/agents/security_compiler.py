@@ -803,6 +803,7 @@ def _mutate(
         exploit_target=payload.exploit_target,
         mutated_fields=mutated_fields,
         parent_test_id=base.test_id,
+        attestation_mode="defense_confirming",
     )
 
 

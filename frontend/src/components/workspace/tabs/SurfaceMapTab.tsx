@@ -336,6 +336,17 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono font-semibold">{selected.req_id}</span>
                 <Badge variant={STATE_BADGE[selected.state] ?? "muted"}>{selected.state}</Badge>
+                {/* Stage-1: attestation_mode chip on the binding card. Reviewers
+                    see at a glance whether the Resolver tagged this REQ as
+                    "gap to attest" (missing_control) or "defense to verify"
+                    (defense_confirming). Adversarial tests for this REQ
+                    inherit the same mode. */}
+                {selected.attestation_mode === "missing_control" && (
+                  <Badge variant="caution" className="normal-case">attesting gap</Badge>
+                )}
+                {selected.attestation_mode === "defense_confirming" && (
+                  <Badge variant="success" className="normal-case">verifying defense</Badge>
+                )}
               </div>
               <p>{selected.requirement_text}</p>
               {selected.threat_class && (

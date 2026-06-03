@@ -130,9 +130,26 @@ export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
                   </td>
                   <td className="px-3 py-2">
                     {r.verdict && r.verdict !== "n/a" ? (
-                      <Badge variant={VERDICT_BADGE[r.verdict] ?? "muted"} className="normal-case">
-                        {r.verdict}
-                      </Badge>
+                      <div className="space-y-1">
+                        <Badge variant={VERDICT_BADGE[r.verdict] ?? "muted"} className="normal-case">
+                          {r.verdict}
+                        </Badge>
+                        {/* Stage-1: per-test attestation chip. The verdict
+                            cascade used this stamp as authority, so showing
+                            it makes the WHY of the verdict legible. */}
+                        {r.attestation_mode && (
+                          <p className="text-[10px] text-muted">
+                            {r.attestation_mode === "missing_control"
+                              ? "attesting gap"
+                              : "verifying defense"}
+                          </p>
+                        )}
+                        {r.is_adversarial && !r.attestation_mode && r.verdict === "inconclusive" && (
+                          <p className="text-[10px] text-amber-600 dark:text-amber-500">
+                            UNCLASSIFIED — no Resolver/Generator stamp
+                          </p>
+                        )}
+                      </div>
                     ) : (
                       <span className="text-muted">—</span>
                     )}

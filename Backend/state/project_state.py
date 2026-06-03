@@ -66,6 +66,12 @@ DefenseKind = Literal[
     "ERROR_SANITIZATION",  # 5xx + forbidden_response_content. e.g. generic 500, no SQL fragment.
 ]
 
+# Offensive-security attestation — control absent but attack surface exists.
+AttestationMode = Literal[
+    "defense_confirming",  # default: verify an implemented defense (Rule 11b)
+    "missing_control",     # required control absent; attest via Rule 4 adversarial tests
+]
+
 
 # Verdict supersedes the legacy is_vulnerable/resilient pair on ExecutionLog.
 # The mapping in `_legacy_fields_from_verdict` keeps back-compat consumers
@@ -150,6 +156,9 @@ class SurfaceBinding(BaseModel):
     anti_pattern_summary: Optional[str] = None
     defense_assertion: Optional[str] = None
     defense_kind: Optional[DefenseKind] = None
+    # When ``missing_control``, Generator MUST emit Rule 4 adversarial tests
+    # against ``backend_endpoints`` even though the control is not in code yet.
+    attestation_mode: Optional[AttestationMode] = None
 
 
 class WorkflowStep(BaseModel):
@@ -237,6 +246,8 @@ class TestCase(BaseModel):
     bound_method: Optional[str] = None
     bound_path: Optional[str] = None
     bound_surface_state: Optional[SurfaceState] = None
+    # Rule 4 missing-control: pytest pass confirms vulnerability, not resilience.
+    attestation_mode: Optional[AttestationMode] = None
 
 
 class CoverageGap(BaseModel):

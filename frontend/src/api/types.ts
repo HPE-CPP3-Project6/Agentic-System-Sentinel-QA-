@@ -22,18 +22,43 @@ export const DefenseKindSchema = z.enum([
   "ERROR_SANITIZATION",
 ]);
 
+// Stage-1 attestation taxonomy. The Resolver tags each binding with one
+// of these (or leaves it null/untagged). Adversarial tests inherit the
+// stamp from their binding; the Classifier verdict cascade uses the
+// stamp as the authority. See Backend/agents/attestation.py for the
+// full cascade.
+//
+//   missing_control     — the required defense is ABSENT in code; tests
+//                         document the gap (pass = vulnerable).
+//   defense_confirming  — the defense IS present; tests verify it holds
+//                         (pass = resilient).
+//
+// A null/missing attestation_mode on an adversarial test produces an
+// UNCLASSIFIED verdict (renders as "inconclusive" in the artifact and
+// is counted in its own posture bucket).
+export const AttestationModeSchema = z.enum([
+  "missing_control",
+  "defense_confirming",
+]);
+
 export const PipelineModeSchema = z.enum(["pre_code", "post_code", "PRE_CODE", "POST_CODE"]);
 export const RunValiditySchema = z.enum([
   "OK",
   "FUNCTIONALLY_UNRELIABLE",
   "TARGET_UNREACHABLE",
   "DESIGN_ONLY",
+  "NOT_ATTESTED",
 ]);
 
 export const SuiteQualitySchema = z.enum([
   "ATTESTABLE",
   "INSUFFICIENT",
   "PROXY_HEAVY",
+  // Stage-1 attestation gate: > 30% of adversarial logs were UNCLASSIFIED
+  // (no Resolver stamp, no Generator stamp). The resilience % is computed
+  // on a sliver of the suite — surface as its own badge instead of letting
+  // the headline number lie.
+  "INCONCLUSIVE_HEAVY",
   "NO_RISKS_PREDICTED",
   "ALL_SKIPPED",
   "NO_TESTS_GENERATED",
@@ -116,6 +141,8 @@ export const SurfaceBindingSchema = z.object({
   grounding_refs: z.array(z.string()).default([]),
   confidence: z.enum(["high", "medium", "low"]).nullish(),
   assertion_hint: z.string().nullish(),
+  // Stage-1 attestation taxonomy — Resolver's classification for this REQ.
+  attestation_mode: AttestationModeSchema.nullish(),
 });
 
 export const TestCaseSchema = z.object({
@@ -133,6 +160,12 @@ export const TestCaseSchema = z.object({
     .nullish(),
   forbidden_response_content: z.array(z.string()).nullish(),
   source_refs: z.array(z.string()).nullish(),
+  // Stage-1 attestation — null on functional tests; required-on-emit for
+  // adversarial tests (Generator OUTPUT SCHEMA). Renders as a chip on
+  // each adversarial test row so reviewers see "this test was attesting
+  // a gap (missing_control)" or "this test was verifying a defense
+  // (defense_confirming)" at a glance.
+  attestation_mode: AttestationModeSchema.nullish(),
 });
 
 export const VerdictRecordSchema = z.object({
@@ -152,6 +185,10 @@ export const VerdictRecordSchema = z.object({
   title: z.string().nullish(),
   stderr_excerpt: z.string().nullish(),
   verdict_evidence: z.array(z.string()).nullish(),
+  // Stage-1: the attestation mode the test was emitted with. Lets the
+  // findings row show "this test was attesting a GAP" vs "this test was
+  // verifying a DEFENSE" — same info that drove the verdict cascade.
+  attestation_mode: AttestationModeSchema.nullish(),
 });
 
 // test_suite_summary — typed so the ISTQB technique + category rollups render.
@@ -220,6 +257,9 @@ const ExploitTargetCountsSchema = z.object({
   vulnerable: z.number().nullish(),
   skipped: z.number().nullish(),
   errored: z.number().nullish(),
+  // Stage-1 — UNCLASSIFIED bucket per exploit target. Tests with no
+  // Resolver/Generator attestation stamp count here, not in resilient.
+  unclassified: z.number().nullish(),
 });
 
 export const SecurityPostureSchema = z.object({
@@ -228,6 +268,10 @@ export const SecurityPostureSchema = z.object({
   vulnerable: z.number().nullish(),
   skipped: z.number().nullish(),
   errored: z.number().nullish(),
+  // Stage-1 — UNCLASSIFIED count. EXCLUDED from resilience_pct denominator
+  // so weakly-tagged runs cannot fake green; surfaced in its own bucket
+  // so the dashboard can flag the tagging gap.
+  unclassified: z.number().nullish(),
   resilience_pct: z.number().nullish(),
   by_exploit_target: z.record(z.string(), ExploitTargetCountsSchema).nullish(),
 });

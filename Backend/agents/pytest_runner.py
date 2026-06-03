@@ -20,6 +20,11 @@ from typing import Dict, List, Optional, Tuple
 from state import ExecutionLog, SurfaceBinding, TestCase, _legacy_fields_from_verdict
 
 from ._paths import _paths_match_any
+from .attestation import (
+    adversarial_verdict_on_fail,
+    adversarial_verdict_on_pass,
+    stamp_attestation_mode,
+)
 from .security_compiler import slug_from_test_id
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
@@ -155,30 +160,31 @@ def _is_exploit_success_status(tc: TestCase, status_code: int) -> bool:
     return status_code in _DEFAULT_EXPLOIT_SUCCESS_STATUSES
 
 
-def _classify_adversarial_failure(
-    tc: TestCase, detail: str,
-) -> Tuple[bool, bool]:
-    """Return (is_vulnerable, resilient) for an adversarial test pytest-fail.
+def _body_evidence_says_vulnerable(tc: TestCase, detail: str) -> bool:
+    """Independent body-evidence check — fires on hard exploit signals.
 
-    Order of evidence (highest-confidence first):
-      1. Forbidden-keyword assertion stamp present → vulnerable.
-      2. Response body excerpt contains any of tc.forbidden_response_content
-         → vulnerable.
-      3. Per-route exploit-success status hit (_is_exploit_success_status)
-         → vulnerable.
-      4. Otherwise → resilient (app rejected via an unenumerated status).
+    These tiers detect *response-body* evidence of compromise that is
+    independent of the attestation cascade:
+
+      • Tier B1 — pytest's _assert_forbidden helper stamped a
+        FORBIDDEN_HIT marker in the assertion detail.
+      • Tier B2 — the response excerpt contains any of the test's
+        ``forbidden_response_content`` keywords (SQL fragments, stack
+        frames, leaked email markers).
+      • Tier B3 — the actual HTTP status hit a per-route exploit-success
+        code (e.g. /tasks/{other_user_id} returning 200 instead of 403).
+
+    Each tier is a HARD signal that the body shows the attack worked —
+    they can promote ``inconclusive`` to ``vulnerable`` and override a
+    cascade ``resilient`` (the cascade said "defense held" but the body
+    proves otherwise). They never demote ``vulnerable`` to anything.
     """
-    # Tier 1 — assertion message stamp from _assert_forbidden helper
     if _FORBIDDEN_HIT_RE.search(detail or ""):
-        return True, False
-
-    # Tier 2 — scan extracted response excerpt for any forbidden keyword
+        return True
     excerpt_lc = (detail or "").lower()
     for kw in tc.forbidden_response_content or []:
         if kw and kw.lower() in excerpt_lc:
-            return True, False
-
-    # Tier 3 — extract actual status; check per-route semantics.
+            return True
     m = _GOT_STATUS_RE.search(detail or "")
     if m:
         try:
@@ -186,10 +192,49 @@ def _classify_adversarial_failure(
         except ValueError:
             actual = -1
         if actual >= 0 and _is_exploit_success_status(tc, actual):
-            return True, False
+            return True
+    return False
 
-    # Tier 4 — status mismatch without exploit indicators → app neutralized.
-    return False, True
+
+def _classify_adversarial_failure(
+    tc: TestCase,
+    detail: str,
+    binding: Optional["SurfaceBinding"] = None,
+) -> Tuple[str, List[str]]:
+    """Return (verdict, evidence) for an adversarial test pytest-fail.
+
+    Verdict is one of ``"vulnerable"``, ``"resilient"``, ``"inconclusive"``.
+
+    Decision order:
+
+      1. Run the attestation cascade — that's the AUTHORITY when a stamp
+         exists. (The cascade NEVER uses needles.)
+      2. Run independent body-evidence checks (tier B1–B3) — these can
+         promote ``inconclusive`` to ``vulnerable`` and override
+         ``resilient`` if the body actually leaks.
+      3. If the cascade returned ``"resilient"`` and no body evidence
+         fired, keep ``"resilient"``.
+      4. If the cascade returned ``"inconclusive"`` and no body evidence
+         fired, the result is honestly UNCLASSIFIED → ``"inconclusive"``.
+
+    Net effect: explicit stamps win unless the response body shows a
+    hard exploit signal; tests without a stamp do not silently roll into
+    the resilient column.
+    """
+    v_cascade, ev_cascade = adversarial_verdict_on_fail(tc, detail, binding)
+    body_says_vuln = _body_evidence_says_vulnerable(tc, detail)
+
+    if v_cascade == "vulnerable":
+        return "vulnerable", ev_cascade
+    if body_says_vuln:
+        # Body evidence overrides "resilient" or "inconclusive" — when the
+        # body says the app leaked, we trust the body.
+        ev = ev_cascade + ["body-evidence override: forbidden token / exploit-success status hit"]
+        return "vulnerable", ev
+    if v_cascade == "resilient":
+        return "resilient", ev_cascade
+    # UNCLASSIFIED with no body evidence → honest inconclusive.
+    return "inconclusive", ev_cascade
 
 
 # --------------------------------------------------------------------------- #
@@ -465,10 +510,23 @@ def run_pytest_generated_file(
             continue
 
         st, detail = cases[func_name]
+        # Look up binding once per test — used by the attestation cascade
+        # for both pass and fail paths. None when surface_map is empty
+        # (back-compat / Resolver-disabled runs) or the REQ wasn't bound.
+        binding = (
+            surface_map.get(tc.covered_requirement_id)
+            if surface_map and tc.covered_requirement_id
+            else None
+        )
+
         if st == "passed":
             if tc.is_adversarial:
-                v = "resilient"
+                stamp_attestation_mode(tc, binding)
+                v, evidence = adversarial_verdict_on_pass(tc, binding)
                 isv, isr = _legacy_fields_from_verdict(v)
+                # confidence: high when an explicit stamp drove the verdict,
+                # low when we landed on inconclusive (UNCLASSIFIED).
+                confidence = "low" if v == "inconclusive" else "high"
                 logs.append(
                     ExecutionLog(
                         test_id=tc.test_id,
@@ -478,8 +536,8 @@ def run_pytest_generated_file(
                         resilient=isr,
                         exploit_target=et,
                         verdict=v,
-                        verdict_confidence="high",
-                        verdict_evidence=["pytest passed; assertions held"],
+                        verdict_confidence=confidence,
+                        verdict_evidence=evidence,
                         bound_surface_state=tc.bound_surface_state,
                         stdout=detail[:2000] if detail else None,
                     )
@@ -518,29 +576,34 @@ def run_pytest_generated_file(
             )
         elif st == "failed":
             if tc.is_adversarial:
-                # P0-1: content-aware classification — not every pytest-fail
-                # is a vulnerability. Status mismatch alone (e.g. 401 vs 400,
-                # 422 vs 400) is NOT exploit evidence; forbidden-keyword
-                # leakage and exploit-success status codes (200/201) ARE.
-                is_vuln, is_resi = _classify_adversarial_failure(tc, detail or "")
-                # Reflect the classification in the log's status so a
-                # non-exploit failure doesn't look like a real attack hit
-                # in the artifact.
-                v = "vulnerable" if is_vuln else "resilient"
-                log_status = "failed" if is_vuln else "passed"
+                stamp_attestation_mode(tc, binding)
+                v, evidence = _classify_adversarial_failure(tc, detail or "", binding)
+                isv, isr = _legacy_fields_from_verdict(v)
+                # Map verdict → log_status:
+                #   vulnerable  → "failed" (real test failure surfaces in the
+                #                 pytest counter, drives Healer routing)
+                #   resilient   → "passed" (defense held; pytest "fail" was the
+                #                 desired outcome — the attack was repelled)
+                #   inconclusive → "failed" (the test ran and pytest reported
+                #                 failed; we honestly don't know if the app is
+                #                 vulnerable or just behaved unexpectedly)
+                log_status = "passed" if v == "resilient" else "failed"
+                confidence = (
+                    "low" if v == "inconclusive"
+                    else "medium" if not binding or not binding.attestation_mode
+                    else "high"
+                )
                 logs.append(
                     ExecutionLog(
                         test_id=tc.test_id,
                         status=log_status,
                         is_adversarial=True,
-                        is_vulnerable=is_vuln,
-                        resilient=is_resi,
+                        is_vulnerable=isv,
+                        resilient=isr,
                         exploit_target=et,
                         verdict=v,
-                        verdict_confidence="medium",
-                        verdict_evidence=[
-                            "classified from pytest-fail body/status via tier-1..4"
-                        ],
+                        verdict_confidence=confidence,
+                        verdict_evidence=evidence,
                         bound_surface_state=tc.bound_surface_state,
                         stderr=detail[:8000],
                     )

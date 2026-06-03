@@ -13,6 +13,9 @@ export interface ReportSummary {
   resiliencePct: number | null;
   resilient: number | null;
   vulnerable: number | null;
+  /** Stage-1: adversarial tests with no attestation stamp. Honest
+   *  inconclusive — surfaced separately so the resilience % isn't lied to. */
+  unclassified: number | null;
 }
 
 /** Single source of truth for the pass/fail/success rollup — used by the
@@ -38,5 +41,6 @@ export function computeSummary(a: ProjectState): ReportSummary {
     resiliencePct: posture?.resilience_pct ?? a.resilience_pct ?? null,
     resilient: posture?.resilient ?? null,
     vulnerable: posture?.vulnerable ?? null,
+    unclassified: posture?.unclassified ?? null,
   };
 }

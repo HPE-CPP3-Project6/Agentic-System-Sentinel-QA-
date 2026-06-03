@@ -151,18 +151,20 @@ def test_skipped_adversarial_not_counted_as_resilient():
     assert posture["vulnerable"] == 1
     assert posture["skipped"] == 1
     assert posture["errored"] == 0
-    # Internal consistency: every adversarial bucket is one of the four states.
+    assert posture["unclassified"] == 0
+    # Internal consistency: every adversarial bucket is one of the five states.
     assert (
         posture["resilient"] + posture["vulnerable"]
-        + posture["skipped"] + posture["errored"]
+        + posture["skipped"] + posture["errored"] + posture["unclassified"]
         == posture["attempted"]
     )
-    # Resilience % is over DECIDED tests only — skipped/errored excluded from denominator.
+    # Resilience % is over DECIDED tests only — skipped/errored/unclassified excluded.
     assert posture["resilience_pct"] == 50.0  # 1 resilient / 2 decided
 
     by_t = posture["by_exploit_target"]["A03:2021-Injection"]
     assert by_t == {
-        "attempted": 3, "resilient": 1, "vulnerable": 1, "skipped": 1, "errored": 0,
+        "attempted": 3, "resilient": 1, "vulnerable": 1,
+        "skipped": 1, "errored": 0, "unclassified": 0,
     }
 
 
@@ -218,7 +220,8 @@ def test_errored_adversarial_not_counted_as_skipped_or_resilient():
 
     by_t = posture["by_exploit_target"]["A03:2021-Injection"]
     assert by_t == {
-        "attempted": 3, "resilient": 1, "vulnerable": 0, "skipped": 1, "errored": 1,
+        "attempted": 3, "resilient": 1, "vulnerable": 0,
+        "skipped": 1, "errored": 1, "unclassified": 0,
     }
 
 

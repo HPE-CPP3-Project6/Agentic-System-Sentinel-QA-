@@ -41,6 +41,7 @@ from state import (
     ValidatedRequirement,
 )
 from ._paths import _paths_match_any
+from .attestation import stamp_attestation_mode
 from utils import (
     LLMInvocationError,
     get_local_llm,
@@ -944,7 +945,11 @@ OUTPUT SCHEMA
       "coverage_rationale": "Satisfies AC '<criterion>' of <REQ-ID>. ...",
       "covered_requirement_id": "<REQ-ID>",
       "covered_acceptance_criterion": "<criterion text>",
-      "source_refs": ["<path:start-end from source context>"]
+      "source_refs": ["<path:start-end from source context>"],
+      "is_adversarial": false,
+      "attestation_mode": null,
+      "vulnerability_signature": null,
+      "resilience_signature": null
     }}
   ],
   "coverage_gaps": [
@@ -955,6 +960,69 @@ OUTPUT SCHEMA
     }}
   ]
 }}
+
+============================================================
+ADVERSARIAL FIELD CONTRACT (HARD CONSTRAINT)
+============================================================
+
+These four fields drive the security posture the dashboard reports. If
+you get them wrong, the verdict UI lies. Treat them as authoritative
+metadata.
+
+  is_adversarial
+    true  when test_category is "security" AND the test exercises an
+          attacker action (XSS payload, brute-force loop, SQLi probe,
+          IDOR, missing-control demonstration, etc.).
+    false otherwise (positive / negative / boundary functional tests).
+
+  attestation_mode  — REQUIRED when is_adversarial is true.
+                      MUST be null otherwise.
+
+    "missing_control"
+        The required defense is ABSENT in the retrieved code; this test
+        documents the gap. Pytest pass = gap reproduced = vulnerable.
+        Use whenever:
+          - the SURFACE BINDING block declares
+            attestation_mode: missing_control, OR
+          - the Critic flagged a security risk for this REQ AND retrieval
+            does not show a corresponding defense (validator, rate-limit,
+            sanitizer, header, anti-enumeration response shape).
+
+    "defense_confirming"
+        The defense IS present in the retrieved code; this test verifies
+        it holds. Pytest pass = defense held = resilient.
+        Use whenever:
+          - the SURFACE BINDING block declares
+            attestation_mode: defense_confirming, OR
+          - the binding's threat_class is DEFENSIVE_INVERTED with a
+            defense_kind set (Rule 11b).
+
+    INHERITANCE: when the SURFACE BINDING block explicitly states an
+    attestation_mode, every adversarial test you emit for this REQ
+    MUST carry that same value. The binding is the single source of
+    truth — do not flip it based on your own reading of the test.
+
+  vulnerability_signature
+    Required when attestation_mode is "missing_control". One sentence
+    describing what an exploited / unprotected response looks like
+    (e.g. "16 sequential POST /register all return 201; no Retry-After"
+    or "title field round-trips '<script>' verbatim in response body").
+
+  resilience_signature
+    Required when attestation_mode is "missing_control". One sentence
+    describing what a patched/resilient response would look like
+    (e.g. "16th POST /register returns 429 with Retry-After header"
+    or "title field stored with HTML escaped").
+
+VIOLATION HANDLING:
+  - Adversarial tests with attestation_mode = null will be flagged
+    UNCLASSIFIED. They are NOT counted as resilient or vulnerable —
+    they appear in a separate "unclassified" bucket and the dashboard
+    surfaces them as a coverage problem.
+  - Setting attestation_mode = "defense_confirming" on a test that
+    actually documents a gap (e.g. titled "User Enumeration") will
+    return the wrong verdict. If you see a gap, emit "missing_control"
+    even when your test title sounds defensive.
 """
 
 
@@ -1669,6 +1737,34 @@ def _render_surface_binding_block(binding: Optional[SurfaceBinding]) -> str:
             "OUTPUT_REDACTION) will be DROPPED by post-validation."
         )
 
+    missing_control_block = ""
+    if binding.attestation_mode == "missing_control":
+        missing_control_block = (
+            "\n"
+            "MISSING CONTROL ATTESTATION (Rule 4 — HARD CONSTRAINT):\n"
+            "  attestation_mode:  missing_control\n"
+            "  The required security control is ABSENT from retrieved code.\n"
+            "  Emit at least one `security` / `is_adversarial: true` test per AC\n"
+            "  that demonstrates the gap on the bound endpoint (e.g. repeated\n"
+            "  failed logins all return 401 with no 429 / Retry-After / lockout).\n"
+            "  Do NOT emit a coverage_gap for the missing control — absence IS\n"
+            "  the finding. Use `_repeat` in input_data for brute-force loops.\n"
+            "  `expected_status_code` is what the unprotected app returns today\n"
+            "  (usually 401 on /login); `vulnerability_signature` describes the\n"
+            "  observed weakness; `resilience_signature` describes the patched app.\n"
+            "  EVERY adversarial test you emit for this REQ MUST carry\n"
+            "  `attestation_mode: \"missing_control\"` — do not override.\n"
+        )
+    elif binding.attestation_mode == "defense_confirming":
+        missing_control_block = (
+            "\n"
+            "DEFENSE-CONFIRMING ATTESTATION (HARD CONSTRAINT):\n"
+            "  attestation_mode:  defense_confirming\n"
+            "  The required defense IS present in retrieved code; verify it holds.\n"
+            "  EVERY adversarial test you emit for this REQ MUST carry\n"
+            "  `attestation_mode: \"defense_confirming\"` — do not override.\n"
+        )
+
     return (
         "SURFACE BINDING (Rule 11 — HARD CONSTRAINT):\n"
         f"  state: BACKEND_API\n"
@@ -1677,7 +1773,8 @@ def _render_surface_binding_block(binding: Optional[SurfaceBinding]) -> str:
         f"  grounding: {grounding}\n"
         f"  bound endpoints (you MAY emit tests against ONLY these):\n"
         f"{eps_lines}\n"
-        + anti_pattern_block + "\n"
+        + anti_pattern_block
+        + missing_control_block + "\n"
         "All tests' `action` field MUST begin with one of the bound\n"
         "endpoints in the form 'METHOD /path ...'. Any test against\n"
         "another path will be DROPPED by post-validation."
@@ -2232,6 +2329,10 @@ def generator_node(state: ProjectState) -> ProjectState:
                 tc_obj.bound_method = bound_method
                 tc_obj.bound_path = bound_path
                 tc_obj.bound_surface_state = "BACKEND_API"
+                stamp_attestation_mode(tc_obj, binding)
+
+            elif tc_obj.is_adversarial:
+                stamp_attestation_mode(tc_obj, binding)
 
             new_tests.append(tc_obj)
 

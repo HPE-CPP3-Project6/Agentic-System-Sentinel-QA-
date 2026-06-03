@@ -150,6 +150,17 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
                 {posture.resilient} resilient · {posture.vulnerable} vulnerable
               </p>
             )}
+            {/* Stage-1: surface UNCLASSIFIED honestly — these adversarial
+                tests had no Resolver/Generator stamp and are EXCLUDED from
+                resilience %. Showing the count keeps reviewers from reading
+                the resilience number as a clean attestation when a chunk of
+                the suite was effectively unjudged. */}
+            {posture && (posture.unclassified ?? 0) > 0 && (
+              <p className="text-amber-600 dark:text-amber-500 font-medium">
+                {posture.unclassified} unclassified
+                <span className="text-muted font-normal"> · excluded from resilience %</span>
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>

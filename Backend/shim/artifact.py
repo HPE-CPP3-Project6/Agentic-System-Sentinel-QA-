@@ -59,6 +59,11 @@ def state_to_artifact(state: ProjectState) -> dict[str, Any]:
                 "title": (getattr(tc, "title", None) if tc else None) or l.test_id,
                 "verdict_evidence": (getattr(l, "verdict_evidence", None) or [])[:4],
                 "stderr_excerpt": (l.stderr or "")[:300] if l.status in ("failed", "error") else None,
+                # Stage-1 attestation: surface the mode that drove the verdict
+                # cascade so the findings row shows whether this test was
+                # attesting a gap (missing_control) or verifying a defense
+                # (defense_confirming). Null on functional tests.
+                "attestation_mode": getattr(tc, "attestation_mode", None) if tc else None,
             }
         )
 

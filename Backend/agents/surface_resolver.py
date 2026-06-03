@@ -42,6 +42,7 @@ from database import (
 )
 from state import (
     ACOverride,
+    AttestationMode,
     BackendEndpoint,
     DesignContract,
     FrontendSurface,
@@ -218,16 +219,24 @@ THREAT CLASS. This decision dominates the downstream binding.
 
 DEFENSIVE_INVERTED GATE (anti-fabrication):
     To classify as DEFENSIVE_INVERTED you need BOTH:
-      a) the Critic listed a security risk against this requirement, AND
+      a) the Critic listed a security risk against this requirement, OR the
+         AC names a concrete security control (rate limit, lockout, CSRF,
+         injection defense, IDOR filter, output redaction), AND
       b) retrieval contains a real defense mechanism (validator code,
          length-cap declaration, rate-limit, exception handler,
          redirect/HSTS middleware) that could enforce the inverse.
 
-    Without BOTH, the answer is NOT_IMPLEMENTED. Inventing a "defense"
-    that doesn't appear in retrieved code is forbidden — that's the
-    proxy-test failure mode in disguise. If the defense literally is
-    not in the code, the app cannot demonstrate it and the binding is
-    NOT_IMPLEMENTED.
+    When (a) holds but (b) does NOT — the control is MISSING but the
+    ATTACK SURFACE exists (e.g. POST /login with no throttle code) —
+    you MUST NOT emit NOT_IMPLEMENTED. Instead emit:
+      state = BACKEND_API
+      attestation_mode = "missing_control"
+      backend_endpoints = the endpoint(s) under test (e.g. POST /login)
+      threat_class = null  (post-processor will clear DEFENSIVE_INVERTED)
+    The Generator will attest the gap with Rule 4 adversarial tests.
+
+    NOT_IMPLEMENTED applies only when NEITHER a defense NOR an attack
+    surface exists in retrieval (e.g. /share route with zero presence).
 
 This rule SUPERSEDES the surface-state choice in literal cases. The
 search REQ-005 ("must leak SQL errors") becomes DEFENSIVE_INVERTED +
@@ -599,6 +608,7 @@ _DEFENSE_KIND_VALUES = {
     "INPUT_REJECTION", "TRANSPORT", "OUTPUT_REDACTION",
     "IMPLICIT_FILTER", "ERROR_SANITIZATION",
 }
+_ATTESTATION_MODE_VALUES = {"defense_confirming", "missing_control"}
 _CONFIDENCE_VALUES = {"high", "medium", "low"}
 _HTTP_METHOD_VALUES = {
     "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS",
@@ -654,6 +664,10 @@ def _normalize_binding_enums(entry: Dict[str, Any]) -> Dict[str, Any]:
         normalized["defense_kind"] = _coerce_enum(normalized["defense_kind"], _DEFENSE_KIND_VALUES, "upper")
     if "confidence" in normalized:
         normalized["confidence"] = _coerce_enum(normalized["confidence"], _CONFIDENCE_VALUES, "lower")
+    if "attestation_mode" in normalized and normalized["attestation_mode"] is not None:
+        normalized["attestation_mode"] = _coerce_enum(
+            normalized["attestation_mode"], _ATTESTATION_MODE_VALUES, "lower",
+        )
 
     eps = normalized.get("backend_endpoints")
     if isinstance(eps, list):
@@ -782,6 +796,251 @@ def _validate_endpoint_grounding(
     return False
 
 
+# --------------------------------------------------------------------------- #
+# Missing-control / offensive-security promotion (Generator Rule 4)         #
+# --------------------------------------------------------------------------- #
+
+_MISSING_CONTROL_RE = re.compile(
+    r"(?:rate[\s_-]?limit|throttl|lockout|brute[\s_-]?force|credential[\s_-]?stuff|"
+    r"429|retry[\s_-]?after|captcha|csrf|account[\s_-]?lock|unlimited[\s_-]?retr|"
+    r"injection|sqli|xss|idor|broken[\s_-]?access|enumeration|too\s+many\s+requests|"
+    r"password[\s_-]?reset\s+flood|saniti[sz]e|parameteri[sz]ed)",
+    re.IGNORECASE,
+)
+
+_HTTP_PATH_IN_TEXT_RE = re.compile(
+    r"\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+(/[\w{}/.\-]+)",
+    re.IGNORECASE,
+)
+
+_GROUNDING_FILE_RE = re.compile(r"^([^:]+)(?::\d+(?:-\d+)?)?$")
+
+_ROUTER_PREFIX_RE = re.compile(
+    r"""APIRouter\s*\([^)]*prefix\s*=\s*["']([^"']+)["']""",
+    re.IGNORECASE,
+)
+
+_ROUTER_ROUTE_RE = re.compile(
+    r"""@router\.(get|post|put|patch|delete|head|options)\s*\(\s*["']([^"']+)["']""",
+    re.IGNORECASE,
+)
+
+_OWASP_OFFENSIVE_PREFIXES = ("A01:", "A03:", "A04:", "A07:", "A08:")
+
+# Preferred attack surfaces when text signals auth abuse but path is vague.
+_AUTH_SURFACE_CANDIDATES = (
+    ("POST", "/login"),
+    ("POST", "/register"),
+)
+
+
+def _requirement_context_text(
+    req: Optional[ValidatedRequirement],
+    binding: SurfaceBinding,
+) -> str:
+    parts = [binding.rationale or "", binding.anti_pattern_summary or ""]
+    if req:
+        parts.append(req.statement)
+        parts.extend(req.acceptance_criteria or [])
+    return " ".join(parts)
+
+
+def _signals_missing_security_control(text: str, owasp_ids: List[str]) -> bool:
+    if _MISSING_CONTROL_RE.search(text):
+        return True
+    return any(
+        oid.strip().upper().startswith(_OWASP_OFFENSIVE_PREFIXES)
+        for oid in owasp_ids
+    )
+
+
+def _normalize_router_path(prefix: str, route: str) -> str:
+    pfx = (prefix or "").rstrip("/")
+    rte = route if route.startswith("/") else f"/{route}"
+    if not pfx:
+        return rte if rte.endswith("/") or "{" in rte else rte
+    combined = f"{pfx}{rte}" if rte.startswith("/") else f"{pfx}/{rte}"
+    if combined.endswith("/") and "{" not in combined.rstrip("/"):
+        return combined
+    if not combined.endswith("/") and "{" not in combined.split("/")[-1]:
+        if rte in ("/", "") or combined.count("/") <= 2:
+            return combined + "/"
+    return combined
+
+
+def _scan_handler_file_endpoints(handler_file: str, repo_roots: List[Path]) -> List[BackendEndpoint]:
+    """Enumerate FastAPI routes declared in a cited handler file."""
+    roots = [Path(r) for r in repo_roots]
+    texts: List[tuple[str, str]] = []
+    for root in roots:
+        candidate = root / handler_file
+        if candidate.is_file():
+            try:
+                texts.append((handler_file, candidate.read_text(encoding="utf-8", errors="ignore")))
+            except OSError:
+                pass
+    if not texts:
+        return []
+
+    discovered: List[BackendEndpoint] = []
+    for rel_path, text in texts:
+        prefix = ""
+        pm = _ROUTER_PREFIX_RE.search(text)
+        if pm:
+            prefix = pm.group(1)
+        for rm in _ROUTER_ROUTE_RE.finditer(text):
+            method = rm.group(1).upper()
+            path = _normalize_router_path(prefix, rm.group(2))
+            line_no = text[: rm.start()].count("\n") + 1
+            discovered.append(
+                BackendEndpoint(
+                    method=method,  # type: ignore[arg-type]
+                    path=path,
+                    handler_file=rel_path,
+                    handler_line=line_no,
+                )
+            )
+    return discovered
+
+
+def _paths_mentioned_in_text(text: str) -> List[tuple[str, str]]:
+    found: List[tuple[str, str]] = []
+    for m in _HTTP_PATH_IN_TEXT_RE.finditer(text):
+        found.append((m.group(1).upper(), m.group(2)))
+    for m in re.finditer(r"(/[\w{}/.\-]+)", text):
+        path = m.group(1)
+        if path.startswith("/") and len(path) > 1:
+            found.append(("POST", path))
+    return found
+
+
+def _discover_attack_endpoints(
+    binding: SurfaceBinding,
+    req: Optional[ValidatedRequirement],
+    repo_roots: List[Path],
+) -> List[BackendEndpoint]:
+    """Find grounded backend routes to exercise when a control is absent."""
+    text = _requirement_context_text(req, binding)
+    wanted_paths = {_normalize_router_path("", p) for _, p in _paths_mentioned_in_text(text)}
+    for method, path in _AUTH_SURFACE_CANDIDATES:
+        if any(tok in text.lower() for tok in ("login", "brute", "password", "credential", "429", "throttl", "lockout")):
+            wanted_paths.add(_normalize_router_path("", path))
+
+    candidates: List[BackendEndpoint] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def _add(ep: BackendEndpoint) -> None:
+        key = (ep.method, ep.path, ep.handler_file)
+        if key not in seen:
+            seen.add(key)
+            candidates.append(ep)
+
+    for ref in binding.grounding_refs or []:
+        fm = _GROUNDING_FILE_RE.match(ref.strip())
+        if not fm:
+            continue
+        rel = fm.group(1).replace("\\", "/")
+        for ep in _scan_handler_file_endpoints(rel, repo_roots):
+            _add(ep)
+
+    for ep in binding.backend_endpoints:
+        _add(ep)
+
+    if wanted_paths:
+        filtered = [
+            ep for ep in candidates
+            if any(
+                ep.path == wp
+                or ep.path.rstrip("/") == wp.rstrip("/")
+                or wp.rstrip("/") in ep.path
+                for wp in wanted_paths
+            )
+        ]
+        if filtered:
+            candidates = filtered
+
+    grounded = [ep for ep in candidates if _validate_endpoint_grounding(ep, repo_roots)]
+    if grounded:
+        return grounded
+
+    if any(tok in text.lower() for tok in ("login", "brute", "429", "throttl", "lockout", "credential")):
+        for method, path in _AUTH_SURFACE_CANDIDATES:
+            for ref in binding.grounding_refs or []:
+                fm = _GROUNDING_FILE_RE.match(ref.strip())
+                if not fm:
+                    continue
+                rel = fm.group(1).replace("\\", "/")
+                if "auth" not in rel.lower():
+                    continue
+                ep = BackendEndpoint(
+                    method=method,  # type: ignore[arg-type]
+                    path=path,
+                    handler_file=rel,
+                    handler_line=1,
+                )
+                if _validate_endpoint_grounding(ep, repo_roots):
+                    return [ep]
+    return []
+
+
+def _promote_missing_control_binding(
+    binding: SurfaceBinding,
+    req: Optional[ValidatedRequirement],
+    owasp_ids: List[str],
+    repo_roots: List[Path],
+) -> Optional[SurfaceBinding]:
+    """Rebind to BACKEND_API attack surface when a control is absent but testable."""
+    text = _requirement_context_text(req, binding)
+    if not _signals_missing_security_control(text, owasp_ids):
+        return None
+
+    attack_eps = _discover_attack_endpoints(binding, req, repo_roots)
+    if not attack_eps:
+        return None
+
+    refs = list(binding.grounding_refs or [])
+    for ep in attack_eps:
+        ref = f"{ep.handler_file}:{ep.handler_line or 0}"
+        if ref not in refs:
+            refs.append(ref)
+
+    return binding.model_copy(update={
+        "state": "BACKEND_API",
+        "backend_endpoints": attack_eps,
+        "threat_class": None,
+        "anti_pattern_summary": None,
+        "defense_assertion": None,
+        "defense_kind": None,
+        "attestation_mode": "missing_control",
+        "grounding_refs": refs,
+        "confidence": binding.confidence if binding.confidence != "low" else "medium",
+        "rationale": (
+            "[missing-control attestation: required security control not present "
+            "in retrieved code; bind attack surface for Rule 4 adversarial tests] "
+            + binding.rationale
+        ),
+    })
+
+
+def _recover_not_implemented_binding(
+    binding: SurfaceBinding,
+    req: Optional[ValidatedRequirement],
+    owasp_ids: List[str],
+    repo_roots: List[Path],
+) -> SurfaceBinding:
+    if binding.state != "NOT_IMPLEMENTED":
+        return binding
+    promoted = _promote_missing_control_binding(binding, req, owasp_ids, repo_roots)
+    if promoted is None:
+        return binding
+    return promoted.model_copy(update={
+        "rationale": (
+            "[auto-promote from NOT_IMPLEMENTED: attack surface exists; control absent] "
+            + promoted.rationale
+        ),
+    })
+
+
 def _downgrade_low_confidence(binding: SurfaceBinding) -> SurfaceBinding:
     """Low-confidence BACKEND_API bindings get downgraded to NEEDS_CLARIFICATION.
 
@@ -804,6 +1063,9 @@ def _downgrade_low_confidence(binding: SurfaceBinding) -> SurfaceBinding:
 def _validate_threat_class(
     binding: SurfaceBinding,
     risk_owasp_ids_for_req: List[str],
+    *,
+    req: Optional[ValidatedRequirement] = None,
+    repo_roots: Optional[List[Path]] = None,
 ) -> SurfaceBinding:
     """Enforce the DEFENSIVE_INVERTED gate (Refinement 1).
 
@@ -812,8 +1074,8 @@ def _validate_threat_class(
     defense_kind (so the Generator knows the test shape).
 
     Downgrade rules:
-      - No grounded endpoint → NOT_IMPLEMENTED (the Resolver was fabricating
-        an inverted defense without code to back it).
+      - No grounded endpoint → try missing-control promotion (Rule 4 attack
+        surface); else NOT_IMPLEMENTED.
       - Endpoint present but assertion/kind missing → keep BACKEND_API, blank
         the threat_class; Generator falls through to standard Rule 11.
 
@@ -838,7 +1100,18 @@ def _validate_threat_class(
     has_kind = bool(binding.defense_kind)
 
     if not has_endpoint:
-        # No grounded endpoint — the inverted defense has nowhere to live.
+        roots = repo_roots or []
+        promoted = _promote_missing_control_binding(
+            binding, req, risk_owasp_ids_for_req, roots,
+        )
+        if promoted is not None:
+            return promoted.model_copy(update={
+                "rationale": (
+                    "[auto-promote from DEFENSIVE_INVERTED: defense absent; "
+                    "attack surface bound for Rule 4] "
+                    + promoted.rationale
+                ),
+            })
         return binding.model_copy(update={
             "state": "NOT_IMPLEMENTED",
             "threat_class": None,
@@ -848,7 +1121,7 @@ def _validate_threat_class(
             "backend_endpoints": [],
             "rationale": (
                 "[auto-downgrade from DEFENSIVE_INVERTED: no grounded backend "
-                "endpoint cited as defense] "
+                "endpoint cited as defense or attack surface] "
                 + binding.rationale
             ),
         })
@@ -881,13 +1154,14 @@ def _validate_threat_class(
     # the artifact is honest about why this is INVERTED without an OWASP flag.
     if not has_risk:
         return binding.model_copy(update={
+            "attestation_mode": "defense_confirming",
             "rationale": (
                 "[DEFENSIVE_INVERTED on a grounded validation defense; no Critic "
                 "OWASP risk — positive data-validation, not a vulnerability] "
                 + binding.rationale
             ),
         })
-    return binding
+    return binding.model_copy(update={"attestation_mode": "defense_confirming"})
 
 
 # --------------------------------------------------------------------------- #
@@ -1185,10 +1459,65 @@ def surface_resolver_node(state: ProjectState) -> ProjectState:
     for risk in state.security_risks:
         for rid in (risk.affected_requirements or []):
             risks_by_req.setdefault(rid, []).append(risk.owasp_id)
-    bindings = {
-        k: _validate_threat_class(v, risks_by_req.get(k, []))
-        for k, v in bindings.items()
-    }
+    req_by_id = {r.requirement_id: r for r in state.validated_requirements}
+    missing_control_promotions: List[Dict[str, str]] = []
+    updated_bindings: Dict[str, SurfaceBinding] = {}
+    for k, v in bindings.items():
+        before_state = v.state
+        validated = _validate_threat_class(
+            v,
+            risks_by_req.get(k, []),
+            req=req_by_id.get(k),
+            repo_roots=repo_roots,
+        )
+        recovered = _recover_not_implemented_binding(
+            validated,
+            req_by_id.get(k),
+            risks_by_req.get(k, []),
+            repo_roots,
+        )
+        if (
+            recovered.state == "BACKEND_API"
+            and recovered.attestation_mode == "missing_control"
+            and before_state != "BACKEND_API"
+        ):
+            missing_control_promotions.append({
+                "requirement_id": k,
+                "from_state": before_state,
+                "endpoints": ", ".join(
+                    f"{ep.method} {ep.path}" for ep in recovered.backend_endpoints
+                ),
+            })
+        updated_bindings[k] = recovered
+    bindings = updated_bindings
+    if missing_control_promotions:
+        state.metadata["surface_resolver_missing_control_promotions"] = (
+            missing_control_promotions
+        )
+
+    # ---- Default attestation_mode on grounded BACKEND_API bindings ---------
+    #
+    # By this point, every binding has been through:
+    #   • DEFENSIVE_INVERTED validation (which stamps `defense_confirming`)
+    #   • NOT_IMPLEMENTED recovery (which stamps `missing_control` when
+    #     an attack surface exists)
+    #
+    # Anything still BACKEND_API without an attestation_mode is an
+    # ordinary feature binding where the Resolver examined retrieval,
+    # found a real implementation, and didn't promote it to missing_control.
+    # For these, default to `defense_confirming` so adversarial tests
+    # against the feature inherit the right verdict semantics. Without
+    # this default, the Generator would emit security tests that reach
+    # the Classifier UNCLASSIFIED — they would all show inconclusive,
+    # inflating the unclassified bucket and depressing resilience_pct
+    # for ordinary stories.
+    for rid, b in list(bindings.items()):
+        if (
+            b.state == "BACKEND_API"
+            and b.backend_endpoints
+            and b.attestation_mode is None
+        ):
+            bindings[rid] = b.model_copy(update={"attestation_mode": "defense_confirming"})
 
     # ---- Manual overrides (operational hot-patch) ---------------------------
     bindings = _apply_manual_overrides(bindings, state.story_id)
@@ -1218,4 +1547,13 @@ def surface_resolver_node(state: ProjectState) -> ProjectState:
         state.metadata["surface_resolver_threat_class_summary"] = tc_summary
     if inverted_defenses:
         state.metadata["surface_resolver_inverted_defenses"] = inverted_defenses
+    # Stage-1 attestation telemetry — visibility into how many REQs were
+    # tagged with each attestation_mode. Reviewers / the dashboard read this
+    # to know whether the resilience % is grounded in explicit Resolver
+    # decisions (high count of tagged modes) or implicit defaults (low count).
+    attestation_summary: Dict[str, int] = {}
+    for b in bindings.values():
+        key = b.attestation_mode or "untagged"
+        attestation_summary[key] = attestation_summary.get(key, 0) + 1
+    state.metadata["surface_resolver_attestation_summary"] = attestation_summary
     return state

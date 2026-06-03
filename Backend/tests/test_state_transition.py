@@ -293,7 +293,10 @@ def test_tier0_workflow_without_matching_step_is_off_target():
     )
     verdict, evidence = _tier0_off_target(tc, {"REQ-003": patch_binding})
     assert verdict == "off_target"
-    assert "no workflow step matches" in evidence[0]
+    # Evidence format changed in commit 8f0350e — now describes the mismatch
+    # via "no path matches binding endpoints" plus the workflow_steps list.
+    assert "no path matches binding endpoints" in evidence[0]
+    assert "workflow_steps=" in evidence[0]
 
 
 def test_compiler_emits_workflow_block():
