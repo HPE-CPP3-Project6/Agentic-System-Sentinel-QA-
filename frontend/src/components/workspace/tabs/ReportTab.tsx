@@ -9,10 +9,10 @@ import { SuiteQualityBadge } from "@/components/SuiteQualityBadge";
 import { RunValidityHero } from "@/components/report/RunValidityHero";
 import { TechniquePanel } from "@/components/report/TechniquePanel";
 import { FindingsTable } from "@/components/report/FindingsTable";
+import { SastSummaryPanel } from "@/components/report/SastSummaryPanel";
 import { SummaryTile } from "@/components/report/SummaryTile";
 import { exportPdf, exportXlsx } from "@/lib/exportReport";
 import { ErrorBanner } from "@/components/ErrorBanner";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -74,7 +74,7 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
   const resilience =
     posture?.resilience_pct ?? artifact.resilience_pct ?? 0;
   const owaspData = buildOwaspChartData(posture?.by_exploit_target ?? {});
-  const sast = artifact.sast_summary as Record<string, unknown> | undefined;
+  const sast = artifact.sast_summary;
   const totals = (artifact.test_suite_summary as { totals?: { planned?: number; executed?: number } })?.totals;
 
   async function exportFile(format: "pdf" | "xlsx") {
@@ -160,24 +160,7 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
       {/* Per-test findings (Fortify-style triage grid). */}
       {!preCode && <FindingsTable logs={artifact.execution_logs} />}
 
-      {sast && (
-        <Card>
-          <CardHeader><CardTitle>SAST summary (Bandit)</CardTitle></CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="medium">Findings: {String(sast.findings_total ?? 0)}</Badge>
-              {Object.entries((sast.by_severity as Record<string, number>) ?? {}).map(([sev, n]) => (
-                <Badge
-                  key={sev}
-                  variant={sev === "HIGH" || sev === "MEDIUM" ? "high" : "low"}
-                >
-                  {sev}: {n}
-                </Badge>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <SastSummaryPanel summary={sast} />
 
       {preCode && (
         <>
