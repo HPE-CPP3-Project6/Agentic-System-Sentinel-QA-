@@ -207,6 +207,11 @@ export const SuggestedPatchSchema = z.object({
   test_id: z.string(),
   summary: z.string(),
   decision: z.enum(["pending", "accept", "reject"]).optional(),
+  target_file: z.string().nullish(),
+  bug_explanation: z.string().nullish(),
+  suggested_fix: z.string().nullish(),
+  related_test_ids: z.array(z.string()).nullish(),
+  owasp_category: z.string().nullish(),
 });
 
 const ExploitTargetCountsSchema = z.object({

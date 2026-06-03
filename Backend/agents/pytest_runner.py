@@ -196,6 +196,40 @@ def _classify_adversarial_failure(
 # Layer A — Classifier tier 0: off-target guard.                              #
 # --------------------------------------------------------------------------- #
 
+_ACTION_PATH_RE = re.compile(
+    r"(?:GET|POST|PATCH|PUT|DELETE|HEAD|OPTIONS)\s+(/[^\s,;]+)",
+    re.IGNORECASE,
+)
+
+
+def _tier0_path_probes(tc: TestCase) -> List[str]:
+    """Paths to check against a requirement binding (workflow steps + action)."""
+    from .generator import _probe_workflow_path
+
+    probes: List[str] = []
+    for step in tc.workflow_steps or []:
+        probed = _probe_workflow_path(step.path)
+        if probed not in probes:
+            probes.append(probed)
+    is_transition = (tc.test_category or "").lower() == "state_transition" or (
+        (tc.test_technique or "").lower() == "state_transition"
+    )
+    if is_transition:
+        for match in _ACTION_PATH_RE.finditer(tc.action or ""):
+            probed = _probe_workflow_path(match.group(1).strip())
+            if probed not in probes:
+                probes.append(probed)
+    return probes
+
+
+def _tier0_uses_workflow_gate(tc: TestCase) -> bool:
+    """Workflow-style tests: multi-step array or state_transition label."""
+    return (
+        len(tc.workflow_steps or []) >= 2
+        or (tc.test_category or "").lower() == "state_transition"
+        or (tc.test_technique or "").lower() == "state_transition"
+    )
+
 
 def _tier0_off_target(
     tc: TestCase,
@@ -231,24 +265,19 @@ def _tier0_off_target(
 
     if binding.state == "BACKEND_API":
         bound_paths = [ep.path for ep in binding.backend_endpoints]
-        steps = tc.workflow_steps or []
-        if len(steps) >= 2 and bound_paths:
-            from .generator import _probe_workflow_path
-
-            matching = [
-                f"{step.method} {step.path}"
-                for step in steps
-                if _paths_match_any(_probe_workflow_path(step.path), bound_paths)
-            ]
-            if matching:
+        if _tier0_uses_workflow_gate(tc) and bound_paths:
+            probes = _tier0_path_probes(tc)
+            if any(_paths_match_any(probe, bound_paths) for probe in probes):
                 return None
-            return (
-                "off_target",
-                [
-                    f"no workflow step matches binding endpoints {bound_paths}; "
-                    f"steps={[f'{s.method} {s.path}' for s in steps]}"
-                ],
-            )
+            if probes or len(tc.workflow_steps or []) >= 2:
+                steps_repr = [f"{s.method} {s.path}" for s in (tc.workflow_steps or [])]
+                return (
+                    "off_target",
+                    [
+                        f"no path matches binding endpoints {bound_paths}; "
+                        f"workflow_steps={steps_repr}; action={tc.action!r}"
+                    ],
+                )
 
         # Single-shot: prefer Generator-stamped bound_path; fall back to inference.
         bound = tc.bound_path

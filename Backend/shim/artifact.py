@@ -88,12 +88,19 @@ def state_to_artifact(state: ProjectState) -> dict[str, Any]:
     suggested_patches = []
     for i, p in enumerate(state.suggested_patches):
         patch_id = f"patch-{i + 1}"
+        fix_preview = (p.suggested_fix or "")[:120]
+        explanation = (p.bug_explanation or "")[:200]
         suggested_patches.append(
             {
                 "patch_id": patch_id,
                 "test_id": (p.related_test_ids or ["unknown"])[0],
-                "summary": p.bug_explanation or p.suggested_fix[:120],
+                "summary": explanation or fix_preview or "Healer suggestion",
                 "decision": patch_decisions.get(patch_id, "pending"),
+                "target_file": (p.target_file or "").strip(),
+                "bug_explanation": p.bug_explanation or "",
+                "suggested_fix": p.suggested_fix or "",
+                "related_test_ids": list(p.related_test_ids or []),
+                "owasp_category": p.owasp_category,
             }
         )
 

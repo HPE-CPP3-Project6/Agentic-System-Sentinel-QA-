@@ -155,10 +155,15 @@ export const mockArtifact: ProjectState = {
   ],
   suggested_patches: [
     {
-      patch_id: "patch-001",
+      patch_id: "patch-1",
       test_id: "TC-REQ-002-01",
-      summary: "Tighten forbidden_content check for SQL error leakage",
+      summary: "Seed owned task before GET by id so the test observes 200 not 404",
       decision: "pending",
+      target_file: "routers/task_router.py",
+      related_test_ids: ["TC-REQ-002-01"],
+      bug_explanation:
+        "The test expects an owned active task but setup did not create one for the authenticated user.",
+      suggested_fix: `# In get_task — ensure owner filter uses current_user.id\n# (illustrative snippet from Healer)\n`,
     },
   ],
   drift_report: {

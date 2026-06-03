@@ -10,6 +10,7 @@ import { RunValidityHero } from "@/components/report/RunValidityHero";
 import { TechniquePanel } from "@/components/report/TechniquePanel";
 import { FindingsTable } from "@/components/report/FindingsTable";
 import { SastSummaryPanel } from "@/components/report/SastSummaryPanel";
+import { SuggestedPatchesPanel } from "@/components/report/SuggestedPatchesPanel";
 import { SummaryTile } from "@/components/report/SummaryTile";
 import { exportPdf, exportXlsx } from "@/lib/exportReport";
 import { ErrorBanner } from "@/components/ErrorBanner";
@@ -113,6 +114,14 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
 
       {/* Execution summary dashboard (total / passed / failed / success%). */}
       {!preCode && <SummaryTile artifact={artifact} />}
+
+      {!preCode && (artifact.suggested_patches?.length ?? 0) > 0 && (
+        <SuggestedPatchesPanel
+          runId={runId}
+          storyTitle={storyTitle}
+          patches={artifact.suggested_patches ?? []}
+        />
+      )}
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>

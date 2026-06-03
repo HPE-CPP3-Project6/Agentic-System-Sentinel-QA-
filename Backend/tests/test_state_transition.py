@@ -235,6 +235,36 @@ def test_tier0_workflow_with_patch_step_not_off_target():
     assert _tier0_off_target(tc, surface_map) is None
 
 
+def test_tier0_state_transition_action_paths_without_workflow_steps():
+    """LLM often sets category + action chain but omits workflow_steps array."""
+    patch_binding = SurfaceBinding(
+        requirement_id="REQ-003",
+        state="BACKEND_API",
+        threat_class="DEFENSIVE_NORMAL",
+        rationale="PATCH",
+        confidence="high",
+        backend_endpoints=[
+            BackendEndpoint(
+                method="PATCH", path="/tasks/{task_id}",
+                handler_file="routers/task_router.py",
+            ),
+        ],
+    )
+    tc = TestCase(
+        test_id="TC-REQ-003-01",
+        title="Update task priority",
+        action="POST /tasks/ then PATCH /tasks/{task_id}",
+        expected_result="ok",
+        test_category="state_transition",
+        covered_requirement_id="REQ-003",
+        bound_method="POST",
+        bound_path="/tasks/",
+        workflow_steps=[],
+        expected_status_code=200,
+    )
+    assert _tier0_off_target(tc, {"REQ-003": patch_binding}) is None
+
+
 def test_tier0_workflow_without_matching_step_is_off_target():
     patch_binding = SurfaceBinding(
         requirement_id="REQ-003",
