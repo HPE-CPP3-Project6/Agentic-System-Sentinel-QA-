@@ -1,5 +1,4 @@
 import {
-  Activity,
   ArrowLeft,
   Bell,
   HelpCircle,
@@ -7,6 +6,7 @@ import {
   Search,
   Sun,
 } from "lucide-react";
+import sentinelLogo from "@/assets/sentinel-qa-logo.png";
 import { Link, useLocation } from "wouter";
 import { useHealth } from "@/api/hooks";
 import { Badge } from "@/components/ui/badge";
@@ -31,9 +31,12 @@ export function Topbar({ title, showBack, activeNav = "stories" }: TopbarProps) 
   return (
     <header className="sticky top-0 z-40 bg-nav text-nav-fg">
       <div className="flex h-12 items-center gap-6 px-4">
-        <Link href="/" className="flex shrink-0 items-center gap-2 text-nav-fg no-underline">
-          <Activity className="h-5 w-5" strokeWidth={1.75} aria-hidden />
-          <span className="text-sm font-semibold tracking-tight">Sentinel-QA</span>
+        <Link href="/" className="flex shrink-0 items-center no-underline">
+          <img
+            src={sentinelLogo}
+            alt="Sentinel QA"
+            className="h-8 w-auto object-contain"
+          />
         </Link>
 
         <nav className="hidden items-center md:flex" aria-label="Main">
