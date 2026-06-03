@@ -33,6 +33,8 @@ store = Store()
 hub = WsHub()
 _queue_depth = 0
 _lock = threading.Lock()
+_running_jobs: set[str] = set()
+_MAX_BULK_UPLOAD_BYTES = 10 * 1024 * 1024
 
 app = FastAPI(title="Sentinel-QA API Shim", version="0.1.0")
 app.add_middleware(
@@ -92,6 +94,11 @@ async def http_exception_handler(_, exc: HTTPException) -> JSONResponse:
 def _enqueue(run_id: str) -> None:
     global _queue_depth
 
+    with _lock:
+        if run_id in _running_jobs:
+            return
+        _running_jobs.add(run_id)
+
     def _worker() -> None:
         global _queue_depth
         with _lock:
@@ -101,6 +108,7 @@ def _enqueue(run_id: str) -> None:
         finally:
             with _lock:
                 _queue_depth = max(0, _queue_depth - 1)
+                _running_jobs.discard(run_id)
 
     threading.Thread(target=_worker, daemon=True).start()
 
@@ -172,6 +180,12 @@ def delete_story(story_id: str) -> None:
 @app.post("/api/stories/bulk", status_code=201)
 async def bulk_stories(file: UploadFile = File(...)) -> dict[str, Any]:
     raw = await file.read()
+    if len(raw) > _MAX_BULK_UPLOAD_BYTES:
+        raise api_error(
+            422,
+            "bulk_parse_failed",
+            f"Upload exceeds {_MAX_BULK_UPLOAD_BYTES // (1024 * 1024)} MB limit",
+        )
     name = (file.filename or "").lower()
     created = []
     rejected = []
@@ -230,6 +244,8 @@ def advance_run(run_id: str, payload: RunAdvance) -> dict[str, Any]:
     run = store.get_run(run_id)
     if not run:
         raise api_error(404, "not_found", "Run not found")
+    if run.status in ("queued", "running"):
+        raise api_error(409, "run_in_progress", "Run is already executing")
     if run.status != "paused":
         raise api_error(409, "not_paused", "Run is not paused")
     stop = _resolve_stop(payload.stop_after)
@@ -378,6 +394,17 @@ def patch_decision(run_id: str, patch_id: str, payload: PatchDecision) -> dict[s
         raise api_error(409, "run_not_complete", "Patch decisions require a completed run")
     if payload.decision not in ("accept", "reject"):
         raise api_error(422, "validation_failed", "decision must be accept or reject")
+    state = load_state(run)
+    if not state:
+        raise api_error(409, "run_not_complete", "Run artifact state not available")
+    valid_ids = {f"patch-{i + 1}" for i in range(len(state.suggested_patches))}
+    if patch_id not in valid_ids:
+        raise api_error(404, "not_found", "Patch not found for this run")
+    decisions = dict(state.metadata.get("patch_decisions") or {})
+    decisions[patch_id] = payload.decision
+    state.metadata["patch_decisions"] = decisions
+    save_state(run, state)
+    save_artifact(run, state)
     return {"patch_id": patch_id, "decision": payload.decision}
 
 

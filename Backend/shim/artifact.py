@@ -84,14 +84,16 @@ def state_to_artifact(state: ProjectState) -> dict[str, Any]:
             }
         )
 
+    patch_decisions = state.metadata.get("patch_decisions") or {}
     suggested_patches = []
     for i, p in enumerate(state.suggested_patches):
+        patch_id = f"patch-{i + 1}"
         suggested_patches.append(
             {
-                "patch_id": f"patch-{i+1}",
+                "patch_id": patch_id,
                 "test_id": (p.related_test_ids or ["unknown"])[0],
                 "summary": p.bug_explanation or p.suggested_fix[:120],
-                "decision": "pending",
+                "decision": patch_decisions.get(patch_id, "pending"),
             }
         )
 

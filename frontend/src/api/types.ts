@@ -26,6 +26,7 @@ export const PipelineModeSchema = z.enum(["pre_code", "post_code", "PRE_CODE", "
 export const RunValiditySchema = z.enum([
   "OK",
   "FUNCTIONALLY_UNRELIABLE",
+  "TARGET_UNREACHABLE",
   "DESIGN_ONLY",
 ]);
 
@@ -36,6 +37,7 @@ export const SuiteQualitySchema = z.enum([
   "NO_RISKS_PREDICTED",
   "ALL_SKIPPED",
   "NO_TESTS_GENERATED",
+  "NO_REQUIREMENTS",
   "DESIGN_COMPLETE",
   "DESIGN_INSUFFICIENT",
 ]);

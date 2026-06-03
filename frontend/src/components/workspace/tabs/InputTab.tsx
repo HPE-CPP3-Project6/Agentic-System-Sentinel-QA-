@@ -3,6 +3,7 @@ import { Play, Zap } from "lucide-react";
 import { toast } from "sonner";
 import type { FlowMode } from "@/api/pipelineSettings";
 import { pipelineModeLabel } from "@/api/pipelineSettings";
+import { ApiError } from "@/api/client";
 import { useStartRun, useStory, useUpdateStory } from "@/api/hooks";
 import type { PipelineMode } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +28,7 @@ export function InputTab({
   onPipelineModeChange,
   onRunStarted,
 }: InputTabProps) {
-  const { data: story } = useStory(storyId);
+  const { data: story, isError, error, isLoading } = useStory(storyId);
   const updateStory = useUpdateStory(storyId);
   const startRun = useStartRun(storyId);
 
@@ -74,7 +75,29 @@ export function InputTab({
     );
   }
 
-  if (!story) return <p className="p-4 text-muted">Loading story…</p>;
+  if (isLoading && !story) {
+    return <p className="p-4 text-muted">Loading story…</p>;
+  }
+  if (isError || !story) {
+    const missing = error instanceof ApiError && error.code === "not_found";
+    return (
+      <div className="panel space-y-3 p-6">
+        <p className="font-semibold text-foreground">
+          {missing ? "Story not found" : "Could not load story"}
+        </p>
+        <p className="text-sm text-muted">
+          {missing
+            ? "It may have been deleted. Return to Stories and open another workspace."
+            : error instanceof Error
+              ? error.message
+              : "Check that the API shim is running."}
+        </p>
+        <a href="/" className="text-sm font-medium text-primary no-underline hover:underline">
+          Back to Stories
+        </a>
+      </div>
+    );
+  }
 
   return (
     <div className="panel">

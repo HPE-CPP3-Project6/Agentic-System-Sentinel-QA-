@@ -21,12 +21,12 @@ import {
   useStories,
   useStoryRuns,
 } from "@/api/hooks";
-import type { RunHistoryItem, Story } from "@/api/types";
+import type { RunHistoryItem, Story, PipelineMode } from "@/api/types";
 import { AppShell } from "@/components/AppShell";
 import { BulkUploadDropzone } from "@/components/BulkUploadDropzone";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input, Label, Textarea } from "@/components/ui/input";
+import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
 
 export function HomePage() {
@@ -37,6 +37,7 @@ export function HomePage() {
   const [body, setBody] = useState("");
   const [acs, setAcs] = useState("");
   const [filter, setFilter] = useState("all");
+  const [pipelineMode, setPipelineMode] = useState<PipelineMode>("post_code");
 
   const acList = useMemo(
     () => acs.split("\n").map((l) => l.trim()).filter(Boolean),
@@ -61,6 +62,15 @@ export function HomePage() {
           <h1 className="text-lg font-semibold text-foreground">Your Stories</h1>
           <div className="flex items-center gap-2">
             <Input placeholder="Search stories…" className="w-48" />
+            <Select
+              className="w-44"
+              value={pipelineMode}
+              onChange={(e) => setPipelineMode(e.target.value as PipelineMode)}
+              aria-label="Pipeline mode for quick run"
+            >
+              <option value="post_code">Post-code run</option>
+              <option value="pre_code">Pre-code run</option>
+            </Select>
             <Button onClick={() => setShowCreate((v) => !v)}>
               <Plus className="h-4 w-4" strokeWidth={1.75} />
               New Story
@@ -124,7 +134,7 @@ export function HomePage() {
                   </thead>
                   <tbody>
                     {stories.map((story) => (
-                      <StoryRow key={story.id} story={story} />
+                      <StoryRow key={story.id} story={story} pipelineMode={pipelineMode} />
                     ))}
                   </tbody>
                 </table>
@@ -208,7 +218,7 @@ function isReportable(run: RunHistoryItem): boolean {
  * two distinct actions — Run (starts a fresh run) and View report (jumps to the
  * latest finished run's report) — plus an expandable history of earlier runs.
  */
-function StoryRow({ story }: { story: Story }) {
+function StoryRow({ story, pipelineMode }: { story: Story; pipelineMode: PipelineMode }) {
   const [expanded, setExpanded] = useState(false);
   const { data: runs, isLoading: runsLoading } = useStoryRuns(story.id);
   const startRun = useStartRun(story.id);
@@ -226,8 +236,8 @@ function StoryRow({ story }: { story: Story }) {
 
   async function handleRun() {
     try {
-      const res = await startRun.mutateAsync({ mode: "post_code", stop_after: null });
-      window.location.href = `/workspace/${story.id}?run=${res.run_id}&tab=surface&flow=auto`;
+      const res = await startRun.mutateAsync({ mode: pipelineMode, stop_after: null });
+      window.location.href = `/workspace/${story.id}?run=${res.run_id}&tab=surface&flow=auto&pmode=${pipelineMode}`;
     } catch {
       toast.error("Could not start run");
     }

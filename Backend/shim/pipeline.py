@@ -172,7 +172,6 @@ def _run_executor_with_heal(state: ProjectState, hub: WsHub, run_id: str) -> Pro
                 exploit_target=log.exploit_target,
             )
         if needs_healing(state) == "heal" and state.heal_attempts < state.max_heal_attempts:
-            state.heal_attempts += 1
             hub.emit(
                 run_id,
                 "heal_cycle_started",

@@ -211,7 +211,7 @@ class Store:
             row = conn.execute(
                 """
                 SELECT 1 FROM runs
-                WHERE story_id=? AND status IN ('queued', 'running')
+                WHERE story_id=? AND status IN ('queued', 'running', 'paused')
                 LIMIT 1
                 """,
                 (story_id,),

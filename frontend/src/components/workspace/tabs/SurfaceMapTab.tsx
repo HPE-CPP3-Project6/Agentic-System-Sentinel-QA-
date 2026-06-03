@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, GitBranch, Loader2, RefreshCw } from "lucide-react";
+import { BarChart3, GitBranch, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { ApiError } from "@/api/client";
 import {
@@ -211,13 +211,21 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
 
   async function applyOverride() {
     if (!selected) return;
-    await override.mutateAsync({
-      [selected.req_id]: {
-        state: overrideState,
-        backend_endpoints: [{ method: "GET", path: overridePath }],
-      },
-    });
-    toast.success("Override applied for this run");
+    if (run?.status !== "paused") {
+      toast.error("Overrides apply only while the run is paused");
+      return;
+    }
+    try {
+      await override.mutateAsync({
+        [selected.req_id]: {
+          state: overrideState,
+          backend_endpoints: [{ method: "GET", path: overridePath }],
+        },
+      });
+      toast.success("Override applied for this run");
+    } catch {
+      toast.error("Could not apply override");
+    }
   }
 
   const filtered =
@@ -275,19 +283,13 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
         </div>
         <div className="flex gap-2">
           {flowMode === "regular" && (
-            <>
-              <Button size="sm" variant="outline">
-                <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.75} />
-                Re-resolve
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => void generateTests()}
-                disabled={advance.isPending || !canGenerateTests(run?.status, run?.current_phase)}
-              >
-                Generate Tests
-              </Button>
-            </>
+            <Button
+              size="sm"
+              onClick={() => void generateTests()}
+              disabled={advance.isPending || !canGenerateTests(run?.status, run?.current_phase)}
+            >
+              Generate Tests
+            </Button>
           )}
           {flowMode === "auto" && (
             <span className="text-xs text-muted self-center">Auto flow — pipeline advances automatically</span>

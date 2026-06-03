@@ -32,11 +32,17 @@ export function ScriptsTab({ runId, flowMode = "regular", onTabChange }: Scripts
   const tests = artifact?.test_suite ?? [];
 
   async function continueToRun() {
-    if (run?.status === "paused") {
+    if (run?.status !== "paused") {
+      toast.error("Run must be paused at the script gate before continuing");
+      return;
+    }
+    try {
       await advance.mutateAsync({ stop_after: null });
       toast.success("Execution started");
+      onTabChange("run");
+    } catch {
+      toast.error("Could not start execution");
     }
-    onTabChange("run");
   }
 
   if (!runId) {

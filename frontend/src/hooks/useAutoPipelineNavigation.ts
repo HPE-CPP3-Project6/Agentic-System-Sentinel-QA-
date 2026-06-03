@@ -24,7 +24,13 @@ export function useAutoPipelineNavigation(
       return;
     }
 
-    if (activeRun.status === "failed") return;
+    if (activeRun.status === "failed") {
+      const failedTab = tabForRun(activeRun.status, activeRun.current_phase, mode);
+      if (failedTab !== "input" && failedTab !== activeTab) {
+        goToTab(failedTab);
+      }
+      return;
+    }
 
     const next = tabForRun(activeRun.status, activeRun.current_phase, mode);
     if (next !== "input" && next !== activeTab) {

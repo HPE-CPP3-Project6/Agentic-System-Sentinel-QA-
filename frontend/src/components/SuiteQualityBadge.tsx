@@ -11,6 +11,7 @@ const CONFIG: Record<
   NO_RISKS_PREDICTED: { label: "Review", sub: "No OWASP exposure predicted.", variant: "muted" },
   ALL_SKIPPED: { label: "Inconclusive", sub: "All tests skipped.", variant: "muted" },
   NO_TESTS_GENERATED: { label: "Blocked", sub: "No tests generated.", variant: "critical" },
+  NO_REQUIREMENTS: { label: "No requirements", sub: "Critic produced no requirements.", variant: "muted" },
   DESIGN_COMPLETE: { label: "Design ready", sub: "Contracts + checklist present.", variant: "success" },
   DESIGN_INSUFFICIENT: { label: "Design gap", sub: "Missing design artifacts.", variant: "caution" },
 };
