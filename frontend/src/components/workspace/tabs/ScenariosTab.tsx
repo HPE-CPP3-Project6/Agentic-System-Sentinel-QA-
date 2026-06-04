@@ -110,6 +110,10 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
 
   const canEdit = run?.status === "paused";
 
+  const funcCount = tests.filter((t) => !t.adversarial).length;
+  const advCount = tests.filter((t) => t.adversarial).length;
+  const unclassifiedCount = tests.filter((t) => t.adversarial && !t.attestation_mode).length;
+
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
@@ -124,7 +128,15 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
         )}
       </div>
       <div className="panel overflow-hidden">
-        <div className="panel-header">Test scenarios ({tests.length})</div>
+        <div className="panel-header flex items-center justify-between">
+          <span>Test scenarios ({tests.length})</span>
+          <span className="text-[11px] font-normal text-muted">
+            {funcCount} functional · {advCount} adversarial
+            {unclassifiedCount > 0 && (
+              <span className="ml-2 text-amber-600 dark:text-amber-500">{unclassifiedCount} unclassified</span>
+            )}
+          </span>
+        </div>
         <div className="overflow-x-auto">
           <table className="data-table">
             <thead>
@@ -133,6 +145,7 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
                 <th>Test ID</th>
                 <th>Category</th>
                 <th>Technique</th>
+                <th>Equiv. Class</th>
                 <th>Method</th>
                 <th>Path</th>
                 <th>Expected</th>
@@ -156,8 +169,14 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
                     <td>
                       <Badge variant="outline" className="normal-case">{tc.category ?? "—"}</Badge>
                       {tc.adversarial && <Badge variant="high" className="ml-1">ADV</Badge>}
+                      {tc.adversarial && !tc.attestation_mode && (
+                        <Badge variant="caution" className="ml-1 text-amber-600 dark:text-amber-500 border-amber-500/40 bg-amber-500/10 normal-case">
+                          UNCLASSIFIED
+                        </Badge>
+                      )}
                     </td>
                     <td className="text-xs">{tc.technique ?? "—"}</td>
+                    <td className="text-xs text-muted">{tc.equivalence_class ?? "—"}</td>
                     <td>{tc.method}</td>
                     <td className="max-w-[180px] truncate font-mono text-xs">{tc.path}</td>
                     <td>
@@ -176,7 +195,7 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
                   </tr>
                   {expanded === tc.test_id && (
                     <tr>
-                      <td colSpan={8} className="bg-surface-elevated">
+                      <td colSpan={9} className="bg-surface-elevated">
                         <pre className="overflow-x-auto p-3 font-mono text-xs">
                           {JSON.stringify(
                             { input_data: tc.input_data, forbidden: tc.forbidden_response_content },

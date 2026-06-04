@@ -1,10 +1,7 @@
 import {
   Activity,
   ArrowLeft,
-  Bell,
-  HelpCircle,
   Moon,
-  Search,
   Sun,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
@@ -69,30 +66,6 @@ export function Topbar({ title, showBack, activeNav = "stories" }: TopbarProps) 
               <HealthBadge ok={health.target_app_ok} label="Target" />
             </div>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-nav-fg hover:bg-white/10 hover:text-nav-fg"
-            aria-label="Search"
-          >
-            <Search className="h-4 w-4" strokeWidth={1.75} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-nav-fg hover:bg-white/10 hover:text-nav-fg"
-            aria-label="Notifications"
-          >
-            <Bell className="h-4 w-4" strokeWidth={1.75} />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-nav-fg hover:bg-white/10 hover:text-nav-fg"
-            aria-label="Help"
-          >
-            <HelpCircle className="h-4 w-4" strokeWidth={1.75} />
-          </Button>
           <Button
             variant="ghost"
             size="icon"

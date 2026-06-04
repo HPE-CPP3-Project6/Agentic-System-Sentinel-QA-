@@ -49,7 +49,7 @@ export function InputTab({
     [acs],
   );
 
-  const valid = title.trim().length > 0 && acList.length > 0 && acList.length <= 30;
+  const valid = title.trim().length > 0 && acList.length > 0;
 
   async function save() {
     await updateStory.mutateAsync({
@@ -60,19 +60,35 @@ export function InputTab({
     toast.success("Story saved");
   }
 
+  async function handleSave() {
+    try {
+      await save();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save story.");
+    }
+  }
+
   async function startPipeline() {
-    await save();
-    const auto = flowMode === "auto";
-    const result = await startRun.mutateAsync({
-      mode: pipelineMode,
-      stop_after: auto ? null : "surface_resolver",
-    });
-    onRunStarted(result.run_id);
-    toast.success(
-      auto
-        ? "Full pipeline started — tabs will advance automatically"
-        : "Surface resolution started",
-    );
+    try {
+      await save();
+      const auto = flowMode === "auto";
+      const result = await startRun.mutateAsync({
+        mode: pipelineMode,
+        stop_after: auto ? null : "surface_resolver",
+      });
+      onRunStarted(result.run_id);
+      toast.success(
+        auto
+          ? "Full pipeline started — tabs will advance automatically"
+          : "Surface resolution started",
+      );
+    } catch (e) {
+      toast.error(
+        e instanceof Error
+          ? e.message
+          : "Failed to start pipeline — check that the shim is running.",
+      );
+    }
   }
 
   if (isLoading && !story) {
@@ -153,7 +169,7 @@ export function InputTab({
             <Badge variant="outline" className="normal-case">{flowMode}</Badge>
           </span>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => void save()} disabled={!valid}>
+            <Button variant="outline" onClick={() => void handleSave()} disabled={!valid}>
               Save
             </Button>
             {flowMode === "auto" ? (

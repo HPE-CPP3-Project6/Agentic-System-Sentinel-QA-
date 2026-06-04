@@ -315,14 +315,27 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
                   type="button"
                   onClick={() => setSelectedReq(entry.req_id)}
                   className={cn(
-                    "flex w-full items-center justify-between border-b border-border px-3 py-2 text-left text-xs hover:bg-surface",
+                    "flex w-full items-center justify-between gap-1 border-b border-border px-3 py-2 text-left text-xs hover:bg-surface",
                     selected?.req_id === entry.req_id && "bg-surface border-l-2 border-l-primary",
                   )}
                 >
                   <span className="font-mono">{entry.req_id}</span>
-                  <Badge variant={STATE_BADGE[entry.state] ?? "muted"} className="text-[10px]">
-                    {entry.state === "NOT_IMPLEMENTED" ? "GAP" : entry.state.slice(0, 4)}
-                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    {entry.threat_class && (
+                      <span className="truncate max-w-[56px] text-[10px] text-muted" title={entry.threat_class}>
+                        {entry.threat_class.length > 8 ? `${entry.threat_class.slice(0, 7)}…` : entry.threat_class}
+                      </span>
+                    )}
+                    {entry.attestation_mode === "missing_control" && (
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" title="missing control" />
+                    )}
+                    {entry.attestation_mode === "defense_confirming" && (
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" title="defense confirming" />
+                    )}
+                    <Badge variant={STATE_BADGE[entry.state] ?? "muted"} className="text-[10px]">
+                      {entry.state === "NOT_IMPLEMENTED" ? "GAP" : entry.state.slice(0, 4)}
+                    </Badge>
+                  </div>
                 </button>
               </li>
             ))}

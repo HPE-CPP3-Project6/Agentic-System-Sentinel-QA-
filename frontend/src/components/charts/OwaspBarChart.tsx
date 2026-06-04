@@ -14,6 +14,7 @@ interface OwaspDatum {
   resilient: number;
   vulnerable: number;
   skipped: number;
+  unclassified: number;
 }
 
 interface OwaspBarChartProps {
@@ -42,6 +43,7 @@ export function OwaspBarChart({ data }: OwaspBarChartProps) {
         <Bar dataKey="resilient" stackId="a" fill="#1e7e34" name="Resilient" />
         <Bar dataKey="vulnerable" stackId="a" fill="#c82333" name="Vulnerable" />
         <Bar dataKey="skipped" stackId="a" fill="#5c6670" name="Skipped" />
+        <Bar dataKey="unclassified" stackId="a" fill="#d97706" name="Unclassified" />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -52,6 +54,7 @@ type ExploitTargetCounts = {
   vulnerable?: number | null;
   skipped?: number | null;
   errored?: number | null;
+  unclassified?: number | null;
 };
 
 export function buildOwaspChartData(
@@ -62,5 +65,6 @@ export function buildOwaspChartData(
     resilient: v.resilient ?? 0,
     vulnerable: v.vulnerable ?? 0,
     skipped: (v.skipped ?? 0) + (v.errored ?? 0),
+    unclassified: v.unclassified ?? 0,
   }));
 }

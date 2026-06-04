@@ -1,7 +1,7 @@
 import { toast } from "sonner";
 import { Download, FileSpreadsheet, Loader2 } from "lucide-react";
 import { useArtifact, useRun } from "@/api/hooks";
-import { isReportReady, isRunInFlight } from "@/api/runLifecycle";
+import { isArtifactReady, isReportReady, isRunInFlight } from "@/api/runLifecycle";
 import { isPreCode } from "@/api/types";
 import { buildOwaspChartData, OwaspBarChart } from "@/components/charts/OwaspBarChart";
 import { ResilienceGauge } from "@/components/charts/ResilienceGauge";
@@ -25,7 +25,7 @@ interface ReportTabProps {
 export function ReportTab({ runId, storyTitle }: ReportTabProps) {
   const { data: run } = useRun(runId);
   const reportReady = isReportReady(run?.status);
-  const { data: artifact, isLoading, isError, error } = useArtifact(runId, Boolean(runId) && reportReady);
+  const { data: artifact, isLoading, isError, error } = useArtifact(runId, Boolean(runId) && isArtifactReady(run?.status));
 
   if (!runId) {
     return <div className="panel p-6 text-muted">Complete a run to view the report.</div>;
@@ -218,19 +218,91 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
           )}
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
-              <CardHeader><CardTitle>Design contracts</CardTitle></CardHeader>
+              <CardHeader><CardTitle>Design contracts ({(artifact.design_contracts ?? []).length})</CardTitle></CardHeader>
               <CardContent>
-                <pre className="max-h-48 overflow-auto font-mono text-xs">
-                  {JSON.stringify(artifact.design_contracts ?? [], null, 2)}
-                </pre>
+                <div className="max-h-64 space-y-2 overflow-auto">
+                  {(artifact.design_contracts ?? []).length === 0 ? (
+                    <p className="text-sm text-muted">No contracts generated.</p>
+                  ) : (
+                    (artifact.design_contracts ?? []).map((c, i) => {
+                      const contract = c as Record<string, unknown>;
+                      const raw = String(contract.endpoint ?? contract.path ?? "");
+                      const methodMatch = raw.match(/^(GET|POST|PUT|PATCH|DELETE|ANY)\s+/i);
+                      const method = methodMatch
+                        ? methodMatch[1].toUpperCase()
+                        : contract.method
+                          ? String(contract.method).toUpperCase()
+                          : null;
+                      const path = methodMatch ? raw.slice(methodMatch[0].length) : raw;
+                      const reqId = contract.requirement_id ? String(contract.requirement_id) : null;
+                      const rules = Array.isArray(contract.validation_rules)
+                        ? (contract.validation_rules as unknown[]).slice(0, 2).map(String).join(" · ")
+                        : contract.notes ? String(contract.notes) : null;
+                      const methodColor: Record<string, string> = {
+                        GET: "bg-blue-500/15 text-blue-400",
+                        POST: "bg-green-500/15 text-green-400",
+                        PUT: "bg-amber-500/15 text-amber-400",
+                        PATCH: "bg-amber-500/15 text-amber-400",
+                        DELETE: "bg-red-500/15 text-red-400",
+                        ANY: "bg-surface-elevated text-muted",
+                      };
+                      return (
+                        <div key={i} className="rounded border border-border p-2 text-xs">
+                          <div className="flex items-center gap-2">
+                            {method && (
+                              <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono font-bold text-[10px] ${methodColor[method] ?? "bg-surface-elevated text-muted"}`}>
+                                {method}
+                              </span>
+                            )}
+                            <span className="min-w-0 truncate font-medium text-foreground">{path || `Contract ${i + 1}`}</span>
+                            {reqId && <span className="ml-auto shrink-0 text-[10px] text-muted">{reqId}</span>}
+                          </div>
+                          {rules && <p className="mt-1 text-muted">{rules}</p>}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </CardContent>
             </Card>
             <Card>
-              <CardHeader><CardTitle>Security checklist</CardTitle></CardHeader>
+              <CardHeader><CardTitle>Security checklist ({(artifact.security_checklist ?? []).length})</CardTitle></CardHeader>
               <CardContent>
-                <pre className="max-h-48 overflow-auto font-mono text-xs">
-                  {JSON.stringify(artifact.security_checklist ?? [], null, 2)}
-                </pre>
+                <div className="max-h-64 space-y-2 overflow-auto">
+                  {(artifact.security_checklist ?? []).length === 0 ? (
+                    <p className="text-sm text-muted">No checklist items generated.</p>
+                  ) : (
+                    (artifact.security_checklist ?? []).map((item, i) => {
+                      const entry = item as Record<string, unknown>;
+                      const owaspId = String(entry.owasp_id ?? entry.owasp_category ?? entry.category ?? "");
+                      const reqId = entry.requirement_id ? String(entry.requirement_id) : null;
+                      const instruction = entry.instruction ?? entry.requirement ?? entry.control;
+                      // Color by OWASP category number — higher risk categories get warmer colors
+                      const owaspNum = parseInt(owaspId.match(/A(\d+)/)?.[1] ?? "0", 10);
+                      const owaspColor =
+                        [1, 2, 3, 8, 10].includes(owaspNum)
+                          ? "bg-red-500/15 text-red-400 border-red-500/20"
+                          : [4, 5, 6, 7].includes(owaspNum)
+                            ? "bg-amber-500/15 text-amber-400 border-amber-500/20"
+                            : "bg-blue-500/15 text-blue-400 border-blue-500/20";
+                      return (
+                        <div key={i} className="rounded border border-border p-2 text-xs">
+                          <div className="flex items-center gap-2">
+                            {owaspId ? (
+                              <span className={`shrink-0 rounded border px-1.5 py-0.5 font-mono font-bold text-[10px] ${owaspColor}`}>
+                                {owaspId}
+                              </span>
+                            ) : null}
+                            {reqId && <span className="ml-auto shrink-0 text-[10px] text-muted">{reqId}</span>}
+                          </div>
+                          {instruction != null && (
+                            <p className="mt-1 line-clamp-2 text-muted">{String(instruction)}</p>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               </CardContent>
             </Card>
           </div>

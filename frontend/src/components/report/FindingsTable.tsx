@@ -31,6 +31,7 @@ type Filter = "all" | "issues" | "adversarial" | "passed";
 
 export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
   const [filter, setFilter] = useState<Filter>("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const rows = logs ?? [];
 
   const counts = useMemo(() => {
@@ -48,26 +49,58 @@ export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
     };
   }, [rows]);
 
+  const categories = useMemo(() => {
+    const cats = new Set<string>();
+    rows.forEach((r) => { if (r.category) cats.add(r.category); });
+    return Array.from(cats).sort();
+  }, [rows]);
+
   const filtered = useMemo(() => {
+    let base: VerdictRecord[];
     switch (filter) {
       case "issues":
-        return rows.filter(
+        base = rows.filter(
           (r) =>
             r.status === "failed" ||
             r.status === "error" ||
             r.verdict === "vulnerable" ||
             r.status === "off_target",
         );
+        break;
       case "adversarial":
-        return rows.filter((r) => r.is_adversarial);
+        base = rows.filter((r) => r.is_adversarial);
+        break;
       case "passed":
-        return rows.filter((r) => r.status === "passed");
+        base = rows.filter((r) => r.status === "passed");
+        break;
       default:
-        return rows;
+        base = rows;
     }
-  }, [rows, filter]);
+    if (categoryFilter !== "all") {
+      base = base.filter((r) => r.category === categoryFilter);
+    }
+    return base;
+  }, [rows, filter, categoryFilter]);
 
-  if (rows.length === 0) return null;
+  if (logs === undefined) return null;
+
+  if (rows.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ListChecks className="h-4 w-4 text-primary" strokeWidth={1.75} />
+            Findings
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted">
+            No execution logs — run the executor phase to see per-test findings.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const tabs: { id: Filter; label: string }[] = [
     { id: "all", label: `All ${counts.all}` },
@@ -83,22 +116,36 @@ export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
           <ListChecks className="h-4 w-4 text-primary" strokeWidth={1.75} />
           Findings ({filtered.length})
         </CardTitle>
-        <div className="flex gap-1">
-          {tabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setFilter(t.id)}
-              className={cn(
-                "px-2 py-1 text-xs font-medium",
-                filter === t.id
-                  ? "border-b-2 border-primary text-foreground"
-                  : "text-muted hover:text-foreground",
-              )}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setFilter(t.id)}
+                className={cn(
+                  "px-2 py-1 text-xs font-medium",
+                  filter === t.id
+                    ? "border-b-2 border-primary text-foreground"
+                    : "text-muted hover:text-foreground",
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {categories.length > 0 && (
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="rounded border border-border bg-surface px-1.5 py-0.5 text-xs text-foreground focus:outline-none"
             >
-              {t.label}
-            </button>
-          ))}
+              <option value="all">All categories</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>{c.replace(/_/g, " ")}</option>
+              ))}
+            </select>
+          )}
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -108,6 +155,7 @@ export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
               <tr>
                 <th className="px-3 py-2 font-medium">Test</th>
                 <th className="px-3 py-2 font-medium">Technique</th>
+                <th className="px-3 py-2 font-medium">Target</th>
                 <th className="px-3 py-2 font-medium">Status</th>
                 <th className="px-3 py-2 font-medium">Verdict</th>
                 <th className="px-3 py-2 font-medium">Evidence</th>
@@ -122,6 +170,9 @@ export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
                   </td>
                   <td className="px-3 py-2 text-muted">
                     {r.technique ? r.technique.replace(/_/g, " ") : r.category ?? "—"}
+                  </td>
+                  <td className="px-3 py-2 text-muted">
+                    {r.exploit_target ? r.exploit_target.replace(/_/g, " ") : "—"}
                   </td>
                   <td className="px-3 py-2">
                     <Badge variant={STATUS_BADGE[r.status] ?? "muted"} className="normal-case">

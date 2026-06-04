@@ -54,8 +54,9 @@ export function PipelineStepper({
                   "flex items-center gap-2 border-b-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
                   active
                     ? "border-primary bg-surface-elevated text-primary"
-                    : "border-transparent text-muted hover:bg-surface-elevated hover:text-foreground",
-                  !unlocked && "cursor-not-allowed opacity-40",
+                    : unlocked
+                      ? "border-transparent text-muted hover:bg-surface-elevated hover:text-foreground"
+                      : "border-transparent text-muted cursor-not-allowed opacity-40",
                 )}
               >
                 <Icon className="h-4 w-4" strokeWidth={1.75} aria-hidden />

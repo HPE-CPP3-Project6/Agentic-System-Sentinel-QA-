@@ -12,8 +12,9 @@ export function RunStatusPill() {
 
   if (!activeRunId) return null;
 
+  const wsActive = wsStatus === "connected" || wsStatus === "connecting";
   const displayStatus =
-    streamStatus !== "idle" ? streamStatus : (run?.status ?? "queued");
+    wsActive && streamStatus !== "idle" ? streamStatus : (run?.status ?? "queued");
 
   const variant =
     displayStatus === "failed"

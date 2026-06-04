@@ -59,9 +59,16 @@ export function RunHistorySidebar({
                     </div>
                   </td>
                   <td>
-                    <Badge variant={run.run_validity === "OK" ? "success" : "caution"} className="normal-case">
-                      {run.suite_quality ?? run.run_validity}
-                    </Badge>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <Badge variant={run.run_validity === "OK" ? "success" : "caution"} className="normal-case">
+                        {run.suite_quality ?? run.run_validity}
+                      </Badge>
+                      {run.pipeline_mode && (
+                        <Badge variant="muted" className="font-mono text-[10px] normal-case">
+                          {String(run.pipeline_mode).startsWith("PRE") ? "PRE" : "POST"}
+                        </Badge>
+                      )}
+                    </div>
                     {run.resilience_pct != null && (
                       <div className="mt-1 text-muted">{run.resilience_pct}%</div>
                     )}
