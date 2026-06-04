@@ -1,5 +1,4 @@
 import {
-  Activity,
   ArrowLeft,
   Moon,
   Sun,
@@ -29,7 +28,7 @@ export function Topbar({ title, showBack, activeNav = "stories" }: TopbarProps) 
     <header className="sticky top-0 z-40 bg-nav text-nav-fg">
       <div className="flex h-12 items-center gap-6 px-4">
         <Link href="/" className="flex shrink-0 items-center gap-2 text-nav-fg no-underline">
-          <Activity className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+          <img src="/SentinalQA-logo.jpeg" alt="Sentinel-QA" className="h-7 w-7 rounded object-cover" />
           <span className="text-sm font-semibold tracking-tight">Sentinel-QA</span>
         </Link>
 
