@@ -3,7 +3,9 @@
 **Agentic QA pipeline for HPE-style API security and functional attestation.**  
 Given a user story, acceptance criteria, and an indexed codebase, Sentinel-QA produces **grounded test cases**, **OWASP-aligned adversarial variants**, **runnable pytest**, and a **categorized execution report** — with honest **coverage gaps** when the spec outruns the code.
 
-The reference application under test is **Smart Task Manager** (FastAPI + SQLAlchemy + React), populated locally under `Backend/repo_cache/` (gitignored — sync via `database/github_sync` or ingest). A separate **React reviewer UI** is in development; see [`sentinel-qa-architecture.md`](sentinel-qa-architecture.md) for the planned SPA + API shim. **This repository is the LangGraph backend** (agents, RAG, compiler, executor).
+This is a **full-stack repository**: LangGraph multi-agent backend + FastAPI shim + React 19 reviewer UI with live WebSocket streaming.
+
+The reference application under test is **Smart Task Manager** (FastAPI + SQLAlchemy + React), populated locally under `Backend/repo_cache/` (gitignored). The reviewer UI (`frontend/`) is production-ready — it drives the pipeline through a staged step-by-step workspace with PRE_CODE and POST_CODE dual-mode dashboards.
 
 ---
 
@@ -85,6 +87,7 @@ Run e.g. `python main.py post_code req-fr-filter` or `req-nfr-security`.
 ### 1. Prerequisites
 
 - **Python 3.10+**
+- **Node.js 18+** (for the React frontend)
 - **Google Cloud** project with Vertex AI enabled
 - **ADC:** `gcloud auth application-default login` (or `GOOGLE_APPLICATION_CREDENTIALS`)
 - For execution: **target API** running (see [Run the app under test](#run-the-app-under-test))
@@ -161,7 +164,27 @@ curl -X POST http://127.0.0.1:8000/register -H "Content-Type: application/json" 
 
 Paste `access_token` into `Backend/.env` as `SENTINEL_TEST_BEARER_TOKEN`.
 
-### 6. Run Sentinel-QA
+### 6. Run via the Reviewer UI (recommended)
+
+The UI drives the full pipeline interactively. Start both processes:
+
+```powershell
+# Terminal 1 — API shim (wraps LangGraph for the frontend)
+cd Backend
+python run_shim.py          # listens on http://localhost:8080
+
+# Terminal 2 — React frontend
+cd frontend
+npm install
+npm run dev                 # http://localhost:5173
+```
+
+Set `VITE_USE_MSW=false` in `frontend/.env` (or `.env.local`) to connect to the live shim instead of mock data.
+
+The workspace has 6 tabs: **Input → Surface Map → Scenarios → Scripts → Run → Report**.  
+PRE_CODE runs produce design contracts + security checklist; POST_CODE runs produce grounded tests, pytest execution, and a full security posture dashboard.
+
+### 7. Run via CLI (headless)
 
 ```powershell
 cd Backend
@@ -246,6 +269,20 @@ After execution, **`test_suite_summary`** rolls up planned vs executed per categ
 
 ---
 
+## Attestation cascade
+
+Every adversarial test carries an **`attestation_mode`** stamp that drives the verdict — not the test title:
+
+| `attestation_mode` | Set by | Meaning |
+|--------------------|--------|---------|
+| `missing_control` | Surface Resolver on the binding | Test is *attesting a gap* — the control is absent; a passing test (4xx) proves the gap is real |
+| `defense_confirming` | Surface Resolver on the binding | Test is *verifying a defense* — the control exists; a passing test proves it holds |
+| *(null)* | Not stamped | **UNCLASSIFIED** — excluded from resilience % and surfaced as amber in the UI |
+
+The stamp flows: `SurfaceBinding.attestation_mode` → `TestCase.attestation_mode` (Generator inherits) → `VerdictRecord.attestation_mode` (Executor inherits). The UI shows the stamp at every stage: binding detail panel, Scenarios table, Findings table, and per-test in the Report.
+
+---
+
 ## Output artifacts
 
 Each run writes **`outputs/exec-demo-<story>-<mode>-<timestamp>.json`** (repo root, gitignored). PRE_CODE and POST_CODE share the **same top-level envelope**; `pipeline_mode` is the discriminator.
@@ -294,18 +331,35 @@ Each **`ExecutionLog`** includes `status`, `verdict` (`resilient` / `vulnerable`
 
 ```
 HPE Project/
-├── README.md                          # This file
-├── sentinel-qa-architecture.md        # Planned React reviewer UI (separate track)
+├── README.md
+├── sentinel-qa-architecture.md        # Architecture reference
 ├── docs/
 │   └── design-notes/
 │       └── idor-path-template-tests.md
 ├── outputs/                           # Run artifacts (gitignored)
+├── frontend/                          # React 19 reviewer UI
+│   ├── src/
+│   │   ├── api/                       # TanStack Query hooks + Zod schemas
+│   │   ├── components/
+│   │   │   ├── charts/                # OwaspBarChart, ResilienceGauge
+│   │   │   ├── report/                # FindingsTable, SuggestedPatchesPanel, …
+│   │   │   └── workspace/tabs/        # InputTab, SurfaceMapTab, ScenariosTab, …
+│   │   ├── hooks/                     # useAutoPipelineNavigation, …
+│   │   ├── stores/                    # Zustand (uiStore, runStreamStore)
+│   │   └── lib/                       # exportReport, theme, cn
+│   ├── public/SentinalQA-logo.jpeg
+│   └── package.json
 └── Backend/
-    ├── main.py                        # LangGraph entry + artifact dump
+    ├── main.py                        # LangGraph entry + artifact dump (CLI)
+    ├── run_shim.py                    # FastAPI shim entry (for frontend)
     ├── bootstrap.py                   # CHROMA_HOME / HF cache setup
     ├── .env.example
     ├── requirements.txt
     ├── pyproject.toml                 # ruff + pytest
+    ├── shim/                          # FastAPI REST + WebSocket shim
+    │   ├── app.py                     # Route definitions
+    │   ├── artifact.py                # Artifact enrichment (posture, attestation)
+    │   └── README.md
     ├── agents/
     │   ├── critic.py
     │   ├── surface_resolver.py
@@ -315,19 +369,19 @@ HPE Project/
     │   ├── pytest_runner.py
     │   ├── suite_summary.py           # Categorized rollup for artifacts
     │   └── templates/pytest_api.jinja2
-    ├── state/                         # Pydantic models
+    ├── state/                         # Pydantic models (ProjectState, TestCase, …)
     ├── database/                      # ingest, vector_store, ast_chunker, reranker
     ├── samples/
-    │   ├── sample_stories.py            # CLI story registry
-    │   └── mentor_requirements/         # Mentor FR/NFR category stories
-    ├── tools/sast_scan.py               # Bandit sidecar (POST_CODE)
+    │   ├── sample_stories.py          # CLI story registry
+    │   └── mentor_requirements/       # Mentor FR/NFR category stories
+    ├── tools/sast_scan.py             # Bandit sidecar (POST_CODE)
     ├── utils/                         # llm, payloads, boundaries, placeholders
-    ├── phase_bridge/                    # Phase-1 snapshots + drift_report
+    ├── phase_bridge/                  # Phase-1 snapshots + drift_report
+    ├── shim_data/sentinel.db          # SQLite run/artifact store (gitignored)
     ├── repo_cache/                    # App under test (local only, gitignored)
     ├── tests/                         # Unit tests
     ├── workspace/                     # Generated pytest runs (gitignored)
-    ├── chroma_data/                   # Vector DB (gitignored)
-    └── cloud/                         # Docker / publish helpers (optional)
+    └── chroma_data/                   # Vector DB (gitignored)
 ```
 
 ---
@@ -359,8 +413,9 @@ CI (`.github/workflows/ci.yml`): **ruff** on `main`, then **pytest** with cached
 | **Pinpoint line citations** | Range buckets (`schemas.py:50-86`) are reliable; single-line refs in LLM prose may drift ±few lines. |
 | **Heal loop cost** | Retries Generator; cap `max_heal_attempts` and compiler size for demos. |
 | **Resilience %** | Excludes skipped/errored adversarial tests from denominator — read `errored` in posture. |
+| **Unclassified adversarial tests** | ADV tests with no `attestation_mode` stamp are excluded from resilience % and flagged amber in the UI — fix by ensuring Surface Resolver runs before Generator. |
 | **Features absent in app** | `org`, `ratelimit`, `taskshare` often yield honest empty or thin suites — by design. |
-| **Reviewer UI** | Not in this repo; backend JSON contract is stable for [`sentinel-qa-architecture.md`](sentinel-qa-architecture.md). |
+| **CLI vs shim artifact enrichment** | `security_posture` and `attestation_mode` are fully populated via the shim path (`run_shim.py`). CLI `main.py` dumps a simpler artifact without shim enrichment. |
 
 ---
 

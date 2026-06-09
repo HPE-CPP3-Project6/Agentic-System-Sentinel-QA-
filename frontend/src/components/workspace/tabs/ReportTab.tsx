@@ -125,9 +125,14 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
-          <CardHeader><CardTitle>Quality gate</CardTitle></CardHeader>
+          <CardHeader><CardTitle>{preCode ? "Design quality" : "Quality gate"}</CardTitle></CardHeader>
           <CardContent>
             <SuiteQualityBadge quality={quality ?? undefined} />
+            {preCode && (
+              <p className="mt-2 text-xs text-muted">
+                Based on contract coverage and checklist completeness.
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -140,26 +145,90 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
           </Card>
         )}
 
+        {preCode && (
+          <Card>
+            <CardHeader><CardTitle>Contract coverage</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              {artifact.design_summary ? (
+                <>
+                  <div>
+                    <span className="text-2xl font-bold">
+                      {artifact.design_summary.requirements_with_contract ?? 0}
+                    </span>
+                    <span className="text-sm text-muted">
+                      {" "}/ {artifact.design_summary.requirements_total ?? 0} requirements
+                    </span>
+                  </div>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-surface-elevated">
+                    <div
+                      className="h-full rounded-full bg-green-500 transition-all"
+                      style={{
+                        width: `${Math.round(
+                          ((artifact.design_summary.requirements_with_contract ?? 0) /
+                            Math.max(1, artifact.design_summary.requirements_total ?? 1)) * 100,
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted">
+                    {artifact.design_summary.contracts_total ?? 0} contracts ·{" "}
+                    {Object.entries(artifact.design_summary.contracts_by_method ?? {})
+                      .map(([m, n]) => `${m} ${n}`)
+                      .join(" · ") || "no method breakdown"}
+                  </p>
+                </>
+              ) : (
+                <p className="text-sm text-muted">No design summary.</p>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
         <Card>
-          <CardHeader><CardTitle>Coverage</CardTitle></CardHeader>
-          <CardContent className="space-y-1 text-sm">
-            <p>{totals?.planned ?? artifact.test_suite?.length ?? 0} tests planned</p>
-            <p className="text-muted">{totals?.executed ?? artifact.execution_logs?.length ?? 0} executed</p>
-            {posture && (
-              <p className="text-muted">
-                {posture.resilient} resilient · {posture.vulnerable} vulnerable
-              </p>
-            )}
-            {/* Stage-1: surface UNCLASSIFIED honestly — these adversarial
-                tests had no Resolver/Generator stamp and are EXCLUDED from
-                resilience %. Showing the count keeps reviewers from reading
-                the resilience number as a clean attestation when a chunk of
-                the suite was effectively unjudged. */}
-            {posture && (posture.unclassified ?? 0) > 0 && (
-              <p className="text-amber-600 dark:text-amber-500 font-medium">
-                {posture.unclassified} unclassified
-                <span className="text-muted font-normal"> · excluded from resilience %</span>
-              </p>
+          <CardHeader><CardTitle>{preCode ? "Checklist depth" : "Coverage"}</CardTitle></CardHeader>
+          <CardContent>
+            {preCode ? (
+              artifact.design_summary ? (
+                <div className="space-y-3">
+                  <div>
+                    <span className="text-2xl font-bold">{artifact.design_summary.checklist_total ?? 0}</span>
+                    <span className="text-sm text-muted"> items</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(artifact.design_summary.checklist_by_owasp ?? {}).map(([owasp, count]) => {
+                      const num = parseInt(owasp.match(/A(\d+)/)?.[1] ?? "0", 10);
+                      const color = [1, 2, 3, 8, 10].includes(num)
+                        ? "bg-red-500/15 text-red-400"
+                        : [4, 5, 6, 7].includes(num)
+                          ? "bg-amber-500/15 text-amber-400"
+                          : "bg-blue-500/15 text-blue-400";
+                      return (
+                        <span key={owasp} className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-bold ${color}`}>
+                          {owasp} · {String(count)}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-muted">No checklist data.</p>
+              )
+            ) : (
+              <div className="space-y-1 text-sm">
+                <p>{totals?.planned ?? artifact.test_suite?.length ?? 0} tests planned</p>
+                <p className="text-muted">{totals?.executed ?? artifact.execution_logs?.length ?? 0} executed</p>
+                {posture && (
+                  <p className="text-muted">
+                    {posture.resilient} resilient · {posture.vulnerable} vulnerable
+                  </p>
+                )}
+                {posture && (posture.unclassified ?? 0) > 0 && (
+                  <p className="font-medium text-amber-600 dark:text-amber-500">
+                    {posture.unclassified} unclassified
+                    <span className="font-normal text-muted"> · excluded from resilience %</span>
+                  </p>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>

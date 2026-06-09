@@ -83,6 +83,37 @@ const STATE_BADGE: Record<string, "success" | "danger" | "caution" | "muted"> = 
   CLIENT_SIDE_ONLY: "muted",
 };
 
+type DesignContract = {
+  requirement_id?: string;
+  endpoint?: string;
+  method?: string;
+  request_fields?: Record<string, string>;
+  response_fields?: Record<string, string>;
+  error_codes?: Record<string, string>;
+  validation_rules?: string[];
+  notes?: string;
+};
+
+const DC_METHOD_COLOR: Record<string, string> = {
+  GET: "bg-blue-500/15 text-blue-400",
+  POST: "bg-green-500/15 text-green-400",
+  PUT: "bg-amber-500/15 text-amber-400",
+  PATCH: "bg-amber-500/15 text-amber-400",
+  DELETE: "bg-red-500/15 text-red-400",
+};
+
+function dcMethod(c: DesignContract): string {
+  if (c.method) return c.method.toUpperCase();
+  const m = (c.endpoint ?? "").match(/^(GET|POST|PUT|PATCH|DELETE|ANY)\s+/i);
+  return m ? m[1].toUpperCase() : "";
+}
+
+function dcPath(c: DesignContract): string {
+  const raw = (c.endpoint ?? "").trim();
+  const m = raw.match(/^(?:GET|POST|PUT|PATCH|DELETE|ANY)\s+(.*)/i);
+  return m ? m[1] : raw;
+}
+
 export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }: SurfaceMapTabProps) {
   const { data: health } = useHealth();
   const { data: run, isError: runError, error: runFetchError, isLoading: runLoading } = useRun(runId);
@@ -102,6 +133,19 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
     () => Object.values((surfaceMap ?? {}) as Record<string, SurfaceBinding>),
     [surfaceMap],
   );
+
+  const preCode = isPreCode(mode);
+
+  const contractMap = useMemo(() => {
+    const map = new Map<string, DesignContract[]>();
+    ((artifact?.design_contracts ?? []) as DesignContract[]).forEach((c) => {
+      const rid = c.requirement_id;
+      if (!rid) return;
+      if (!map.has(rid)) map.set(rid, []);
+      map.get(rid)!.push(c);
+    });
+    return map;
+  }, [artifact?.design_contracts]);
 
   const selected = entries.find((e) => e.req_id === selectedReq) ?? entries[0];
 
@@ -234,7 +278,6 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
       : entries.filter((e) => e.state === groupFilter);
 
   const reportReady = isReportReady(run?.status);
-  const preCode = isPreCode(mode);
 
   return (
     <div className="space-y-3">
@@ -309,51 +352,62 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
             </Select>
           </div>
           <ul className="max-h-[360px] overflow-y-auto">
-            {filtered.map((entry) => (
-              <li key={entry.req_id}>
-                <button
-                  type="button"
-                  onClick={() => setSelectedReq(entry.req_id)}
-                  className={cn(
-                    "flex w-full items-center justify-between gap-1 border-b border-border px-3 py-2 text-left text-xs hover:bg-surface",
-                    selected?.req_id === entry.req_id && "bg-surface border-l-2 border-l-primary",
-                  )}
-                >
-                  <span className="font-mono">{entry.req_id}</span>
-                  <div className="flex items-center gap-1.5">
-                    {entry.threat_class && (
-                      <span className="truncate max-w-[56px] text-[10px] text-muted" title={entry.threat_class}>
-                        {entry.threat_class.length > 8 ? `${entry.threat_class.slice(0, 7)}…` : entry.threat_class}
-                      </span>
+            {filtered.map((entry) => {
+              const hasContract = contractMap.has(entry.req_id);
+              return (
+                <li key={entry.req_id}>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedReq(entry.req_id)}
+                    className={cn(
+                      "flex w-full items-center justify-between gap-1 border-b border-border px-3 py-2 text-left text-xs hover:bg-surface",
+                      selected?.req_id === entry.req_id && "bg-surface border-l-2 border-l-primary",
                     )}
-                    {entry.attestation_mode === "missing_control" && (
-                      <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" title="missing control" />
-                    )}
-                    {entry.attestation_mode === "defense_confirming" && (
-                      <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" title="defense confirming" />
-                    )}
-                    <Badge variant={STATE_BADGE[entry.state] ?? "muted"} className="text-[10px]">
-                      {entry.state === "NOT_IMPLEMENTED" ? "GAP" : entry.state.slice(0, 4)}
-                    </Badge>
-                  </div>
-                </button>
-              </li>
-            ))}
+                  >
+                    <span className="font-mono">{entry.req_id}</span>
+                    <div className="flex items-center gap-1.5">
+                      {preCode ? (
+                        <span
+                          className={cn("h-2 w-2 shrink-0 rounded-full", hasContract ? "bg-green-500" : "bg-amber-500")}
+                          title={hasContract ? "contract generated" : "no contract yet"}
+                        />
+                      ) : (
+                        <>
+                          {entry.threat_class && (
+                            <span className="max-w-[56px] truncate text-[10px] text-muted" title={entry.threat_class}>
+                              {entry.threat_class.length > 8 ? `${entry.threat_class.slice(0, 7)}…` : entry.threat_class}
+                            </span>
+                          )}
+                          {entry.attestation_mode === "missing_control" && (
+                            <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" title="missing control" />
+                          )}
+                          {entry.attestation_mode === "defense_confirming" && (
+                            <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" title="defense confirming" />
+                          )}
+                        </>
+                      )}
+                      <Badge variant={STATE_BADGE[entry.state] ?? "muted"} className="text-[10px]">
+                        {preCode && entry.state === "BACKEND_API"
+                          ? "API"
+                          : entry.state === "NOT_IMPLEMENTED"
+                            ? "GAP"
+                            : entry.state.slice(0, 4)}
+                      </Badge>
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </div>
 
         <div className="border-b border-border lg:border-b-0 lg:border-r">
-          <div className="panel-header">Binding detail</div>
+          <div className="panel-header">{preCode ? "Contract detail" : "Binding detail"}</div>
           {selected && (
-            <div className="space-y-3 p-4 text-sm">
+            <div className="max-h-[420px] overflow-y-auto space-y-3 p-4 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono font-semibold">{selected.req_id}</span>
                 <Badge variant={STATE_BADGE[selected.state] ?? "muted"}>{selected.state}</Badge>
-                {/* Stage-1: attestation_mode chip on the binding card. Reviewers
-                    see at a glance whether the Resolver tagged this REQ as
-                    "gap to attest" (missing_control) or "defense to verify"
-                    (defense_confirming). Adversarial tests for this REQ
-                    inherit the same mode. */}
                 {selected.attestation_mode === "missing_control" && (
                   <Badge variant="caution" className="normal-case">attesting gap</Badge>
                 )}
@@ -361,23 +415,23 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
                   <Badge variant="success" className="normal-case">verifying defense</Badge>
                 )}
               </div>
-              <p>{selected.requirement_text}</p>
+              <p className="text-sm">{selected.requirement_text}</p>
               {selected.threat_class && (
                 <table className="w-full text-xs">
                   <tbody>
-                    <tr><td className="text-muted py-1 pr-4">Threat</td><td>{selected.threat_class}</td></tr>
+                    <tr><td className="py-1 pr-4 text-muted">Threat</td><td>{selected.threat_class}</td></tr>
                     {selected.defense_kind && (
-                      <tr><td className="text-muted py-1 pr-4">Defense</td><td>{selected.defense_kind}</td></tr>
+                      <tr><td className="py-1 pr-4 text-muted">Defense</td><td>{selected.defense_kind}</td></tr>
                     )}
-                    <tr><td className="text-muted py-1 pr-4">Confidence</td><td>{selected.confidence ?? "—"}</td></tr>
+                    <tr><td className="py-1 pr-4 text-muted">Confidence</td><td>{selected.confidence ?? "—"}</td></tr>
                   </tbody>
                 </table>
               )}
               {selected.assertion_hint && (
                 <div className="border border-border bg-surface-elevated p-2 text-xs">{selected.assertion_hint}</div>
               )}
-              {selected.backend_endpoints.map((ep, i) => (
-                <div key={i} className="font-mono text-xs border border-border p-2">
+              {!preCode && selected.backend_endpoints.map((ep, i) => (
+                <div key={i} className="border border-border p-2 font-mono text-xs">
                   <span className="text-primary">{ep.method}</span> {ep.path}
                   {ep.handler_file && (
                     <div className="mt-1 text-muted">{ep.handler_file}:{ep.handler_line}</div>
@@ -386,6 +440,102 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
               ))}
               {selected.grounding_refs.length > 0 && (
                 <p className="text-xs text-muted">Grounding: {selected.grounding_refs.join(", ")}</p>
+              )}
+
+              {preCode && (
+                <div className="space-y-2 border-t border-border pt-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                    Design contracts ({(contractMap.get(selected.req_id) ?? []).length})
+                  </p>
+                  {(contractMap.get(selected.req_id) ?? []).length === 0 ? (
+                    <div className="rounded border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-600 dark:text-amber-500">
+                      No design contract generated for this requirement.
+                    </div>
+                  ) : (
+                    (contractMap.get(selected.req_id) ?? []).map((contract, idx) => {
+                      const method = dcMethod(contract);
+                      const path = dcPath(contract);
+                      const reqFields = Object.entries(contract.request_fields ?? {});
+                      const respFields = Object.entries(contract.response_fields ?? {});
+                      const errorCodes = Object.entries(contract.error_codes ?? {});
+                      const rules = contract.validation_rules ?? [];
+                      return (
+                        <div key={idx} className="overflow-hidden rounded border border-border text-xs">
+                          <div className="flex items-center gap-2 bg-surface-elevated px-3 py-2">
+                            {method && (
+                              <span className={cn("shrink-0 rounded px-1.5 py-0.5 font-mono font-bold text-[10px]", DC_METHOD_COLOR[method] ?? "bg-surface-elevated text-muted")}>
+                                {method}
+                              </span>
+                            )}
+                            <span className="truncate font-mono text-foreground">{path || contract.endpoint}</span>
+                          </div>
+                          <div className="divide-y divide-border">
+                            {reqFields.length > 0 && (
+                              <div className="px-3 py-2">
+                                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Request</p>
+                                <div className="space-y-1">
+                                  {reqFields.map(([field, type]) => (
+                                    <div key={field} className="flex gap-3">
+                                      <span className="shrink-0 font-mono text-foreground">{field}</span>
+                                      <span className="text-muted">{String(type)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {respFields.length > 0 && (
+                              <div className="px-3 py-2">
+                                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Response</p>
+                                <div className="space-y-1">
+                                  {respFields.map(([field, type]) => (
+                                    <div key={field} className="flex gap-3">
+                                      <span className="shrink-0 font-mono text-foreground">{field}</span>
+                                      <span className="text-muted">{String(type)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {errorCodes.length > 0 && (
+                              <div className="px-3 py-2">
+                                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Status codes</p>
+                                <div className="space-y-1">
+                                  {errorCodes.map(([code, desc]) => (
+                                    <div key={code} className="flex gap-3">
+                                      <span className={cn("shrink-0 font-mono font-bold", code.startsWith("2") ? "text-green-400" : code.startsWith("4") ? "text-amber-400" : "text-red-400")}>
+                                        {code}
+                                      </span>
+                                      <span className="text-muted">{String(desc)}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                            {rules.length > 0 && (
+                              <div className="px-3 py-2">
+                                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Validation</p>
+                                <ul className="space-y-0.5 text-muted">
+                                  {rules.map((rule, i) => (
+                                    <li key={i} className="flex gap-1.5">
+                                      <span className="shrink-0 text-primary">·</span>
+                                      <span>{rule}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {contract.notes && (
+                              <div className="px-3 py-2">
+                                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted">Notes</p>
+                                <p className="italic text-muted">{contract.notes}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               )}
             </div>
           )}

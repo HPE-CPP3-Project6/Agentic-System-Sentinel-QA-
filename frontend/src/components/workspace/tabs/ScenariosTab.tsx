@@ -16,6 +16,7 @@ import { ErrorBanner } from "@/components/ErrorBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/cn";
 
 interface ScenariosTabProps {
   runId?: string;
@@ -195,14 +196,103 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
                   </tr>
                   {expanded === tc.test_id && (
                     <tr>
-                      <td colSpan={9} className="bg-surface-elevated">
-                        <pre className="overflow-x-auto p-3 font-mono text-xs">
-                          {JSON.stringify(
-                            { input_data: tc.input_data, forbidden: tc.forbidden_response_content },
-                            null,
-                            2,
+                      <td
+                        colSpan={9}
+                        className={cn(
+                          "border-b border-border bg-surface-elevated border-l-2",
+                          tc.adversarial ? "border-l-amber-500" : "border-l-primary/50",
+                        )}
+                      >
+                        <div className="p-4 space-y-3 text-xs">
+                          {tc.title && (
+                            <p className="border-b border-border/50 pb-2 font-medium text-foreground">
+                              {tc.title}
+                            </p>
                           )}
-                        </pre>
+                          <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2">
+                            {/* Request body */}
+                            <div>
+                              <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-primary/70">
+                                <span className="h-px w-3 bg-primary/40" />
+                                Request body
+                              </p>
+                              {tc.input_data == null || (typeof tc.input_data === "object" && !Array.isArray(tc.input_data) && Object.keys(tc.input_data).length === 0) ? (
+                                <p className="italic text-muted">No request body</p>
+                              ) : Array.isArray(tc.input_data) ? (
+                                <ul className="space-y-0.5">
+                                  {(tc.input_data as unknown[]).map((v, i) => (
+                                    <li key={i} className="font-mono text-foreground">{String(v)}</li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <div className="space-y-1.5">
+                                  {Object.entries(tc.input_data as Record<string, unknown>).map(([k, v]) => {
+                                    const raw = typeof v === "string" ? v : JSON.stringify(v);
+                                    const display = raw.length > 72 ? `${raw.slice(0, 69)}…` : raw;
+                                    return (
+                                      <div key={k} className="flex gap-2">
+                                        <span className="shrink-0 font-mono text-primary/70">{k}</span>
+                                        <span className="font-mono text-foreground/90" title={raw}>{display}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Forbidden response content */}
+                            {(tc.forbidden_response_content ?? []).length > 0 && (
+                              <div>
+                                <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-red-400/80">
+                                  <span className="h-px w-3 bg-red-400/40" />
+                                  Must NOT appear in response
+                                </p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {(tc.forbidden_response_content ?? []).map((f, i) => (
+                                    <span key={i} className="rounded border border-red-500/30 bg-red-500/10 px-2 py-0.5 font-mono text-[10px] text-red-400">
+                                      {f}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Required response headers */}
+                            {tc.required_response_headers && Object.keys(tc.required_response_headers).length > 0 && (
+                              <div>
+                                <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-blue-400/80">
+                                  <span className="h-px w-3 bg-blue-400/40" />
+                                  Required response headers
+                                </p>
+                                <div className="space-y-1">
+                                  {Object.entries(tc.required_response_headers).map(([header, value]) => (
+                                    <div key={header} className="flex gap-2">
+                                      <span className="shrink-0 font-mono text-blue-400">{header}</span>
+                                      <span className="text-muted">{value ?? "(present)"}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Source requirement refs */}
+                            {(tc.source_refs ?? []).length > 0 && (
+                              <div>
+                                <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                                  <span className="h-px w-3 bg-border" />
+                                  Source requirements
+                                </p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {(tc.source_refs ?? []).map((ref, i) => (
+                                    <span key={i} className="rounded border border-primary/20 bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary/80">
+                                      {ref}
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   )}
