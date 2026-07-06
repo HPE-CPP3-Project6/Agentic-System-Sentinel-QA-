@@ -12,6 +12,9 @@ import {
 } from "@/lib/labels";
 import { EnumBadge } from "@/components/EnumLabel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SearchInput } from "@/components/ui/SearchInput";
+import { SortHeader } from "@/components/ui/SortHeader";
+import { useTableSort, type Accessors } from "@/lib/useTableSort";
 import { cn } from "@/lib/cn";
 
 /**
@@ -36,11 +39,20 @@ const VERDICT_BADGE: Record<string, "success" | "danger" | "muted" | "outline"> 
   "n/a": "muted",
 };
 
+const FINDINGS_SORT: Accessors<VerdictRecord> = {
+  test: (r) => r.title ?? r.test_id,
+  technique: (r) => r.technique ?? r.category ?? null,
+  target: (r) => r.exploit_target ?? null,
+  status: (r) => r.status,
+  verdict: (r) => r.verdict ?? null,
+};
+
 type Filter = "all" | "issues" | "adversarial" | "passed";
 
 export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [search, setSearch] = useState("");
   const rows = logs ?? [];
 
   const counts = useMemo(() => {
@@ -88,8 +100,17 @@ export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
     if (categoryFilter !== "all") {
       base = base.filter((r) => r.category === categoryFilter);
     }
+    const q = search.trim().toLowerCase();
+    if (q) {
+      base = base.filter((r) =>
+        [r.test_id, r.title, r.technique, r.exploit_target, r.category].some(
+          (v) => v && String(v).toLowerCase().includes(q),
+        ),
+      );
+    }
     return base;
-  }, [rows, filter, categoryFilter]);
+  }, [rows, filter, categoryFilter, search]);
+  const { sorted, sort, onSort } = useTableSort(filtered, FINDINGS_SORT);
 
   if (logs === undefined) return null;
 
@@ -123,7 +144,7 @@ export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <CardTitle className="flex items-center gap-2">
           <ListChecks className="h-4 w-4 text-primary" strokeWidth={1.75} />
-          Findings ({filtered.length})
+          Findings ({sorted.length}{sorted.length !== rows.length && ` of ${rows.length}`})
         </CardTitle>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex gap-1">
@@ -155,6 +176,13 @@ export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
               ))}
             </select>
           )}
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Filter findings…"
+            className="w-40"
+            ariaLabel="Filter findings"
+          />
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -162,16 +190,16 @@ export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
           <table className="w-full text-left text-xs">
             <thead className="sticky top-0 bg-surface-elevated text-muted">
               <tr>
-                <th className="px-3 py-2 font-medium">Test</th>
-                <th className="px-3 py-2 font-medium">Technique</th>
-                <th className="px-3 py-2 font-medium">Target</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 font-medium">Verdict</th>
+                <SortHeader label="Test" sortKey="test" sort={sort} onSort={onSort} className="px-3 py-2 font-medium" />
+                <SortHeader label="Technique" sortKey="technique" sort={sort} onSort={onSort} className="px-3 py-2 font-medium" />
+                <SortHeader label="Target" sortKey="target" sort={sort} onSort={onSort} className="px-3 py-2 font-medium" />
+                <SortHeader label="Status" sortKey="status" sort={sort} onSort={onSort} className="px-3 py-2 font-medium" />
+                <SortHeader label="Verdict" sortKey="verdict" sort={sort} onSort={onSort} className="px-3 py-2 font-medium" />
                 <th className="px-3 py-2 font-medium">Evidence</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => (
+              {sorted.map((r) => (
                 <tr key={r.test_id} className="border-t border-border align-top hover:bg-surface">
                   <td className="px-3 py-2">
                     <p className="font-medium">{r.title ?? r.test_id}</p>

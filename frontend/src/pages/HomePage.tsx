@@ -28,6 +28,7 @@ import { RunDuration } from "@/components/RunDuration";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
+import { useLoadMore } from "@/lib/useLoadMore";
 import { cn } from "@/lib/cn";
 
 type SortKey = "updated" | "created" | "title";
@@ -63,6 +64,7 @@ export function HomePage() {
       return (b.updated_at ?? b.created_at ?? "").localeCompare(a.updated_at ?? a.created_at ?? "");
     });
   }, [stories, search, sortBy]);
+  const paged = useLoadMore(visibleStories, 15);
 
   async function handleCreate() {
     if (!title.trim() || acList.length === 0) return;
@@ -147,31 +149,44 @@ export function HomePage() {
             ) : !visibleStories.length ? (
               <p className="p-4 text-muted">No stories match your search.</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th className="w-8" aria-label="Expand" />
-                      <th>Name</th>
-                      <th className="w-14">ACs</th>
-                      <th>Last run</th>
-                      <th className="w-16">Runs</th>
-                      <th>Updated</th>
-                      <th className="w-52">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleStories.map((story) => (
-                      <StoryRow
-                        key={story.id}
-                        story={story}
-                        pipelineMode={pipelineMode}
-                        validityFilter={filter}
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <>
+                <div className="overflow-x-auto">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th className="w-8" aria-label="Expand" />
+                        <th>Name</th>
+                        <th className="w-14">ACs</th>
+                        <th>Last run</th>
+                        <th className="w-16">Runs</th>
+                        <th>Updated</th>
+                        <th className="w-52">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {paged.visible.map((story) => (
+                        <StoryRow
+                          key={story.id}
+                          story={story}
+                          pipelineMode={pipelineMode}
+                          validityFilter={filter}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {paged.hasMore && (
+                  <div className="flex flex-wrap items-center justify-center gap-3 border-t border-border p-3 text-xs text-muted">
+                    <span>Showing {paged.shown} of {paged.total}</span>
+                    <Button size="sm" variant="outline" onClick={paged.showMore}>
+                      Load {Math.min(15, paged.remaining)} more
+                    </Button>
+                    <button type="button" onClick={paged.showAll} className="text-primary hover:underline">
+                      Show all
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

@@ -18,7 +18,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatRow, type Stat } from "@/components/ui/StatRow";
+import { SortHeader } from "@/components/ui/SortHeader";
 import { STATUS_LABELS, VERDICT_LABELS, labelText } from "@/lib/labels";
+import { useTableSort, type Accessors } from "@/lib/useTableSort";
 import type { VerdictRecord } from "@/api/types";
 
 interface RunTabProps {
@@ -33,6 +35,14 @@ const PHASE_LABELS: Record<string, string> = {
   security_compiler: "Compiler",
   compiler: "Compiler",
   executor: "Executor",
+};
+
+const RESULT_SORT: Accessors<VerdictRecord> = {
+  test_id: (v) => v.test_id,
+  status: (v) => v.status,
+  verdict: (v) => v.verdict ?? null,
+  conf: (v) => v.verdict_confidence ?? null,
+  ms: (v) => v.duration_ms ?? null,
 };
 
 export function RunTab({ runId, onTabChange }: RunTabProps) {
@@ -58,6 +68,8 @@ export function RunTab({ runId, onTabChange }: RunTabProps) {
     if (streamVerdicts.length) return streamVerdicts;
     return artifact?.execution_logs ?? [];
   }, [streamVerdicts, artifact?.execution_logs]);
+  const { sorted: sortedResults, sort: resultSort, onSort: onResultSort } =
+    useTableSort(verdicts, RESULT_SORT);
 
   useEffect(() => {
     if (!paused && logRef.current) {
@@ -240,34 +252,36 @@ export function RunTab({ runId, onTabChange }: RunTabProps) {
       <Card>
         <CardHeader><CardTitle>Test results</CardTitle></CardHeader>
         <CardContent className="p-0">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th className="w-8">S</th>
-                <th>Test ID</th>
-                <th>Status</th>
-                <th>Verdict</th>
-                <th>Conf</th>
-                <th>ms</th>
-              </tr>
-            </thead>
-            <tbody>
-              {verdicts.length === 0 ? (
-                <tr><td colSpan={6} className="text-muted">No results yet</td></tr>
-              ) : (
-                verdicts.map((v) => (
-                  <tr key={v.test_id}>
-                    <td><StatusIcon status={v.status} /></td>
-                    <td className="font-mono text-xs">{v.test_id}</td>
-                    <td>{labelText(STATUS_LABELS, v.status)}</td>
-                    <td>{labelText(VERDICT_LABELS, v.verdict)}</td>
-                    <td>{v.verdict_confidence ?? "—"}</td>
-                    <td>{v.duration_ms ?? "—"}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+          <div className="max-h-[60vh] overflow-auto">
+            <table className="data-table data-table--sticky">
+              <thead>
+                <tr>
+                  <th className="w-8">S</th>
+                  <SortHeader label="Test ID" sortKey="test_id" sort={resultSort} onSort={onResultSort} />
+                  <SortHeader label="Status" sortKey="status" sort={resultSort} onSort={onResultSort} />
+                  <SortHeader label="Verdict" sortKey="verdict" sort={resultSort} onSort={onResultSort} />
+                  <SortHeader label="Conf" sortKey="conf" sort={resultSort} onSort={onResultSort} />
+                  <SortHeader label="ms" sortKey="ms" sort={resultSort} onSort={onResultSort} align="right" />
+                </tr>
+              </thead>
+              <tbody>
+                {verdicts.length === 0 ? (
+                  <tr><td colSpan={6} className="text-muted">No results yet</td></tr>
+                ) : (
+                  sortedResults.map((v) => (
+                    <tr key={v.test_id}>
+                      <td><StatusIcon status={v.status} /></td>
+                      <td className="font-mono text-xs">{v.test_id}</td>
+                      <td>{labelText(STATUS_LABELS, v.status)}</td>
+                      <td>{labelText(VERDICT_LABELS, v.verdict)}</td>
+                      <td>{v.verdict_confidence ?? "—"}</td>
+                      <td className="text-right tabular-nums">{v.duration_ms ?? "—"}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </CardContent>
       </Card>
 

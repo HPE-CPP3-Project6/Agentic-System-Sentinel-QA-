@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -19,6 +19,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { StatRow, type Stat } from "@/components/ui/StatRow";
+import { SearchInput } from "@/components/ui/SearchInput";
+import { SortHeader } from "@/components/ui/SortHeader";
+import { useTableSort, type Accessors } from "@/lib/useTableSort";
 import { cn } from "@/lib/cn";
 
 interface ScenariosTabProps {
@@ -26,6 +29,16 @@ interface ScenariosTabProps {
   flowMode?: FlowMode;
   onTabChange: (tab: "scripts") => void;
 }
+
+const SCENARIO_SORT: Accessors<TestCase> = {
+  test_id: (t) => t.test_id,
+  category: (t) => t.category ?? null,
+  technique: (t) => t.technique ?? null,
+  equivalence_class: (t) => t.equivalence_class ?? null,
+  method: (t) => t.method ?? null,
+  path: (t) => t.path ?? null,
+  expected: (t) => t.expected_status_code ?? null,
+};
 
 export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: ScenariosTabProps) {
   const { data: run } = useRun(runId);
@@ -35,13 +48,25 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
     Boolean(runId) && scenariosReady,
   );
   const patchTest = usePatchTestCase(runId ?? "");
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [search, setSearch] = useState("");
   const [editStatus, setEditStatus] = useState<Record<string, string>>({});
 
   const tests =
     artifact?.test_suite ??
     (run?.partial_artifact?.test_suite as TestCase[] | undefined) ??
     [];
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return tests;
+    return tests.filter((t) =>
+      [t.test_id, t.path, t.title, t.technique, t.category, t.method].some(
+        (v) => v && String(v).toLowerCase().includes(q),
+      ),
+    );
+  }, [tests, search]);
+  const { sorted, sort, onSort } = useTableSort(filtered, SCENARIO_SORT);
 
   if (!runId) {
     return <div className="panel p-6 text-muted">Complete Surface Map and generate tests first.</div>;
@@ -132,6 +157,19 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
     { label: "Techniques", value: techniqueCount, hint: "Distinct ISTQB test-design techniques covered." },
   ];
 
+  function toggleRow(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  const allExpanded = sorted.length > 0 && sorted.every((t) => expanded.has(t.test_id));
+  function toggleAll() {
+    setExpanded(allExpanded ? new Set() : new Set(sorted.map((t) => t.test_id)));
+  }
+
   return (
     <div className="space-y-3">
       <div className="panel p-4">
@@ -149,37 +187,64 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
         )}
       </div>
       <div className="panel overflow-hidden">
-        <div className="panel-header flex items-center justify-between">
-          <span>Test scenarios ({tests.length})</span>
-          <span className="text-[11px] font-normal text-muted">
-            {funcCount} functional · {advCount} adversarial
-            {unclassifiedCount > 0 && (
-              <span className="ml-2 text-amber-600 dark:text-amber-500">{unclassifiedCount} unclassified</span>
-            )}
-          </span>
+        <div className="panel-header flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <span>Test scenarios</span>
+            <span className="text-[11px] font-normal normal-case text-muted">
+              showing {sorted.length} of {tests.length} · {funcCount} functional · {advCount} adversarial
+              {unclassifiedCount > 0 && (
+                <span className="ml-1 text-amber-600 dark:text-amber-500">· {unclassifiedCount} unclassified</span>
+              )}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder="Filter tests…"
+              className="w-52"
+              ariaLabel="Filter test scenarios"
+            />
+            <Button size="sm" variant="outline" onClick={toggleAll} disabled={!sorted.length}>
+              {allExpanded ? "Collapse all" : "Expand all"}
+            </Button>
+          </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="data-table">
+        <div className="max-h-[65vh] overflow-auto">
+          <table className="data-table data-table--sticky">
             <thead>
               <tr>
                 <th className="w-8" />
-                <th>Test ID</th>
-                <th>Category</th>
-                <th>Technique</th>
-                <th>Equiv. Class</th>
-                <th>Method</th>
-                <th>Path</th>
-                <th>Expected</th>
+                <SortHeader label="Test ID" sortKey="test_id" sort={sort} onSort={onSort} />
+                <SortHeader label="Category" sortKey="category" sort={sort} onSort={onSort} />
+                <SortHeader label="Technique" sortKey="technique" sort={sort} onSort={onSort} />
+                <SortHeader label="Equiv. Class" sortKey="equivalence_class" sort={sort} onSort={onSort} />
+                <SortHeader label="Method" sortKey="method" sort={sort} onSort={onSort} />
+                <SortHeader label="Path" sortKey="path" sort={sort} onSort={onSort} />
+                <SortHeader label="Expected" sortKey="expected" sort={sort} onSort={onSort} />
                 <th />
               </tr>
             </thead>
             <tbody>
-              {tests.map((tc) => (
+              {sorted.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="p-4 text-center text-muted">
+                    No tests match your filter.
+                  </td>
+                </tr>
+              )}
+              {sorted.map((tc) => {
+                const isOpen = expanded.has(tc.test_id);
+                return (
                 <Fragment key={tc.test_id}>
                   <tr>
                     <td>
-                      <button type="button" onClick={() => setExpanded((x) => (x === tc.test_id ? null : tc.test_id))}>
-                        {expanded === tc.test_id ? (
+                      <button
+                        type="button"
+                        onClick={() => toggleRow(tc.test_id)}
+                        aria-label={isOpen ? "Collapse row" : "Expand row"}
+                      >
+                        {isOpen ? (
                           <ChevronDown className="h-4 w-4" strokeWidth={1.75} />
                         ) : (
                           <ChevronRight className="h-4 w-4" strokeWidth={1.75} />
@@ -226,7 +291,7 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
                       </Button>
                     </td>
                   </tr>
-                  {expanded === tc.test_id && (
+                  {isOpen && (
                     <tr>
                       <td
                         colSpan={9}
@@ -328,7 +393,8 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
                     </tr>
                   )}
                 </Fragment>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

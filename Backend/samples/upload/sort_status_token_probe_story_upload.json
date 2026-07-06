@@ -1,0 +1,20 @@
+{
+  "stories": [
+    {
+      "title": "Task Query, Sort & Token Gate Probe",
+      "body": "As a QA engineer validating the Smart Task Manager list engine and auth boundary before release, I want API-level tests for JWT rejection paths, status transitions, Today/Upcoming date filters, priority and due-date sorting (including null due dates), combined AND filters, partial PATCH semantics, and honest stateless logout behavior. This story is intentionally distinct from the Edge Probe and lifecycle samples — it exercises list_tasks sorting/filtering in task_router.py and get_current_user in auth.py without re-testing registration validators, HTML sanitization, or two-user isolation.",
+      "acceptance_criteria": [
+        "GET /tasks/ without an Authorization header must return HTTP 401 with a WWW-Authenticate Bearer header (OAuth2PasswordBearer dependency).",
+        "GET /tasks/ with Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.invalid must return HTTP 401 with detail indicating credentials could not be validated (malformed or invalid JWT rejected before DB access).",
+        "After registering a fresh user and obtaining a bearer token, POST /tasks/ with {\"title\":\"Sort probe A\",\"priority\":\"High\",\"status\":\"Active\",\"due_date\":\"<tomorrow UTC ISO8601>\"} must return HTTP 201; PATCH /tasks/{task_id} with {\"status\":\"Completed\"} must return HTTP 200; a subsequent GET /tasks/{task_id} must return HTTP 200 with status \"Completed\".",
+        "Given at least one Active task and one Completed task owned by the same user, GET /tasks/?status=Active must return HTTP 200 and every object in items must have status \"Active\"; GET /tasks/?status=Completed must return HTTP 200 and every object in items must have status \"Completed\".",
+        "Given one task with due_date on today's UTC calendar day and one task with due_date three days in the future, GET /tasks/?date_filter=Today must return HTTP 200 including only the today-due task; GET /tasks/?date_filter=Upcoming must return HTTP 200 including only the future-due task (date_filter normalisation in list_tasks).",
+        "Given three tasks with priorities High, Medium, and Low (same user), GET /tasks/?sort_by=priority&sort_order=asc must return HTTP 200 with items ordered High then Medium then Low (CASE rank in task_router.py).",
+        "Given one task with a due_date and one task with due_date omitted (null), GET /tasks/?sort_by=due_date&sort_order=asc must return HTTP 200 with the dated task before the null-due task (nullslast on due_date sort).",
+        "Given tasks with mixed status and priority, GET /tasks/?status=Active&priority=High must return HTTP 200 and every item must satisfy both status Active and priority High (logical AND across filters).",
+        "PATCH /tasks/{task_id} with only {\"priority\":\"Low\"} on a task whose title is known must return HTTP 200; GET /tasks/{task_id} must return HTTP 200 with priority \"Low\" and the title unchanged (partial update via TaskUpdate exclude_none).",
+        "POST /logout must return HTTP 200 with a message to discard the token; a subsequent GET /tasks/ using the same bearer token issued before logout must still return HTTP 200 (stateless JWT — logout is advisory only, documented honest behavior)."
+      ]
+    }
+  ]
+}

@@ -119,6 +119,14 @@
     @apply bg-surface-elevated;
   }
 
+  /* Sticky header for tables inside a scroll container. The th already has a
+     solid bg-surface-elevated so rows scroll underneath cleanly. */
+  .data-table--sticky thead th {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
   .nav-tab {
     @apply px-4 py-3 text-xs font-semibold uppercase tracking-wide text-nav-muted transition-colors;
   }
