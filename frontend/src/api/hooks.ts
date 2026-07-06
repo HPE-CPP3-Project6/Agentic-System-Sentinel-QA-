@@ -211,6 +211,20 @@ export function useRunArtifact(runId: string | undefined) {
   return { run, artifact, ready };
 }
 
+export function useDeleteRun(storyId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (runId: string) => {
+      await apiFetch<void>(`/api/runs/${runId}`, { method: "DELETE" });
+      return runId;
+    },
+    onSuccess: (runId) => {
+      qc.removeQueries({ queryKey: queryKeys.run(runId) });
+      qc.invalidateQueries({ queryKey: queryKeys.storyRuns(storyId) });
+    },
+  });
+}
+
 export function useStoryRuns(storyId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.storyRuns(storyId ?? ""),

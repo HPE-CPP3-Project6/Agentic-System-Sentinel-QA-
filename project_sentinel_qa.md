@@ -1,0 +1,19 @@
+---
+name: Sentinel-QA project overview
+description: HPE agentic QA + security attestation pipeline — full-stack architecture, stack, and the "kill false-green" design philosophy
+type: project
+originSessionId: ac5d6784-012b-4bc2-a911-245a622561bc
+---
+Sentinel-QA is an HPE project: an agentic, LLM-driven QA + security **attestation** pipeline. Input = a user story + acceptance criteria (+ an indexed target codebase). Output = a grounded requirement→code→test→verdict traceability report with OWASP adversarial tests, runnable pytest, self-healing patch suggestions, and a deliberately hard-to-fake trust badge.
+
+**Why:** Core philosophy is killing "false-green" — a passing adversarial test must not be blindly marked "resilient" when passing actually *confirms* a vulnerability. Recent work (verified 2026-07-06) is overwhelmingly about making the pass/fail verdict semantically correct and structurally un-fakeable (see the `attestation_mode` cascade below). Original brief mandated data sovereignty (local Ollama); relaxed 2026-04-12 to hosted Gemini — prompts/RAG context leave the local env. Revisit if HPE re-imposes air-gap.
+
+**How to apply (corrected against current code 2026-07-06 — supersedes the old 4-node/Playwright/Gemini-embeddings notes):**
+- **Three layers:** React 19 frontend (`frontend/`) → FastAPI "shim" (`Backend/shim/`, port 8080) → LangGraph pipeline (`Backend/agents/`). Frontend talks to the shim over REST `/api` (full artifact) + WebSocket `/ws` (progress events only), via the Vite dev proxy.
+- **5 nodes, not 4** (heal-loop edge is real): `critic → surface_resolver → generator → security_compiler → executor`, with a conditional `needs_healing` edge from executor back to generator (bounded by `heal_attempts < max_heal_attempts`, default 2). `surface_resolver` ("Layer A") was inserted between critic and generator and is the anti-hallucination keystone — it binds each requirement to a real code surface (BACKEND_API / FRONTEND_ONLY / CLIENT_SIDE_ONLY / NOT_IMPLEMENTED / NEEDS_CLARIFICATION).
+- **Execution is pytest + httpx against a live API, NOT Playwright.** `security_compiler` renders `test_sentinel_api_generated.py`; executor runs it and self-heals.
+- **LLM/RAG:** default `gemini-2.0-flash` (env-overridable via `SENTINEL_LLM_MODEL`) through Vertex AI (`langchain-google-vertexai`) or AI Studio (`GEMINI_API_KEY`); factory in `utils/llm.py` — every agent must use it. Embeddings are **local Jina code embeddings** (`jinaai/jina-embeddings-v2-base-code` via sentence-transformers), NOT Gemini. RAG store = ChromaDB over the target app's source.
+- **Headline concept — two-axis trust model:** `run_validity` ("did we actually exercise the app?": OK / TARGET_UNREACHABLE / FUNCTIONALLY_UNRELIABLE / DESIGN_ONLY) × `coverage_quality` ("was the suite meaningful?"). Resilience % is suppressed whenever run_validity ≠ OK. Per-test verdict driven by the `attestation_mode` cascade: `missing_control` (passing test proves a gap → vulnerable) vs `defense_confirming` (passing test proves a defense → resilient) vs null → UNCLASSIFIED (excluded from resilience %).
+- **Two modes:** POST_CODE (full RAG → generate → compile → execute → heal) and PRE_CODE (shift-left: design contracts + security checklist, `run_validity=DESIGN_ONLY`, no execution), bridged by phase-bridge drift snapshots.
+- **State:** single Pydantic `ProjectState` (`state/project_state.py`) threaded through every node. Persistence: SQLite `Backend/shim_data/sentinel.db` (stories/runs) + per-run `Backend/workspace/runs/<id>/` (state.json/artifact.json/generated pytest).
+- **Frontend stack:** React 19 + Vite + wouter + React Query + Zustand + Zod; 6-tab workspace (Input → Surface Map → Scenarios → Scripts → Run → Report) mapping 1:1 to pipeline phases; MSW mocks the backend for standalone dev.

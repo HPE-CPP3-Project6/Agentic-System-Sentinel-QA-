@@ -503,6 +503,14 @@ def _acceptable_status_codes_for_adversarial(tc: TestCase) -> List[int]:
     req_path = _request_path_for_adversarial(tc)
     if _is_resource_id_route(req_path) and 404 not in codes:
         codes = sorted(set(codes) | {404})
+    # Pydantic/FastAPI neutralizes malformed input with 422 — every signature
+    # list must accept it as a rejection. Without this, correct validation
+    # flips false-vulnerable (observed r_e533db86: 5/5 "vulnerable" verdicts
+    # were 422 rejections the test's list didn't include). Style-2
+    # missing_control probes keep their strict list — their pass condition
+    # IS the specific enforcement status (429/423), not any rejection.
+    if tc.attestation_mode != "missing_control" and 422 not in codes:
+        codes = sorted(set(codes) | {422})
     return codes
 
 

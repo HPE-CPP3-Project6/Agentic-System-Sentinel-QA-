@@ -80,6 +80,27 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
+  http.delete("/api/runs/:runId", ({ params }) => {
+    const runId = params.runId as string;
+    for (const storyId of Object.keys(mockRuns)) {
+      const idx = (mockRuns[storyId] ?? []).findIndex((r) => r.run_id === runId);
+      if (idx === -1) continue;
+      const run = mockRuns[storyId][idx];
+      if (run.status === "running" || run.status === "queued") {
+        return HttpResponse.json(
+          { error: { code: "run_in_progress", message: "Cannot delete a run while it is executing" } },
+          { status: 409 },
+        );
+      }
+      mockRuns[storyId].splice(idx, 1);
+      return new HttpResponse(null, { status: 204 });
+    }
+    return HttpResponse.json(
+      { error: { code: "not_found", message: "Run not found" } },
+      { status: 404 },
+    );
+  }),
+
   http.post("/api/stories/bulk", async ({ request }) => {
     const form = await request.formData();
     const file = form.get("file");

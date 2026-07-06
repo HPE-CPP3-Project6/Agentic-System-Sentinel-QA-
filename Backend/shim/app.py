@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,16 @@ hub = WsHub()
 _queue_depth = 0
 _lock = threading.Lock()
 _running_jobs: set[str] = set()
+# Each run is a full LLM pipeline (Vertex AI billing + CPU embedding work).
+# Without a cap, N stories started together = N concurrent pipelines.
+_MAX_CONCURRENT_RUNS = max(1, int(os.getenv("SENTINEL_SHIM_MAX_CONCURRENT_RUNS", "2")))
+_run_slots = threading.Semaphore(_MAX_CONCURRENT_RUNS)
 _MAX_BULK_UPLOAD_BYTES = 10 * 1024 * 1024
+
+# CORS does NOT apply to WebSocket handshakes — any website open in the
+# browser can attempt ws://localhost:8080. Reject cross-origin upgrades
+# explicitly. Non-browser clients (no Origin header) are allowed.
+_ALLOWED_WS_ORIGINS = {"http://localhost:5173", "http://127.0.0.1:5173"}
 
 app = FastAPI(title="Sentinel-QA API Shim", version="0.1.0")
 app.add_middleware(
@@ -103,9 +113,13 @@ def _enqueue(run_id: str) -> None:
         global _queue_depth
         with _lock:
             _queue_depth += 1
+        # Blocks until a slot frees up — the run stays status=queued, which
+        # is exactly what the UI already renders for this state.
+        _run_slots.acquire()
         try:
             execute_run(store, hub, run_id)
         finally:
+            _run_slots.release()
             with _lock:
                 _queue_depth = max(0, _queue_depth - 1)
                 _running_jobs.discard(run_id)
@@ -113,16 +127,44 @@ def _enqueue(run_id: str) -> None:
     threading.Thread(target=_worker, daemon=True).start()
 
 
+# Status polls hit this every 1.5s per client; loading + Pydantic-validating
+# the full state.json (entire test suite + logs) each time is O(state size)
+# for an unchanged file. Cache per run keyed on state.json mtime.
+_partial_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_partial_cache_lock = threading.Lock()
+
+
 def _partial_artifact(run_id: str) -> dict[str, Any] | None:
     run = store.get_run(run_id)
     if not run:
         return None
+
+    from shim.pipeline import _state_path
+
+    try:
+        mtime = _state_path(run).stat().st_mtime
+    except OSError:
+        return None
+
+    with _partial_cache_lock:
+        cached = _partial_cache.get(run_id)
+        if cached and cached[0] == mtime:
+            return cached[1]
+
     state = load_state(run)
     if not state:
         return None
     from shim.artifact import state_to_artifact
 
-    return state_to_artifact(state)
+    artifact = state_to_artifact(state)
+    with _partial_cache_lock:
+        _partial_cache[run_id] = (mtime, artifact)
+        # Bound the cache — completed runs stop being polled but would
+        # otherwise pin their artifact in memory forever.
+        if len(_partial_cache) > 50:
+            oldest = next(iter(_partial_cache))
+            _partial_cache.pop(oldest, None)
+    return artifact
 
 
 @app.get("/api/health")
@@ -319,9 +361,24 @@ def get_artifact(run_id: str) -> dict[str, Any]:
     path = _artifact_path(run)
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
+    # Workspace file missing (deleted / re-cloned repo) — fall back to the
+    # DB copy persisted at completion time.
+    if run.artifact_json:
+        try:
+            return json.loads(run.artifact_json)
+        except json.JSONDecodeError:
+            pass
     partial = _partial_artifact(run_id)
     if partial:
         return partial
+    if run.status == "completed":
+        raise api_error(
+            410,
+            "artifact_missing",
+            "Artifact files for this run no longer exist on disk "
+            "(workspace deleted before the DB copy was introduced). "
+            "Re-run the story to generate a new report.",
+        )
     raise api_error(409, "run_not_complete", "Artifact not ready")
 
 
@@ -408,6 +465,18 @@ def patch_decision(run_id: str, patch_id: str, payload: PatchDecision) -> dict[s
     return {"patch_id": patch_id, "decision": payload.decision}
 
 
+@app.delete("/api/runs/{run_id}", status_code=204)
+def delete_run(run_id: str) -> None:
+    run = store.get_run(run_id)
+    if not run:
+        raise api_error(404, "not_found", "Run not found")
+    if run.status in ("queued", "running"):
+        raise api_error(409, "run_in_progress", "Cannot delete a run while it is executing")
+    store.delete_run(run_id)
+    with _partial_cache_lock:
+        _partial_cache.pop(run_id, None)
+
+
 @app.get("/api/stories/{story_id}/runs")
 def story_runs(story_id: str) -> dict[str, Any]:
     if not store.get_story(story_id):
@@ -428,6 +497,10 @@ def export_run(run_id: str, format: str = "pdf") -> Response:
 
 @app.websocket("/ws/runs/{run_id}")
 async def ws_run(websocket: WebSocket, run_id: str) -> None:
+    origin = websocket.headers.get("origin")
+    if origin is not None and origin not in _ALLOWED_WS_ORIGINS:
+        await websocket.close(code=4403)
+        return
     run = store.get_run(run_id)
     if not run:
         await websocket.close(code=4404)

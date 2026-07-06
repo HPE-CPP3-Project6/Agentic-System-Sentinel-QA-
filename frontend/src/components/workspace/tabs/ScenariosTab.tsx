@@ -166,20 +166,32 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
                         )}
                       </button>
                     </td>
-                    <td className="font-mono text-xs">{tc.test_id}</td>
+                    <td className="whitespace-nowrap font-mono text-xs" title={tc.test_id}>{tc.test_id}</td>
                     <td>
-                      <Badge variant="outline" className="normal-case">{tc.category ?? "—"}</Badge>
-                      {tc.adversarial && <Badge variant="high" className="ml-1">ADV</Badge>}
-                      {tc.adversarial && !tc.attestation_mode && (
-                        <Badge variant="caution" className="ml-1 text-amber-600 dark:text-amber-500 border-amber-500/40 bg-amber-500/10 normal-case">
-                          UNCLASSIFIED
-                        </Badge>
-                      )}
+                      <div className="flex flex-wrap items-center gap-1">
+                        <Badge variant="outline" className="normal-case">{tc.category ?? "—"}</Badge>
+                        {tc.adversarial && <Badge variant="high">ADV</Badge>}
+                        {tc.adversarial && !tc.attestation_mode && (
+                          <Badge variant="caution" className="text-amber-600 dark:text-amber-500 border-amber-500/40 bg-amber-500/10 normal-case">
+                            UNCLASSIFIED
+                          </Badge>
+                        )}
+                      </div>
                     </td>
-                    <td className="text-xs">{tc.technique ?? "—"}</td>
-                    <td className="text-xs text-muted">{tc.equivalence_class ?? "—"}</td>
-                    <td>{tc.method}</td>
-                    <td className="max-w-[180px] truncate font-mono text-xs">{tc.path}</td>
+                    <td className="text-xs">
+                      <div className="max-w-[140px] truncate" title={tc.technique ?? undefined}>
+                        {tc.technique ? tc.technique.replace(/_/g, " ") : "—"}
+                      </div>
+                    </td>
+                    <td className="text-xs text-muted">
+                      <div className="max-w-[120px] truncate" title={tc.equivalence_class ?? undefined}>
+                        {tc.equivalence_class ?? "—"}
+                      </div>
+                    </td>
+                    <td className="whitespace-nowrap">{tc.method}</td>
+                    <td className="font-mono text-xs">
+                      <div className="max-w-[180px] truncate" title={tc.path ?? undefined}>{tc.path}</div>
+                    </td>
                     <td>
                       <Input
                         className="h-7 w-16"
@@ -230,9 +242,9 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
                                     const raw = typeof v === "string" ? v : JSON.stringify(v);
                                     const display = raw.length > 72 ? `${raw.slice(0, 69)}…` : raw;
                                     return (
-                                      <div key={k} className="flex gap-2">
+                                      <div key={k} className="flex min-w-0 gap-2">
                                         <span className="shrink-0 font-mono text-primary/70">{k}</span>
-                                        <span className="font-mono text-foreground/90" title={raw}>{display}</span>
+                                        <span className="min-w-0 break-all font-mono text-foreground/90" title={raw}>{display}</span>
                                       </div>
                                     );
                                   })}

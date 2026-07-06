@@ -56,6 +56,10 @@ class RunRow:
     resilience_pct: float | None
     error_code: str | None
     error_message: str | None
+    # Full artifact JSON persisted on completion. The workspace artifact.json
+    # is gitignored and dies with the folder; this DB copy makes completed
+    # runs' reports survive a re-clone.
+    artifact_json: str | None = None
 
     def to_history_dict(self) -> dict[str, Any]:
         return {
@@ -78,8 +82,12 @@ class Store:
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
-        conn = sqlite3.connect(self.db_path)
+        # timeout: worker thread writes while API threads read — without a
+        # busy timeout, concurrent access raises "database is locked".
+        # WAL: readers don't block the writer (and vice versa).
+        conn = sqlite3.connect(self.db_path, timeout=5.0)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
         try:
             yield conn
             conn.commit()
@@ -115,10 +123,16 @@ class Store:
                     resilience_pct REAL,
                     error_code TEXT,
                     error_message TEXT,
+                    artifact_json TEXT,
                     FOREIGN KEY (story_id) REFERENCES stories(id)
                 );
                 """
             )
+            # Migration for DBs created before artifact_json existed —
+            # CREATE TABLE IF NOT EXISTS won't add columns to an existing table.
+            cols = {r["name"] for r in conn.execute("PRAGMA table_info(runs)").fetchall()}
+            if "artifact_json" not in cols:
+                conn.execute("ALTER TABLE runs ADD COLUMN artifact_json TEXT")
 
     def create_story(
         self, title: str, body: str, acceptance_criteria: list[str]
@@ -206,6 +220,17 @@ class Store:
             conn.execute("DELETE FROM stories WHERE id=?", (story_id,))
         return True
 
+    def delete_run(self, run_id: str) -> bool:
+        run = self.get_run(run_id)
+        if not run:
+            return False
+        ws = Path(run.workspace_dir)
+        if ws.is_dir():
+            shutil.rmtree(ws, ignore_errors=True)
+        with self._conn() as conn:
+            conn.execute("DELETE FROM runs WHERE run_id=?", (run_id,))
+        return True
+
     def story_has_active_run(self, story_id: str) -> bool:
         with self._conn() as conn:
             row = conn.execute(
@@ -281,9 +306,22 @@ class Store:
             ).fetchall()
         return [self._run_from_row(r) for r in rows]
 
+    # Column names are interpolated into SQL — values are parameterized but
+    # identifiers cannot be. This allowlist ensures a future caller wiring a
+    # request field into **fields cannot inject SQL via the key.
+    _RUN_COLUMNS = frozenset({
+        "status", "mode", "stop_after", "resume_from", "current_phase",
+        "started_at", "finished_at", "workspace_dir", "artifact_path",
+        "suite_quality", "run_validity", "resilience_pct",
+        "error_code", "error_message", "artifact_json",
+    })
+
     def update_run(self, run_id: str, **fields: Any) -> None:
         if not fields:
             return
+        unknown = set(fields) - self._RUN_COLUMNS
+        if unknown:
+            raise ValueError(f"update_run: unknown columns {sorted(unknown)}")
         cols = ", ".join(f"{k}=?" for k in fields)
         vals = list(fields.values()) + [run_id]
         with self._conn() as conn:
@@ -319,4 +357,5 @@ class Store:
             resilience_pct=row["resilience_pct"],
             error_code=row["error_code"],
             error_message=row["error_message"],
+            artifact_json=row["artifact_json"] if "artifact_json" in row.keys() else None,
         )

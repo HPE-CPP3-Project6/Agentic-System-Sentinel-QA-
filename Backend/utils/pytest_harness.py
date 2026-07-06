@@ -149,6 +149,13 @@ def ensure_login_credential(
     """
     if is_adversarial or not path.endswith("/login") or not isinstance(payload, dict):
         return payload
+    if expected_status_code != 200:
+        # Negative logins (401 non-existent user / wrong password, 422
+        # malformed) must NOT have their identity pre-registered. The
+        # unconditional register below used to create the test's
+        # "nonexistent@example.com", making the login legitimately succeed —
+        # observed r_0531fce0: TC-REQ-002-03 expected 401, got 200 + token.
+        return payload
     if httpx is None:
         return payload
     form = normalize_login_form(payload, path=path)

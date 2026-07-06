@@ -23,11 +23,36 @@ from ._paths import _paths_match_any
 from .attestation import (
     adversarial_verdict_on_fail,
     adversarial_verdict_on_pass,
+    infer_attestation_mode,
     stamp_attestation_mode,
 )
 from .security_compiler import slug_from_test_id
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
+
+# Env allowlist for the generated-pytest subprocess. The test file is
+# LLM-shaped code; it must not inherit cloud credentials (GCP ADC path,
+# Gemini API keys) or anything else it doesn't need. It DOES need:
+#   - OS plumbing (PATH, TEMP, SYSTEMROOT — Windows breaks without these)
+#   - Python/venv resolution
+#   - SENTINEL_* (base URL + bearer token, loaded via Backend/.env anyway)
+#   - TLS overrides for corp proxies, when present
+_SUBPROCESS_ENV_KEYS = {
+    "PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC",
+    "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
+    "LANG", "LC_ALL", "VIRTUAL_ENV", "PYTHONPATH", "PYTHONHOME",
+    "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "HTTPX_SSL_CERT",
+}
+_SUBPROCESS_ENV_PREFIXES = ("SENTINEL_", "PYTEST_", "PYTHON")
+
+
+def _subprocess_env() -> Dict[str, str]:
+    return {
+        k: v
+        for k, v in os.environ.items()
+        if k.upper() in _SUBPROCESS_ENV_KEYS
+        or k.upper().startswith(_SUBPROCESS_ENV_PREFIXES)
+    }
 
 
 # P0-1 (Cursor) — content-aware adversarial verdict.
@@ -160,6 +185,24 @@ def _is_exploit_success_status(tc: TestCase, status_code: int) -> bool:
     return status_code in _DEFAULT_EXPLOIT_SUCCESS_STATUSES
 
 
+# FastAPI/Pydantic validation-error envelope signature. A 422 body of the
+# form {"detail":[{"loc":["body","email"],"type":"...","msg":"..."}]} echoes
+# the REQUEST field names back — so a forbidden keyword like "email" matches
+# the structural reflection, not a leak. Observed r_274ae9ee: TC-REQ-002-01
+# got 422 (oversized email correctly rejected), but B2 matched "email" inside
+# the validation envelope and false-flagged it vulnerable.
+_VALIDATION_ENVELOPE_RE = re.compile(r'"detail"\s*:\s*\[\s*\{[^]]*"loc"\s*:', re.DOTALL)
+
+
+def _is_validation_error_rejection(status: int, detail: str) -> bool:
+    """True when the response is a 4xx whose body is a Pydantic/FastAPI
+    validation-error envelope — i.e. the attack was neutralized AT the
+    validation layer and the body only reflects request field names."""
+    if not (400 <= status <= 499):
+        return False
+    return bool(_VALIDATION_ENVELOPE_RE.search(detail or ""))
+
+
 def _body_evidence_says_vulnerable(tc: TestCase, detail: str) -> bool:
     """Independent body-evidence check — fires on hard exploit signals.
 
@@ -179,21 +222,70 @@ def _body_evidence_says_vulnerable(tc: TestCase, detail: str) -> bool:
     cascade ``resilient`` (the cascade said "defense held" but the body
     proves otherwise). They never demote ``vulnerable`` to anything.
     """
+    # B1 — explicit forbidden-hit marker from the pytest helper always wins;
+    # the helper only stamps it on an actual matched fragment, not structure.
     if _FORBIDDEN_HIT_RE.search(detail or ""):
         return True
-    excerpt_lc = (detail or "").lower()
-    for kw in tc.forbidden_response_content or []:
-        if kw and kw.lower() in excerpt_lc:
-            return True
+
     m = _GOT_STATUS_RE.search(detail or "")
+    actual = -1
     if m:
         try:
             actual = int(m.group(1))
         except ValueError:
             actual = -1
-        if actual >= 0 and _is_exploit_success_status(tc, actual):
-            return True
+
+    # B2 — raw forbidden-keyword scan. Suppressed when the response is a 4xx
+    # validation-error rejection: that envelope reflects request field names
+    # (loc/type/msg), so a keyword like "email" matches structure, not a leak.
+    # A genuine data leak surfaces on a 2xx success or a 500 stack trace —
+    # both still caught (B2 below on those, B3 on exploit-success status, B1
+    # on stamped fragments).
+    if not (actual >= 0 and _is_validation_error_rejection(actual, detail)):
+        excerpt_lc = (detail or "").lower()
+        for kw in tc.forbidden_response_content or []:
+            if kw and kw.lower() in excerpt_lc:
+                return True
+
+    # B3 — actual status hit a per-route exploit-success code.
+    if actual >= 0 and _is_exploit_success_status(tc, actual):
+        return True
     return False
+
+
+# Matches the adversarial acceptable-status assertion emitted by the Jinja
+# template: "Adversarial test expected ANY of [200, 400, 401] (attack
+# neutralized), got 422 ...". Group 1 is the actual status.
+_ADV_STATUS_LIST_RE = re.compile(
+    r"Adversarial test expected ANY of \[[^\]]*\].*?got\s+(\d{3})\b",
+    re.DOTALL,
+)
+
+
+def _rejection_says_neutralized(tc: TestCase, detail: str) -> Optional[int]:
+    """Status-misexpectation guard — returns the actual status when the
+    failed assertion was the adversarial acceptable-status check AND the app
+    actually REJECTED the request with a 4xx that is not an exploit-success
+    code for this route.
+
+    Background (r_e533db86): the Generator's acceptable-status lists omitted
+    422 — FastAPI's standard Pydantic rejection — so registration tests
+    where the app correctly rejected a weak password with 422 flipped to
+    "vulnerable" (5/5 of the run's vulnerable verdicts; the Healer
+    simultaneously called them test defects). A 4xx rejection with no body
+    leak is evidence the attack was NEUTRALIZED; only the test's status
+    list was incomplete.
+    """
+    m = _ADV_STATUS_LIST_RE.search(detail or "")
+    if not m:
+        return None
+    try:
+        actual = int(m.group(1))
+    except ValueError:
+        return None
+    if 400 <= actual <= 499 and not _is_exploit_success_status(tc, actual):
+        return actual
+    return None
 
 
 def _classify_adversarial_failure(
@@ -212,25 +304,55 @@ def _classify_adversarial_failure(
       2. Run independent body-evidence checks (tier B1–B3) — these can
          promote ``inconclusive`` to ``vulnerable`` and override
          ``resilient`` if the body actually leaks.
-      3. If the cascade returned ``"resilient"`` and no body evidence
+      3. Status-misexpectation guard (defense_confirming only): a cascade
+         "vulnerable" where the app actually rejected the request with a
+         non-exploit 4xx and nothing leaked is a test-authoring gap, not a
+         vulnerability → ``"resilient"`` with explicit evidence.
+      4. If the cascade returned ``"resilient"`` and no body evidence
          fired, keep ``"resilient"``.
-      4. If the cascade returned ``"inconclusive"`` and no body evidence
+      5. If the cascade returned ``"inconclusive"`` and no body evidence
          fired, the result is honestly UNCLASSIFIED → ``"inconclusive"``.
 
-    Net effect: explicit stamps win unless the response body shows a
-    hard exploit signal; tests without a stamp do not silently roll into
-    the resilient column.
+    Net effect: explicit stamps win unless the response shows a hard
+    exploit signal — or hard rejection evidence proving the attack never
+    got through.
     """
     v_cascade, ev_cascade = adversarial_verdict_on_fail(tc, detail, binding)
     body_says_vuln = _body_evidence_says_vulnerable(tc, detail)
 
-    if v_cascade == "vulnerable":
-        return "vulnerable", ev_cascade
     if body_says_vuln:
-        # Body evidence overrides "resilient" or "inconclusive" — when the
-        # body says the app leaked, we trust the body.
+        # Body evidence wins in every branch — when the body says the app
+        # leaked, we trust the body. The "body-evidence" marker is load-
+        # bearing: the Healer↔verdict reconciliation in executor.py will
+        # NOT downgrade a vulnerable verdict that carries it (hard exploit
+        # evidence beats the Healer's LLM opinion).
+        if v_cascade == "vulnerable":
+            return "vulnerable", ev_cascade + [
+                "body-evidence: forbidden token / exploit-success status hit"
+            ]
         ev = ev_cascade + ["body-evidence override: forbidden token / exploit-success status hit"]
         return "vulnerable", ev
+
+    if v_cascade == "vulnerable":
+        # Misexpectation guard — scoped to defense_confirming, where a
+        # pytest fail is otherwise read as "defense did not hold". Style-2
+        # missing_control probes are exempt: their fail condition (expected
+        # enforcement status never fired) is meaningful regardless of how
+        # the request was rejected.
+        if infer_attestation_mode(tc, binding) == "defense_confirming":
+            rejected = _rejection_says_neutralized(tc, detail)
+            if rejected is not None:
+                return (
+                    "resilient",
+                    [
+                        f"attestation_mode=defense_confirming — request REJECTED "
+                        f"with {rejected} (outside the test's acceptable-status "
+                        f"list) and no forbidden content leaked → attack "
+                        f"neutralized; status-list misexpectation, not a "
+                        f"vulnerability"
+                    ],
+                )
+        return "vulnerable", ev_cascade
     if v_cascade == "resilient":
         return "resilient", ev_cascade
     # UNCLASSIFIED with no body evidence → honest inconclusive.
@@ -418,7 +540,7 @@ def run_pytest_generated_file(
             capture_output=True,
             text=True,
             timeout=timeout_sec,
-            env=os.environ.copy(),
+            env=_subprocess_env(),
         )
     except subprocess.TimeoutExpired as exc:
         # A hung target API or pathological test would otherwise propagate

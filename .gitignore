@@ -13,3 +13,7 @@ build/
 # OS / tooling
 .DS_Store
 Thumbs.db
+
+# Shim runtime data (SQLite run/artifact store)
+Backend/shim_data/
+

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import List, Literal, Optional, Dict, Any, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # Layer A — Surface Map types.
@@ -370,5 +370,4 @@ class ProjectState(BaseModel):
     max_heal_attempts: int = 2
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
-    class Config:
-        arbitrary_types_allowed = True
+    model_config = ConfigDict(arbitrary_types_allowed=True)

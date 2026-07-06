@@ -16,6 +16,7 @@ import {
 import { ApiError } from "@/api/client";
 import {
   useCreateStory,
+  useDeleteRun,
   useDeleteStory,
   useStartRun,
   useStories,
@@ -227,6 +228,23 @@ function StoryRow({ story, pipelineMode }: { story: Story; pipelineMode: Pipelin
   const { data: runs, isLoading: runsLoading } = useStoryRuns(story.id);
   const startRun = useStartRun(story.id);
   const deleteStory = useDeleteStory();
+  const deleteRun = useDeleteRun(story.id);
+
+  async function handleDeleteRun(run: RunHistoryItem) {
+    if (!window.confirm(`Delete run ${run.run_id}?\n\nIts report and workspace files will be removed. This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await deleteRun.mutateAsync(run.run_id);
+      toast.success(`Run ${run.run_id} deleted`);
+    } catch (err) {
+      const msg =
+        err instanceof ApiError && err.code === "run_in_progress"
+          ? "Cannot delete a run while it is executing."
+          : "Could not delete run";
+      toast.error(msg);
+    }
+  }
 
   const sorted = useMemo(
     () => [...(runs ?? [])].sort((a, b) => b.started_at.localeCompare(a.started_at)),
@@ -389,7 +407,7 @@ function StoryRow({ story, pipelineMode }: { story: Story; pipelineMode: Pipelin
                     <span className="text-muted">
                       {formatDistanceToNow(new Date(run.started_at), { addSuffix: true })}
                     </span>
-                    <span className="ml-auto">
+                    <span className="ml-auto flex items-center gap-3">
                       {isReportable(run) ? (
                         <Link
                           href={`/workspace/${story.id}?run=${run.run_id}&tab=report`}
@@ -405,6 +423,24 @@ function StoryRow({ story, pipelineMode }: { story: Story; pipelineMode: Pipelin
                           Open →
                         </Link>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteRun(run)}
+                        disabled={
+                          run.status === "running" ||
+                          run.status === "queued" ||
+                          deleteRun.isPending
+                        }
+                        title={
+                          run.status === "running" || run.status === "queued"
+                            ? "Cannot delete while the run is executing"
+                            : `Delete run ${run.run_id}`
+                        }
+                        aria-label={`Delete run ${run.run_id}`}
+                        className="grid h-6 w-6 place-items-center text-muted enabled:hover:text-danger disabled:opacity-30"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                      </button>
                     </span>
                   </div>
                 );

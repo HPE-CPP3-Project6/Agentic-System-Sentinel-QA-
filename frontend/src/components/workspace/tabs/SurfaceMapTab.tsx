@@ -136,16 +136,26 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
 
   const preCode = isPreCode(mode);
 
+  // Fall back to the partial artifact exactly like surfaceMap above — during
+  // a RUNNING auto-flow PRE_CODE run, useArtifact is gated off (only fetches
+  // when paused/completed), so `artifact` is undefined and contracts must come
+  // from run.partial_artifact. Without this, the requirement list renders but
+  // every contract reads as 0 ("No design contract generated") mid-run.
+  const designContracts =
+    artifact?.design_contracts ??
+    (run?.partial_artifact?.design_contracts as DesignContract[] | undefined) ??
+    [];
+
   const contractMap = useMemo(() => {
     const map = new Map<string, DesignContract[]>();
-    ((artifact?.design_contracts ?? []) as DesignContract[]).forEach((c) => {
+    (designContracts as DesignContract[]).forEach((c) => {
       const rid = c.requirement_id;
       if (!rid) return;
       if (!map.has(rid)) map.set(rid, []);
       map.get(rid)!.push(c);
     });
     return map;
-  }, [artifact?.design_contracts]);
+  }, [designContracts]);
 
   const selected = entries.find((e) => e.req_id === selectedReq) ?? entries[0];
 

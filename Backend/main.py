@@ -196,125 +196,49 @@ def _coerce_state(final) -> ProjectState:
 
 
 def _dump_artifact(final: ProjectState, mode: str, story_key: str) -> Path:
-    """Persist a JSON snapshot of the demo-relevant fields under outputs/."""
+    """Persist a JSON snapshot under outputs/.
+
+    Uses the shim's `state_to_artifact` as the single source of truth for the
+    artifact envelope (security_posture, resilience_pct, joined execution_logs,
+    test_suite, attestation fields), then overlays the CLI-only extras.
+    Previously this function maintained its own envelope, which drifted from
+    the shim's — every CLI artifact had resilience_pct/security_posture
+    missing while the browser showed them fine.
+    """
+    from shim.artifact import state_to_artifact
+
     outputs_dir = Path(__file__).resolve().parent.parent / "outputs"
     outputs_dir.mkdir(parents=True, exist_ok=True)
     stamp = _dt.datetime.now(_dt.timezone.utc).strftime("%Y%m%d_%H%M%S")
     target = outputs_dir / f"exec-demo-{story_key}-{mode}-{stamp}.json"
 
-    # Strip noisy raw-LLM blobs so the artifact is human-readable
-    md = {k: v for k, v in final.metadata.items() if k not in ("critic_raw", "generator_raw")}
+    payload = state_to_artifact(final)
 
-    # Stage 3 (Cursor merged priority list) — logs_summary must reflect the
-    # MOST RECENT heal attempt only.
-    # Background: state.logs accumulates across heal cycles via list.extend
-    # (executor.py:783). A 3-cycle run with 30 tests/cycle reports
-    # total=90 in the artifact, which double-counts and makes "30 failed,
-    # 60 passed" read as a 67% pass rate when the final cycle was actually
-    # 100% green. Filter to the final cycle's logs so the headline numbers
-    # mean "current posture".
+    # CLI-only extras the shim envelope doesn't carry.
     final_attempt = final.heal_attempts
     current_cycle_logs = [
-        l for l in final.logs
-        if l.heal_attempt == final_attempt
+        l for l in final.logs if l.heal_attempt == final_attempt
     ] if final_attempt > 0 else list(final.logs)
-
-    # v3 P0 — TWO-AXIS attestation surfaced at the TOP of the artifact.
-    #   run_validity:     did we actually exercise the app? (check FIRST)
-    #   coverage_quality: was the suite meaningful? (only if run_validity OK)
-    # A CI gate / reviewer reads run_validity first; if it isn't OK, the
-    # security headline is suppressed and coverage_quality is informational.
-    run_validity = final.metadata.get("run_validity", "OK")
-    coverage_quality = final.metadata.get("coverage_quality") or final.metadata.get("suite_quality")
-    attestation_banner = None
-    if run_validity == "DESIGN_ONLY":
-        # PRE_CODE: not a suppressed posture — a design artifact by construction.
-        attestation_banner = (
-            "PRE_CODE design artifact — no execution. Read design_contracts, "
-            "security_checklist, and surface_map; execution sections (posture, "
-            "logs, SAST) are intentionally empty."
-        )
-    elif run_validity != "OK":
-        ev = final.metadata.get("run_validity_evidence") or {}
-        attestation_banner = (
-            f"⚠ run_validity={run_validity} — security posture suppressed. "
-            f"{ev.get('reason', 'run did not validly exercise the app')}"
-        )
-
-    # 2.1 — per-test log slice (final heal cycle). Makes every verdict
-    # traceable from the artifact alone: a reviewer can see WHICH test was
-    # vulnerable and WHY without opening the pytest workspace.
-    logs_detail = [
+    payload.update(
         {
-            "test_id": l.test_id,
-            "status": l.status,
-            "is_adversarial": l.is_adversarial,
-            "verdict": getattr(l, "verdict", "n/a"),
-            "verdict_evidence": (getattr(l, "verdict_evidence", None) or [])[:4],
-            "exploit_target": l.exploit_target,
-            "stderr_excerpt": (l.stderr or "")[:300] if l.status in ("failed", "error") else None,
+            "heal_attempts": final.heal_attempts,
+            "validated_requirements": [r.model_dump() for r in final.validated_requirements],
+            "security_risks": [r.model_dump() for r in final.security_risks],
+            "test_suite_size": len(final.test_suite),
+            "coverage_gaps": [g.model_dump() for g in final.coverage_gaps],
+            "logs_summary": {
+                # Scoped to the final heal cycle so headline numbers mean
+                # "current posture", not a sum across heal cycles.
+                "heal_attempt": final_attempt,
+                "total": len(current_cycle_logs),
+                "passed": sum(1 for l in current_cycle_logs if l.status == "passed"),
+                "failed": sum(1 for l in current_cycle_logs if l.status == "failed"),
+                "error": sum(1 for l in current_cycle_logs if l.status == "error"),
+                "skipped": sum(1 for l in current_cycle_logs if l.status == "skipped"),
+                "cumulative_total_all_cycles": len(final.logs),
+            },
         }
-        for l in current_cycle_logs
-    ]
-
-    payload = {
-        "story_id": final.story_id,
-        "story_title": final.story_title,
-        "pipeline_mode": final.pipeline_mode,
-        # v3 P0 attestation — read run_validity FIRST.
-        "run_validity": run_validity,
-        "coverage_quality": coverage_quality,
-        "attestation_banner": attestation_banner,
-        # Deprecated alias (one release): equals coverage_quality. Consumers
-        # needing run-validity must migrate to the run_validity field above.
-        "suite_quality": final.metadata.get("suite_quality"),
-        "test_suite_summary": final.metadata.get("test_suite_summary"),
-        # PRE_CODE analog of test_suite_summary (null in POST_CODE). Always
-        # present so a UI's "summary" panel has a stable key in both modes.
-        "design_summary": final.metadata.get("design_summary"),
-        # SurfaceMap — bindings per requirement. Always present (empty dict
-        # when the Resolver didn't bind anything). Was previously missing from
-        # the artifact entirely.
-        "surface_map": {
-            req_id: b.model_dump() for req_id, b in (final.surface_map or {}).items()
-        },
-        "heal_attempts": final.heal_attempts,
-        "validated_requirements": [r.model_dump() for r in final.validated_requirements],
-        "security_risks": [r.model_dump() for r in final.security_risks],
-        "test_suite_size": len(final.test_suite),
-        "coverage_gaps": [g.model_dump() for g in final.coverage_gaps],
-        "suggested_patches": [p.model_dump() for p in final.suggested_patches],
-        "logs_summary": {
-            # Stage 3: scoped to the final heal cycle so the totals match
-            # what was actually attested at the end of the run.
-            "heal_attempt": final_attempt,
-            "total": len(current_cycle_logs),
-            "passed": sum(1 for l in current_cycle_logs if l.status == "passed"),
-            "failed": sum(1 for l in current_cycle_logs if l.status == "failed"),
-            "error": sum(1 for l in current_cycle_logs if l.status == "error"),
-            "skipped": sum(1 for l in current_cycle_logs if l.status == "skipped"),
-            # Keep the cumulative count too so reviewers can spot a
-            # double-counting drift between cycles if it ever creeps back in.
-            "cumulative_total_all_cycles": len(final.logs),
-        },
-        # 2.1 — per-test final-cycle detail (traceable verdicts).
-        "logs_detail": logs_detail,
-        # SAST sidecar (Phase 3A) — STATIC findings, separate from dynamic posture.
-        "sast_summary": final.metadata.get("sast_summary"),
-        # Lifted from metadata for visibility — the drift report is one of
-        # the demo-worthy artifacts on POST_CODE runs.
-        "drift_report": final.metadata.get("drift_report"),
-        "metadata": md,
-    }
-
-    # design_contracts / security_checklist — PRE_CODE shift-left artifacts.
-    # ALWAYS present (empty list when absent) so the artifact has a uniform
-    # shape across modes: a UI can rely on the keys existing and read
-    # `pipeline_mode` to know which sections carry content. (PRE_CODE
-    # populates these; POST_CODE leaves them empty unless a Phase-1 snapshot
-    # was loaded for drift.)
-    payload["design_contracts"] = [c.model_dump() for c in final.design_contracts]
-    payload["security_checklist"] = [i.model_dump() for i in final.security_checklist]
+    )
 
     target.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
     return target

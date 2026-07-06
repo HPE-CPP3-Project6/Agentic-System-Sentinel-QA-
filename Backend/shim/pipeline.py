@@ -229,6 +229,31 @@ def _finalize_pre_code(state: ProjectState) -> ProjectState:
     return state
 
 
+def _classify_run_error(exc: Exception) -> str:
+    """Map a pipeline exception to a stable error code for the UI.
+
+    Previously every failure was stamped "phase_bridge_error", which made an
+    LLM auth failure, a Chroma failure, and a real phase-bridge failure look
+    identical in the frontend.
+    """
+    try:
+        from utils import LLMInvocationError
+
+        if isinstance(exc, LLMInvocationError):
+            return "llm_error"
+    except ImportError:
+        pass
+    name = type(exc).__name__
+    text = str(exc).lower()
+    if "credential" in text or "permission" in text or "403" in text or "auth" in text:
+        return "llm_auth_error"
+    if "chroma" in text or "chroma" in name.lower():
+        return "index_error"
+    if isinstance(exc, (OSError, json.JSONDecodeError)):
+        return "io_error"
+    return "pipeline_error"
+
+
 def execute_run(store: Store, hub: WsHub, run_id: str) -> None:
     run = store.get_run(run_id)
     if not run:
@@ -295,6 +320,9 @@ def execute_run(store: Store, hub: WsHub, run_id: str) -> None:
             run_validity=art.get("run_validity"),
             resilience_pct=posture.get("resilience_pct"),
             current_phase=final_phase,
+            # Workspace files are gitignored and die with the folder; the DB
+            # copy keeps completed reports readable after a re-clone.
+            artifact_json=json.dumps(art, default=str),
         )
         hub.emit(
             run_id,
@@ -305,18 +333,20 @@ def execute_run(store: Store, hub: WsHub, run_id: str) -> None:
             resilience_pct=posture.get("resilience_pct"),
         )
     except Exception as exc:
+        code = _classify_run_error(exc)
+        message = f"{type(exc).__name__}: {exc}"
         store.update_run(
             run_id,
             status="failed",
-            error_code="phase_bridge_error",
-            error_message=str(exc),
+            error_code=code,
+            error_message=message,
         )
         hub.emit(
             run_id,
             "run_failed",
-            code="phase_bridge_error",
+            code=code,
             phase=run.current_phase or "critic",
-            message=str(exc),
+            message=message,
         )
 
 

@@ -39,7 +39,13 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from agents.suite_summary import build_test_suite_summary
 from database import query_source_context
-from state import ExecutionLog, Patch, ProjectState, TestCase
+from state import (
+    ExecutionLog,
+    Patch,
+    ProjectState,
+    TestCase,
+    _legacy_fields_from_verdict,
+)
 from utils import LLMInvocationError, get_local_llm, invoke_with_retry
 
 logger = logging.getLogger(__name__)
@@ -681,6 +687,75 @@ def _collapse_by_intent(patches: List[Patch]) -> List[Patch]:
 # --------------------------------------------------------------------------- #
 
 
+def _reconcile_healer_verdicts(
+    run_logs: List[ExecutionLog],
+    patches: List[Patch],
+    state: ProjectState,
+) -> None:
+    """Healer ↔ verdict reconciliation — the two independent judges must not
+    contradict each other in the same artifact.
+
+    Background (r_0531fce0 / r_8e1084bd): the verdict cascade said
+    "vulnerable" while the Healer — with the full error log + RAG source
+    context in front of it — flagged the SAME failure as a test defect
+    (empty target_file opt-out). Both readings shipped side by side: the
+    posture counted a vulnerability the Healer had already debunked.
+
+    Rule: when this cycle's Healer emitted a test-defect opt-out for a test
+    whose adversarial verdict is "vulnerable", downgrade to "inconclusive"
+    (NOT resilient — the Healer's reading is an LLM opinion, not proof the
+    defense held) and append the Healer's reasoning to the evidence chain.
+    `_security_posture` then counts it in the unclassified bucket, excluded
+    from the resilience denominator.
+
+    Exception: verdicts carrying the "body-evidence" marker are never
+    downgraded — a forbidden-content hit or exploit-success status in the
+    response body is hard evidence that outranks the Healer's opinion.
+    """
+    defect_explanations: Dict[str, str] = {}
+    for p in patches:
+        if (p.target_file or "").strip():
+            continue  # app patch — not a test-defect determination
+        for tid in p.related_test_ids or []:
+            defect_explanations.setdefault(tid, p.bug_explanation or "")
+
+    if not defect_explanations:
+        return
+
+    reconciled: List[Dict[str, Any]] = []
+    for log in run_logs:
+        if not log.is_adversarial or log.verdict != "vulnerable":
+            continue
+        expl = defect_explanations.get(log.test_id)
+        if expl is None:
+            continue
+        if any("body-evidence" in e for e in (log.verdict_evidence or [])):
+            continue  # hard exploit evidence — Healer opinion does not override
+        log.verdict = "inconclusive"
+        log.verdict_confidence = "low"
+        log.is_vulnerable, log.resilient = _legacy_fields_from_verdict("inconclusive")
+        ev = list(log.verdict_evidence or [])
+        ev.append(
+            "Healer reconciliation: independent Healer review (error log + "
+            "source context) flagged this failure as a TEST DEFECT, not an "
+            "app vulnerability — verdict downgraded vulnerable → "
+            f"inconclusive. Healer: {expl[:240]}"
+        )
+        log.verdict_evidence = ev
+        reconciled.append({
+            "test_id": log.test_id,
+            "previous_verdict": "vulnerable",
+            "new_verdict": "inconclusive",
+            "healer_explanation": expl[:400],
+            "heal_attempt": state.heal_attempts,
+        })
+
+    if reconciled:
+        prior = list(state.metadata.get("healer_verdict_reconciliations") or [])
+        prior.extend(reconciled)
+        state.metadata["healer_verdict_reconciliations"] = prior
+
+
 def _security_posture(logs: List[ExecutionLog]) -> Dict[str, object]:
     adv = [l for l in logs if l.is_adversarial]
     attempted = len(adv)
@@ -854,6 +929,16 @@ _TARGET_UNREACHABLE_RATE = 0.40
 # classifier (which can't distinguish a fixture-404 from a real-bug 404).
 _FUNCTIONAL_UNRELIABLE_RATE = 0.30
 
+# Second gate — defects must also be a meaningful share of the WHOLE executed
+# functional suite. The failure-ratio alone inverts at scale: a 32-test run
+# with 29 passing and 2 defective failures scored ratio=1.0 and branded the
+# entire run unreliable (observed r_8e1084bd), when the suite demonstrably
+# exercised the app. The better a suite passes, the more a couple of bad
+# tests dominate the failure denominator — so unreliability additionally
+# requires defects >= 20% of executed functional tests. Small suites still
+# flag honestly (1 defect / 3 tests = 33%).
+_FUNCTIONAL_UNRELIABLE_SUITE_SHARE = 0.20
+
 
 def _is_connect_error(log: ExecutionLog) -> bool:
     if log.status != "error":
@@ -895,13 +980,27 @@ def _detect_functional_unreliability(
     new_patches: List[Patch],
 ) -> Optional[Dict[str, Any]]:
     """Return evidence dict if functional failures are dominated by test
-    defects (Healer opt-outs), else None. Computed AFTER the heal pass."""
+    defects (Healer opt-outs) AND those defects are a meaningful share of
+    the executed functional suite. Computed AFTER the heal pass.
+
+    Both gates must fire:
+      1. defect_ratio  — defects / functional FAILURES >= 30%
+         ("are the failures mostly noise?")
+      2. suite share   — defects / EXECUTED functional tests >= 20%
+         ("is enough of the suite broken to distrust the run?")
+    Gate 2 stops the inversion where a large, mostly-green run is branded
+    unreliable because its only 1-2 failures happened to be test defects.
+    """
     func_fail = [
         l for l in run_logs
         if (not l.is_adversarial) and l.passed is False and l.verdict != "off_target"
     ]
     if not func_fail:
         return None
+    func_executed = [
+        l for l in run_logs
+        if (not l.is_adversarial) and l.status != "skipped" and l.verdict != "off_target"
+    ]
     fail_ids = {l.test_id for l in func_fail}
     optout_ids: set = set()
     for p in new_patches:
@@ -911,14 +1010,21 @@ def _detect_functional_unreliability(
             if tid in fail_ids:
                 optout_ids.add(tid)
     ratio = len(optout_ids) / len(func_fail)
-    if ratio >= _FUNCTIONAL_UNRELIABLE_RATE:
+    suite_share = len(optout_ids) / max(1, len(func_executed))
+    if (
+        ratio >= _FUNCTIONAL_UNRELIABLE_RATE
+        and suite_share >= _FUNCTIONAL_UNRELIABLE_SUITE_SHARE
+    ):
         return {
             "functional_failures": len(func_fail),
             "test_defect_failures": len(optout_ids),
             "defect_ratio": round(ratio, 2),
+            "functional_executed": len(func_executed),
+            "defect_suite_share": round(suite_share, 2),
             "reason": (
-                "majority of functional failures are Healer-flagged test "
-                "defects (empty target_file), not app bugs"
+                "functional failures are dominated by Healer-flagged test "
+                "defects AND those defects are a significant share of the "
+                "executed suite"
             ),
         }
     return None
@@ -1195,6 +1301,13 @@ def executor_node(
             }
             for p, warning in quarantined
         ]
+
+    # Healer ↔ verdict reconciliation — must run BEFORE posture math so a
+    # Healer-debunked "vulnerable" lands in the unclassified bucket instead
+    # of the headline vulnerability count. Uses this cycle's clean patches
+    # against this cycle's run_logs (quarantined patches are app patches by
+    # definition and never carry the test-defect opt-out shape).
+    _reconcile_healer_verdicts(run_logs, clean_patches, state)
 
     _posture = _security_posture(run_logs)
     state.metadata["test_suite_summary"] = build_test_suite_summary(
