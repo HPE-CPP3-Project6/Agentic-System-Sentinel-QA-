@@ -1,0 +1,13 @@
+{
+  "stories": [
+    {
+      "title": "Filter by Priority",
+      "body": "As a user, I want to filter my tasks by priority so that I can focus on high-priority items first.",
+      "acceptance_criteria": [
+        "The filter dropdown must contain: All, Low, Medium, High.",
+        "Selecting 'High' must hide all Low and Medium priority tasks immediately.",
+        "Selecting 'All' must reset the view to show all tasks regardless of priority."
+      ]
+    }
+  ]
+}

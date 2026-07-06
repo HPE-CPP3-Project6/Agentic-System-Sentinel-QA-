@@ -198,6 +198,12 @@ def _run_workflow_steps(
             expected_status_code=expected,
         )
         payload = _ph.normalize_login_form(payload, path=path)
+        payload = _ph.ensure_absent_login_identity(
+            payload,
+            path=path,
+            is_adversarial=is_adversarial,
+            expected_status_code=expected,
+        )
         payload = _ph.ensure_login_credential(
             BASE_URL,
             payload,
@@ -311,6 +317,12 @@ def test_{{ tc.slug }}() -> None:
         expected_status_code={{ tc.expected_status_code if tc.expected_status_code is not none else "None" }},
     )
     payload = _ph.normalize_login_form(payload, path=path)
+    payload = _ph.ensure_absent_login_identity(
+        payload,
+        path=path,
+        is_adversarial={{ "True" if tc.is_adversarial else "False" }},
+        expected_status_code={{ tc.expected_status_code if tc.expected_status_code is not none else "None" }},
+    )
     payload = _ph.ensure_login_credential(
         BASE_URL,
         payload,
@@ -322,6 +334,16 @@ def test_{{ tc.slug }}() -> None:
         path = _resolve_path_placeholders(path, payload)
     if "{" in path:
         pytest.skip("Unresolved path template: " + path)
+
+    if _ph.query_param_test_unexercised(
+        method,
+        payload,
+        {{ tc.expected_status_code if tc.expected_status_code is not none else "None" }},
+    ):
+        pytest.skip(
+            "GET expects a query-param validation error but no query params "
+            "were encoded — boundary not exercised (value absent from input_data)"
+        )
 
     m = method.upper()
     # P0-3: when repeat_count > 1, every request + assertion runs N times so

@@ -1,7 +1,16 @@
 import { useMemo, useState } from "react";
 import { ListChecks } from "lucide-react";
 import type { VerdictRecord } from "@/api/types";
-import { Badge } from "@/components/ui/badge";
+import {
+  ATTESTATION_MODE_LABELS,
+  CATEGORY_LABELS,
+  STATUS_LABELS,
+  TECHNIQUE_LABELS,
+  VERDICT_LABELS,
+  humanize,
+  labelText,
+} from "@/lib/labels";
+import { EnumBadge } from "@/components/EnumLabel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/cn";
 
@@ -142,7 +151,7 @@ export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
             >
               <option value="all">All categories</option>
               {categories.map((c) => (
-                <option key={c} value={c}>{c.replace(/_/g, " ")}</option>
+                <option key={c} value={c}>{labelText(CATEGORY_LABELS, c)}</option>
               ))}
             </select>
           )}
@@ -169,30 +178,28 @@ export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
                     <p className="font-mono text-[10px] text-muted">{r.test_id}</p>
                   </td>
                   <td className="px-3 py-2 text-muted">
-                    {r.technique ? r.technique.replace(/_/g, " ") : r.category ?? "—"}
+                    {r.technique
+                      ? labelText(TECHNIQUE_LABELS, r.technique)
+                      : r.category
+                        ? labelText(CATEGORY_LABELS, r.category)
+                        : "—"}
                   </td>
                   <td className="px-3 py-2 text-muted">
-                    {r.exploit_target ? r.exploit_target.replace(/_/g, " ") : "—"}
+                    {r.exploit_target ? humanize(r.exploit_target) : "—"}
                   </td>
                   <td className="px-3 py-2">
-                    <Badge variant={STATUS_BADGE[r.status] ?? "muted"} className="normal-case">
-                      {r.status}
-                    </Badge>
+                    <EnumBadge map={STATUS_LABELS} value={r.status} variant={STATUS_BADGE[r.status] ?? "muted"} />
                   </td>
                   <td className="px-3 py-2">
                     {r.verdict && r.verdict !== "n/a" ? (
                       <div className="space-y-1">
-                        <Badge variant={VERDICT_BADGE[r.verdict] ?? "muted"} className="normal-case">
-                          {r.verdict}
-                        </Badge>
+                        <EnumBadge map={VERDICT_LABELS} value={r.verdict} variant={VERDICT_BADGE[r.verdict] ?? "muted"} />
                         {/* Stage-1: per-test attestation chip. The verdict
                             cascade used this stamp as authority, so showing
                             it makes the WHY of the verdict legible. */}
                         {r.attestation_mode && (
                           <p className="text-[10px] text-muted">
-                            {r.attestation_mode === "missing_control"
-                              ? "attesting gap"
-                              : "verifying defense"}
+                            {labelText(ATTESTATION_MODE_LABELS, r.attestation_mode)}
                           </p>
                         )}
                         {r.is_adversarial && !r.attestation_mode && r.verdict === "inconclusive" && (

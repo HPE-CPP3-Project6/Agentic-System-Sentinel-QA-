@@ -1,0 +1,13 @@
+{
+  "stories": [
+    {
+      "title": "Create Organization",
+      "body": "As an HPE tenant administrator, I want to create a new Organization by submitting its legal name and primary contact email through the admin portal, so that downstream services can provision isolated resources for that tenant.",
+      "acceptance_criteria": [
+        "The legal name field must reject empty strings and strings longer than 255 characters.",
+        "Submitting a duplicate legal name must return a 409 Conflict without creating a record.",
+        "On success the API must return the new organization_id and persist the contact email."
+      ]
+    }
+  ]
+}

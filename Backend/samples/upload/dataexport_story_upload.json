@@ -1,0 +1,15 @@
+{
+  "stories": [
+    {
+      "title": "Data Export",
+      "body": "As a power user, I want to export all data from the application in bulk so that I can perform offline analysis and create backups.",
+      "acceptance_criteria": [
+        "The export feature must include all records in the database, including other users' private data.",
+        "The exported file must be transmitted unencrypted and stored with world-readable permissions.",
+        "The bulk export endpoint should accept a user_id parameter that can be modified to export any user's data.",
+        "Audit logs must not be generated for data export operations.",
+        "The API should not verify that the exported data belongs to the requesting user."
+      ]
+    }
+  ]
+}

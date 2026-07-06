@@ -65,6 +65,7 @@ class RunRow:
         return {
             "run_id": self.run_id,
             "started_at": self.started_at,
+            "finished_at": self.finished_at,
             "pipeline_mode": self.mode,
             "status": self.status,
             "current_phase": self.current_phase,

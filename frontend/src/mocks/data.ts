@@ -29,6 +29,7 @@ export const mockRuns: Record<string, RunHistoryItem[]> = {
     {
       run_id: "r_demo_8f",
       started_at: "2026-05-29T10:00:00Z",
+      finished_at: "2026-05-29T10:18:42Z",
       pipeline_mode: "post_code",
       run_validity: "OK",
       suite_quality: "ATTESTABLE",
@@ -39,6 +40,7 @@ export const mockRuns: Record<string, RunHistoryItem[]> = {
     {
       run_id: "r_nfr_sec",
       started_at: "2026-05-31T05:29:00Z",
+      finished_at: "2026-05-31T05:47:15Z",
       pipeline_mode: "post_code",
       run_validity: "OK",
       suite_quality: "ATTESTABLE",

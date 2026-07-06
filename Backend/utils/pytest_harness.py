@@ -86,6 +86,80 @@ def maybe_randomise_register_email(
     return new_payload
 
 
+def ensure_absent_login_identity(
+    payload: Any,
+    *,
+    path: str,
+    is_adversarial: bool,
+    expected_status_code: Optional[int],
+) -> Any:
+    """Make a "non-existent user" login actually non-existent, across runs.
+
+    A negative login that expects 401 must not accidentally SUCCEED because an
+    earlier run (against the same never-reset target DB) registered the literal
+    identity the Generator chose — e.g. ``nonexistent@example.com`` /
+    ``AnyPassword123``, which a prior run's happy-path helper had created, so
+    the "non-existent user" login returned 200 + a token (observed false-red
+    TC-REQ-003a-03). Rewriting the username to a fresh, never-registered value
+    makes the rejection hermetic regardless of DB history.
+
+    Scope is deliberately narrow:
+      • Only POST /login tests that expect 401.
+      • Attack-payload usernames (SQLi / XSS probes) are left untouched — the
+        payload IS the test.
+      • The rewrite preserves the 401 outcome in every case (a fresh identity
+        is rejected as "user not found"), so it can never turn a legitimately
+        failing assertion green, nor break a "wrong password for an existing
+        user" probe (that still yields 401).
+    Returns the (possibly rewritten) payload; callers must use the return value.
+    """
+    if not isinstance(payload, dict) or not path.endswith("/login"):
+        return payload
+    if expected_status_code != 401:
+        return payload
+    field = "username" if "username" in payload else payload_email_field(payload)
+    if field is None:
+        return payload
+    original = str(payload.get(field, ""))
+    if looks_like_attack_payload(original):
+        return payload  # the payload is the probe — leave it
+    new_payload = dict(payload)
+    new_payload[field] = f"sentinel-absent-{uuid.uuid4().hex[:12]}@example.com"
+    return new_payload
+
+
+# HTTP codes that represent request-VALIDATION rejection (as opposed to auth
+# 401 / not-found 404 / conflict 409). A GET boundary probe asserts one of
+# these when it sends an out-of-range query param.
+_VALIDATION_ERROR_CODES = frozenset({400, 422})
+
+
+def query_param_test_unexercised(
+    method: str,
+    payload: Any,
+    expected_status_code: Optional[int],
+) -> bool:
+    """True for a GET test that expects a query-param VALIDATION error but
+    carries no query params to trigger it.
+
+    The Generator sometimes states the boundary only in the test title
+    (e.g. "limit=101 returns 422") without encoding the value into
+    ``input_data`` — so the request is a bare ``GET`` the app answers 2xx and
+    the "expect 422" assertion false-fails as a vulnerability (observed
+    TC-REQ-011a-06/07). The boundary was never exercised, so the caller skips
+    the test (honest "not exercised") instead of asserting a phantom failure.
+
+    Deliberately narrow: only GET, only the validation-error codes, only when
+    the query-param payload is empty. A test that DOES encode a param, or that
+    legitimately expects a non-validation status, is untouched.
+    """
+    if str(method).upper() != "GET":
+        return False
+    if expected_status_code not in _VALIDATION_ERROR_CODES:
+        return False
+    return not (isinstance(payload, dict) and len(payload) > 0)
+
+
 def register_json_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Map login-style username to register ``email`` when needed."""
     body = dict(payload)

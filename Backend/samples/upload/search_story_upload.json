@@ -1,0 +1,15 @@
+{
+  "stories": [
+    {
+      "title": "Task Search",
+      "body": "As a user, I want to search for tasks by typing a search query into a text field so that I can quickly find specific tasks by name or description.",
+      "acceptance_criteria": [
+        "The search field must accept and pass user input directly to the database query without sanitization.",
+        "Search results should display raw data including internal IDs and system fields.",
+        "The search feature should work across all user records, regardless of permissions.",
+        "If the search input contains special characters (like ' or --), they must be included in the SQL query as-is.",
+        "Error messages should display the full SQL query and database error details to aid debugging."
+      ]
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { Bar, BarChart, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { FlaskConical } from "lucide-react";
 import type { TestSuiteSummary } from "@/api/types";
+import { TECHNIQUE_LABELS, labelText } from "@/lib/labels";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -8,17 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
  * ISTQB / ISO 29119-4 test-design technique breakdown — the pipeline's
  * headline QA-maturity differentiator. Renders `by_technique` as a horizontal
  * bar and the equivalence classes covered as chips. Previously this rich data
- * was emitted by the backend but never shown.
+ * was emitted by the backend but never shown. Labels come from @/lib/labels.
  */
-const TECHNIQUE_LABELS: Record<string, string> = {
-  equivalence_partition: "Equivalence Partitioning",
-  boundary_value: "Boundary Value",
-  decision_table: "Decision Table",
-  state_transition: "State Transition",
-  requirements_based: "Requirements-Based",
-  security_adversarial: "Security / Adversarial",
-};
-
 const TECHNIQUE_COLOR: Record<string, string> = {
   equivalence_partition: "#4f7fff",
   boundary_value: "#7c5cff",
@@ -37,7 +29,7 @@ export function TechniquePanel({ summary }: { summary?: TestSuiteSummary | null 
     .filter((t) => byTech[t])
     .map((t) => ({
       key: t,
-      label: TECHNIQUE_LABELS[t] ?? t,
+      label: labelText(TECHNIQUE_LABELS, t),
       planned: byTech[t]?.planned ?? 0,
       executed: byTech[t]?.executed ?? 0,
     }))

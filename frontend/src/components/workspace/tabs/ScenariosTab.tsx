@@ -12,10 +12,13 @@ import {
 } from "@/api/runLifecycle";
 import type { FlowMode } from "@/api/pipelineSettings";
 import type { TestCase } from "@/api/types";
+import { CATEGORY_LABELS, TECHNIQUE_LABELS, labelText } from "@/lib/labels";
+import { EnumBadge } from "@/components/EnumLabel";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { StatRow, type Stat } from "@/components/ui/StatRow";
 import { cn } from "@/lib/cn";
 
 interface ScenariosTabProps {
@@ -114,9 +117,26 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
   const funcCount = tests.filter((t) => !t.adversarial).length;
   const advCount = tests.filter((t) => t.adversarial).length;
   const unclassifiedCount = tests.filter((t) => t.adversarial && !t.attestation_mode).length;
+  const techniqueCount = new Set(tests.map((t) => t.technique).filter(Boolean)).size;
+
+  const stats: Stat[] = [
+    { label: "Tests", value: tests.length },
+    { label: "Functional", value: funcCount, tone: "text-primary" },
+    { label: "Adversarial", value: advCount, tone: advCount > 0 ? "text-caution" : undefined },
+    {
+      label: "Unclassified",
+      value: unclassifiedCount,
+      tone: unclassifiedCount > 0 ? "text-caution" : "text-muted",
+      hint: "Adversarial tests with no attestation stamp — excluded from resilience %.",
+    },
+    { label: "Techniques", value: techniqueCount, hint: "Distinct ISTQB test-design techniques covered." },
+  ];
 
   return (
     <div className="space-y-3">
+      <div className="panel p-4">
+        <StatRow stats={stats} />
+      </div>
       <div className="flex justify-end">
         {flowMode === "regular" ? (
           <Button onClick={() => void continueToScripts()} disabled={!scenariosReady || isRunInFlight(run?.status)}>
@@ -169,7 +189,7 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
                     <td className="whitespace-nowrap font-mono text-xs" title={tc.test_id}>{tc.test_id}</td>
                     <td>
                       <div className="flex flex-wrap items-center gap-1">
-                        <Badge variant="outline" className="normal-case">{tc.category ?? "—"}</Badge>
+                        <EnumBadge map={CATEGORY_LABELS} value={tc.category} variant="outline" />
                         {tc.adversarial && <Badge variant="high">ADV</Badge>}
                         {tc.adversarial && !tc.attestation_mode && (
                           <Badge variant="caution" className="text-amber-600 dark:text-amber-500 border-amber-500/40 bg-amber-500/10 normal-case">
@@ -179,8 +199,8 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
                       </div>
                     </td>
                     <td className="text-xs">
-                      <div className="max-w-[140px] truncate" title={tc.technique ?? undefined}>
-                        {tc.technique ? tc.technique.replace(/_/g, " ") : "—"}
+                      <div className="max-w-[150px] truncate" title={tc.technique ?? undefined}>
+                        {tc.technique ? labelText(TECHNIQUE_LABELS, tc.technique) : "—"}
                       </div>
                     </td>
                     <td className="text-xs text-muted">
@@ -240,11 +260,10 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
                                 <div className="space-y-1.5">
                                   {Object.entries(tc.input_data as Record<string, unknown>).map(([k, v]) => {
                                     const raw = typeof v === "string" ? v : JSON.stringify(v);
-                                    const display = raw.length > 72 ? `${raw.slice(0, 69)}…` : raw;
                                     return (
                                       <div key={k} className="flex min-w-0 gap-2">
                                         <span className="shrink-0 font-mono text-primary/70">{k}</span>
-                                        <span className="min-w-0 break-all font-mono text-foreground/90" title={raw}>{display}</span>
+                                        <span className="min-w-0 break-all font-mono text-foreground/90">{raw}</span>
                                       </div>
                                     );
                                   })}

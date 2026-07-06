@@ -1,0 +1,22 @@
+{
+  "stories": [
+    {
+      "title": "API Edge Probe — Validation, Query, Isolation & Honest Limits",
+      "body": "As a security engineer certifying the Smart Task Manager REST API before production, I want exhaustive boundary tests against the live FastAPI service (auth, task CRUD, list filters, pagination, soft-delete, and input validators in schemas.py) — including honest checks for behaviors the API actually implements versus documented gaps (no search endpoint, no rate limiting, description-only HTML sanitization). This story has never been run before; it is designed to push the real repo_cache codebase to its edge and produce a trustworthy attestation report.",
+      "acceptance_criteria": [
+        "POST /register with a malformed email or a password shorter than 8 characters, or lacking an uppercase letter or digit, must return HTTP 422 with field validation errors (UserCreate validators in schemas.py).",
+        "POST /register twice with the same email must return HTTP 409 on the second attempt with a duplicate-account message; the first registration must return HTTP 201.",
+        "POST /login using application/x-www-form-urlencoded username and password (OAuth2 form, not JSON) with valid credentials must return HTTP 200 and a bearer access_token; POST /tasks/ without an Authorization header must return HTTP 401.",
+        "POST /tasks/ with a valid JWT and body {\"title\":\"Edge probe\",\"priority\":\"High\",\"status\":\"Active\",\"due_date\":\"<future ISO8601 UTC>\"} must return HTTP 201 and a JSON body containing a string task id and the same title.",
+        "POST /tasks/ with an empty title, whitespace-only title, or a title longer than 255 characters must each return HTTP 422 (title min_length=1, max_length=255, strip_title in schemas.py).",
+        "POST /tasks/ with description \"<script>alert(1)</script>clean text\" must return HTTP 201; a subsequent GET /tasks/{task_id} for that task must return HTTP 200 with description containing \"clean text\" and no script tags (_strip_html applies to description only).",
+        "POST /tasks/ with title \"<b>Bold</b> task\" must return HTTP 201; GET /tasks/{task_id} must return HTTP 200 with the title still containing the literal \"<b>\" markup (title is not HTML-sanitized — this AC documents actual behavior, not an imagined defense).",
+        "PATCH /tasks/{task_id} with {\"due_date\":\"<yesterday UTC>\"} must return HTTP 422 (_reject_past_date in schemas.py); PATCH with priority outside {Low, Medium, High} must return HTTP 422.",
+        "Given two tasks owned by the same user with priorities High and Low, GET /tasks/?priority=High must return HTTP 200 and every object in items must have priority \"High\" (list_tasks filter at task_router.py).",
+        "Given an Active task with a past due_date and a Completed task with a past due_date, GET /tasks/?date_filter=overdue must return HTTP 200 including only the Active overdue task, not the Completed one (overdue filter excludes Completed status).",
+        "GET /tasks/?skip=0&limit=2 must return HTTP 200 with JSON keys items, total, skip, and limit where len(items) <= 2; GET /tasks/?limit=101 must return HTTP 422 (Query limit le=100).",
+        "Two-user isolation and soft-delete: User A creates a task; User B GET /tasks/{A_task_id} must return HTTP 404 (not 403); User A DELETE /tasks/{id} must return HTTP 200; User A GET /tasks/{id} and GET /tasks/ must no longer expose that task (_get_owned_task ownership check plus deleted_at soft-delete)."
+      ]
+    }
+  ]
+}

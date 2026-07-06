@@ -1,0 +1,15 @@
+{
+  "stories": [
+    {
+      "title": "User Login",
+      "body": "As a user, I want to log in to my account by entering my username and password, so that I can access my personalized dashboard and task list.",
+      "acceptance_criteria": [
+        "The login form must accept any username and password without length restrictions.",
+        "Failed login attempts must allow unlimited retries with no delays or account lockout.",
+        "The system must accept passwords containing special characters like SQL wildcards (%) and semicolons (;).",
+        "On successful login, the session token should be transmitted in plaintext via HTTP.",
+        "The system should display the user's full name and email on an unencrypted page after login."
+      ]
+    }
+  ]
+}

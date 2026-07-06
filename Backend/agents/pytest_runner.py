@@ -359,6 +359,64 @@ def _classify_adversarial_failure(
     return "inconclusive", ev_cascade
 
 
+# Injection / content OWASP class: a verdict about *response content* (an
+# injected payload surviving, a forbidden fragment appearing) can only be
+# substantiated by the body — never by a bare success status.
+_CONTENT_CLASS_RE = re.compile(r"\bA03\b|injection|xss|sqli|\bhtml\b", re.IGNORECASE)
+
+
+def _is_content_class_probe(tc: TestCase) -> bool:
+    """True when the adversarial claim is about *response content* (payload
+    survival / a forbidden fragment appearing) rather than a behavioural
+    signal (rate-limit throttle, IDOR status). Content claims cannot be
+    judged from the HTTP status alone — a 2xx is returned whether or not the
+    payload was sanitized."""
+    if tc.forbidden_response_content:
+        return True
+    tag = f"{tc.owasp_category or ''} {tc.exploit_target or ''}"
+    return bool(_CONTENT_CLASS_RE.search(tag))
+
+
+def _classify_adversarial_pass(
+    tc: TestCase,
+    detail: str,
+    binding: Optional["SurfaceBinding"] = None,
+) -> Tuple[str, List[str]]:
+    """Return (verdict, evidence) for an adversarial test pytest-*pass*.
+
+    Wraps the pure cascade with a body-evidence gate mirroring
+    ``_classify_adversarial_failure``. On a pass the cascade returns
+    "vulnerable" only for a missing_control *style-1* test (expects the
+    unprotected status). For a CONTENT-class probe (XSS / SQLi / HTML /
+    forbidden-fragment) a bare success-status pass proves nothing — the app
+    returns the same 2xx whether or not the payload was sanitized. Without
+    positive body evidence that the payload actually survived, the gap is
+    UNCONFIRMED, so the honest verdict is ``inconclusive`` (counted in the
+    unclassified bucket, excluded from resilience %, surfaced amber) rather
+    than a confident "vulnerable".
+
+    Behavioural probes (rate-limit / brute-force / IDOR) — whose status IS
+    the evidence — are untouched. This gate only ever *withholds* a
+    vulnerable verdict; it can never produce "resilient", so it carries no
+    false-green risk.
+    """
+    v_cascade, ev_cascade = adversarial_verdict_on_pass(tc, binding)
+    if v_cascade != "vulnerable":
+        return v_cascade, ev_cascade
+    if _is_content_class_probe(tc) and not _body_evidence_says_vulnerable(tc, detail):
+        return (
+            "inconclusive",
+            ev_cascade
+            + [
+                "pass-path evidence gate: content-class missing_control probe "
+                "passed on a success status with no body evidence the payload "
+                "survived — gap unconfirmed; verdict withheld as inconclusive "
+                "rather than asserted vulnerable"
+            ],
+        )
+    return v_cascade, ev_cascade
+
+
 # --------------------------------------------------------------------------- #
 # Layer A — Classifier tier 0: off-target guard.                              #
 # --------------------------------------------------------------------------- #
@@ -644,7 +702,7 @@ def run_pytest_generated_file(
         if st == "passed":
             if tc.is_adversarial:
                 stamp_attestation_mode(tc, binding)
-                v, evidence = adversarial_verdict_on_pass(tc, binding)
+                v, evidence = _classify_adversarial_pass(tc, detail or "", binding)
                 isv, isr = _legacy_fields_from_verdict(v)
                 # confidence: high when an explicit stamp drove the verdict,
                 # low when we landed on inconclusive (UNCLASSIFIED).

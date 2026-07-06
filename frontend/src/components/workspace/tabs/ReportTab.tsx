@@ -304,8 +304,12 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
                           : null;
                       const path = methodMatch ? raw.slice(methodMatch[0].length) : raw;
                       const reqId = contract.requirement_id ? String(contract.requirement_id) : null;
-                      const rules = Array.isArray(contract.validation_rules)
-                        ? (contract.validation_rules as unknown[]).slice(0, 2).map(String).join(" · ")
+                      const ruleList = Array.isArray(contract.validation_rules)
+                        ? (contract.validation_rules as unknown[]).map(String)
+                        : [];
+                      const rules = ruleList.length
+                        ? ruleList.slice(0, 3).join(" · ") +
+                          (ruleList.length > 3 ? ` · +${ruleList.length - 3} more` : "")
                         : contract.notes ? String(contract.notes) : null;
                       const methodColor: Record<string, string> = {
                         GET: "bg-blue-500/15 text-blue-400",
@@ -365,7 +369,7 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
                             {reqId && <span className="ml-auto shrink-0 text-[10px] text-muted">{reqId}</span>}
                           </div>
                           {instruction != null && (
-                            <p className="mt-1 line-clamp-2 text-muted">{String(instruction)}</p>
+                            <p className="mt-1 text-muted">{String(instruction)}</p>
                           )}
                         </div>
                       );

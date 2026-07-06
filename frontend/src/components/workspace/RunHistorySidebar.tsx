@@ -3,6 +3,7 @@ import { formatDistanceToNow } from "date-fns";
 import { History, RotateCw } from "lucide-react";
 import { useStoryRuns } from "@/api/hooks";
 import type { PhaseName, RunStatus } from "@/api/types";
+import { RunDuration } from "@/components/RunDuration";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
@@ -39,6 +40,7 @@ export function RunHistorySidebar({
             <thead>
               <tr>
                 <th>Run</th>
+                <th>Duration</th>
                 <th>Gate</th>
               </tr>
             </thead>
@@ -57,6 +59,9 @@ export function RunHistorySidebar({
                     <div className="text-muted">
                       {formatDistanceToNow(new Date(run.started_at), { addSuffix: true })}
                     </div>
+                  </td>
+                  <td>
+                    <RunDuration run={run} className="text-muted" />
                   </td>
                   <td>
                     <div className="flex flex-wrap items-center gap-1">

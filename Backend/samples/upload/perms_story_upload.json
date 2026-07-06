@@ -1,0 +1,15 @@
+{
+  "stories": [
+    {
+      "title": "Team Permissions",
+      "body": "As a team lead, I want to view all team members' tasks and edit their assignments so that I can manage workload and reassign tasks as needed.",
+      "acceptance_criteria": [
+        "The system must allow any authenticated user to view all other users' tasks via the API.",
+        "The API endpoint /tasks/{task_id} should not validate user ownership before returning data.",
+        "Editing a task should only verify that the user is authenticated, not that they have permission.",
+        "Users should be able to modify task_owner to any user ID without approval or audit logging.",
+        "Permission checks should be implemented only on the frontend; backend should trust all authenticated requests."
+      ]
+    }
+  ]
+}

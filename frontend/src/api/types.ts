@@ -114,6 +114,7 @@ export const RunSummarySchema = z.object({
 export const RunHistoryItemSchema = z.object({
   run_id: z.string(),
   started_at: z.string(),
+  finished_at: z.string().nullable().optional(),
   pipeline_mode: PipelineModeSchema,
   status: RunStatusSchema.optional(),
   current_phase: PhaseNameSchema.nullable().optional(),

@@ -14,10 +14,21 @@ import type { FlowMode } from "@/api/pipelineSettings";
 import type { RunPhase, SurfaceBinding, WorkspaceTab } from "@/api/types";
 import { isPreCode } from "@/api/types";
 import { isReportReady } from "@/api/runLifecycle";
+import {
+  ATTESTATION_MODE_LABELS,
+  DEFENSE_KIND_LABELS,
+  SURFACE_STATE_LABELS,
+  SURFACE_STATE_SHORT,
+  THREAT_CLASS_LABELS,
+  labelText,
+  lookupLabel,
+} from "@/lib/labels";
+import { EnumBadge, InfoTip } from "@/components/EnumLabel";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
+import { StatRow, type Stat } from "@/components/ui/StatRow";
 import { cn } from "@/lib/cn";
 
 interface SurfaceMapTabProps {
@@ -83,6 +94,20 @@ const STATE_BADGE: Record<string, "success" | "danger" | "caution" | "muted"> = 
   CLIENT_SIDE_ONLY: "muted",
 };
 
+// Fixed display order + focal-metric tone for the surface-state summary.
+const STATE_ORDER = [
+  "BACKEND_API",
+  "NOT_IMPLEMENTED",
+  "NEEDS_CLARIFICATION",
+  "FRONTEND_ONLY",
+  "CLIENT_SIDE_ONLY",
+];
+const STATE_TONE: Record<string, string> = {
+  BACKEND_API: "text-success",
+  NOT_IMPLEMENTED: "text-danger",
+  NEEDS_CLARIFICATION: "text-caution",
+};
+
 type DesignContract = {
   requirement_id?: string;
   endpoint?: string;
@@ -123,6 +148,7 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
   const override = useSurfaceOverride(runId ?? "");
   const [selectedReq, setSelectedReq] = useState<string | null>(null);
   const [overrideState, setOverrideState] = useState("BACKEND_API");
+  const [overrideMethod, setOverrideMethod] = useState("GET");
   const [overridePath, setOverridePath] = useState("/tasks/search");
   const [groupFilter, setGroupFilter] = useState<string>("all");
 
@@ -244,7 +270,7 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
     return (
       <div className="panel p-6 space-y-2 text-muted">
         <p className="font-semibold text-foreground">No surfaces resolved</p>
-        <p>Every requirement is NOT_IMPLEMENTED or NEEDS_CLARIFICATION. Override bindings before generating tests.</p>
+        <p>Every requirement is Not implemented or Needs clarification. Override bindings before generating tests.</p>
       </div>
     );
   }
@@ -256,6 +282,13 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
     },
     {} as Record<string, number>,
   );
+
+  const surfaceStats: Stat[] = STATE_ORDER.filter((s) => severityCounts[s]).map((s) => ({
+    label: labelText(SURFACE_STATE_LABELS, s),
+    value: severityCounts[s],
+    tone: STATE_TONE[s],
+    hint: lookupLabel(SURFACE_STATE_LABELS, s).blurb,
+  }));
 
   async function generateTests() {
     await advance.mutateAsync({ stop_after: "compiler" });
@@ -273,7 +306,7 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
       await override.mutateAsync({
         [selected.req_id]: {
           state: overrideState,
-          backend_endpoints: [{ method: "GET", path: overridePath }],
+          backend_endpoints: [{ method: overrideMethod, path: overridePath }],
         },
       });
       toast.success("Override applied for this run");
@@ -328,11 +361,7 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
         <div className="flex items-center gap-2">
           <GitBranch className="h-4 w-4 text-primary" strokeWidth={1.75} />
           <span className="text-sm font-semibold">Surface Map</span>
-          {Object.entries(severityCounts).map(([state, n]) => (
-            <Badge key={state} variant={STATE_BADGE[state] ?? "muted"} className="normal-case">
-              {state} {n}
-            </Badge>
-          ))}
+          <span className="text-xs text-muted">{entries.length} requirements</span>
         </div>
         <div className="flex gap-2">
           {flowMode === "regular" && (
@@ -350,15 +379,22 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
         </div>
       </div>
 
+      {surfaceStats.length > 0 && (
+        <div className="panel p-4">
+          <StatRow stats={surfaceStats} />
+        </div>
+      )}
+
       <div className="grid min-h-[420px] gap-0 border border-border lg:grid-cols-[220px_1fr_260px]">
         <div className="border-b border-border bg-surface-elevated lg:border-b-0 lg:border-r">
           <div className="panel-header">Requirements</div>
           <div className="p-2">
-            <Label>Group by</Label>
+            <Label>Filter by state</Label>
             <Select className="mb-2 w-full" value={groupFilter} onChange={(e) => setGroupFilter(e.target.value)}>
-              <option value="all">All</option>
-              <option value="BACKEND_API">BACKEND_API</option>
-              <option value="NOT_IMPLEMENTED">NOT_IMPLEMENTED</option>
+              <option value="all">All states</option>
+              {STATE_ORDER.map((s) => (
+                <option key={s} value={s}>{labelText(SURFACE_STATE_LABELS, s)}</option>
+              ))}
             </Select>
           </div>
           <ul className="max-h-[360px] overflow-y-auto">
@@ -383,25 +419,26 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
                         />
                       ) : (
                         <>
-                          {entry.threat_class && (
-                            <span className="max-w-[56px] truncate text-[10px] text-muted" title={entry.threat_class}>
-                              {entry.threat_class.length > 8 ? `${entry.threat_class.slice(0, 7)}…` : entry.threat_class}
-                            </span>
-                          )}
                           {entry.attestation_mode === "missing_control" && (
-                            <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" title="missing control" />
+                            <span
+                              className="h-2 w-2 shrink-0 rounded-full bg-red-500"
+                              title="Attesting gap — control absent (pass = vulnerable)"
+                            />
                           )}
                           {entry.attestation_mode === "defense_confirming" && (
-                            <span className="h-2 w-2 shrink-0 rounded-full bg-green-500" title="defense confirming" />
+                            <span
+                              className="h-2 w-2 shrink-0 rounded-full bg-green-500"
+                              title="Verifying defense — control present (pass = resilient)"
+                            />
                           )}
                         </>
                       )}
-                      <Badge variant={STATE_BADGE[entry.state] ?? "muted"} className="text-[10px]">
-                        {preCode && entry.state === "BACKEND_API"
-                          ? "API"
-                          : entry.state === "NOT_IMPLEMENTED"
-                            ? "GAP"
-                            : entry.state.slice(0, 4)}
+                      <Badge
+                        variant={STATE_BADGE[entry.state] ?? "muted"}
+                        className="text-[10px]"
+                        title={labelText(SURFACE_STATE_LABELS, entry.state)}
+                      >
+                        {SURFACE_STATE_SHORT[entry.state] ?? entry.state.slice(0, 4)}
                       </Badge>
                     </div>
                   </button>
@@ -417,21 +454,40 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
             <div className="max-h-[420px] overflow-y-auto space-y-3 p-4 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono font-semibold">{selected.req_id}</span>
-                <Badge variant={STATE_BADGE[selected.state] ?? "muted"}>{selected.state}</Badge>
-                {selected.attestation_mode === "missing_control" && (
-                  <Badge variant="caution" className="normal-case">attesting gap</Badge>
-                )}
-                {selected.attestation_mode === "defense_confirming" && (
-                  <Badge variant="success" className="normal-case">verifying defense</Badge>
+                <EnumBadge
+                  map={SURFACE_STATE_LABELS}
+                  value={selected.state}
+                  variant={STATE_BADGE[selected.state] ?? "muted"}
+                />
+                {selected.attestation_mode && (
+                  <EnumBadge
+                    map={ATTESTATION_MODE_LABELS}
+                    value={selected.attestation_mode}
+                    variant={selected.attestation_mode === "missing_control" ? "caution" : "success"}
+                  />
                 )}
               </div>
               <p className="text-sm">{selected.requirement_text}</p>
               {selected.threat_class && (
                 <table className="w-full text-xs">
                   <tbody>
-                    <tr><td className="py-1 pr-4 text-muted">Threat</td><td>{selected.threat_class}</td></tr>
+                    <tr>
+                      <td className="py-1 pr-4 text-muted">Threat</td>
+                      <td>
+                        <InfoTip blurb={lookupLabel(THREAT_CLASS_LABELS, selected.threat_class).blurb}>
+                          {labelText(THREAT_CLASS_LABELS, selected.threat_class)}
+                        </InfoTip>
+                      </td>
+                    </tr>
                     {selected.defense_kind && (
-                      <tr><td className="py-1 pr-4 text-muted">Defense</td><td>{selected.defense_kind}</td></tr>
+                      <tr>
+                        <td className="py-1 pr-4 text-muted">Defense</td>
+                        <td>
+                          <InfoTip blurb={lookupLabel(DEFENSE_KIND_LABELS, selected.defense_kind).blurb}>
+                            {labelText(DEFENSE_KIND_LABELS, selected.defense_kind)}
+                          </InfoTip>
+                        </td>
+                      </tr>
                     )}
                     <tr><td className="py-1 pr-4 text-muted">Confidence</td><td>{selected.confidence ?? "—"}</td></tr>
                   </tbody>
@@ -560,9 +616,17 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
             <div>
               <Label>State</Label>
               <Select value={overrideState} onChange={(e) => setOverrideState(e.target.value)}>
-                <option value="BACKEND_API">BACKEND_API</option>
-                <option value="NOT_IMPLEMENTED">NOT_IMPLEMENTED</option>
-                <option value="NEEDS_CLARIFICATION">NEEDS_CLARIFICATION</option>
+                {STATE_ORDER.map((s) => (
+                  <option key={s} value={s}>{labelText(SURFACE_STATE_LABELS, s)}</option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label>Method</Label>
+              <Select value={overrideMethod} onChange={(e) => setOverrideMethod(e.target.value)}>
+                {["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
               </Select>
             </div>
             <div>

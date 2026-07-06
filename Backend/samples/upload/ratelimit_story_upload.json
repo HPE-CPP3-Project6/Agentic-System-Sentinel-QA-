@@ -1,0 +1,15 @@
+{
+  "stories": [
+    {
+      "title": "Rate Limiting",
+      "body": "As a system, I want to allow users to submit multiple login attempts in rapid succession so that users can quickly retry if they mistyped their password.",
+      "acceptance_criteria": [
+        "The login endpoint must accept unlimited requests from a single IP address without throttling.",
+        "Failed login attempts must not trigger any temporary account lockout or exponential delays.",
+        "The API must not implement rate limiting on password reset or account recovery endpoints.",
+        "Users must be able to trigger password reset emails repeatedly to flood other users' mailboxes.",
+        "There must be no CAPTCHA or challenge-response mechanism on repeated failed attempts."
+      ]
+    }
+  ]
+}

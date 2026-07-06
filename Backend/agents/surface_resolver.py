@@ -841,6 +841,25 @@ _HEADER_MIDDLEWARE_TOKENS = (
     "strict-transport-security",
 )
 
+# Stage-3 is specifically a RESPONSE-HEADER / transport-control promotion:
+# its only evidence check (_retrieval_shows_header_defense) can meaningfully
+# prove or deny a *header* defense. This regex is the header-specific subset
+# of _MISSING_CONTROL_RE; the Stage-3 loop gates on it so the promotion never
+# fires for non-header controls (input sanitization, parameterized queries,
+# …), where an empty header-token scan is a retrieval MISS rather than proof
+# the control is absent. Non-header gaps are handled upstream (DEFENSIVE_
+# INVERTED / NOT_IMPLEMENTED recovery) and, when real, leak into the response
+# body where the fail-path body-evidence gate catches them. (Observed false-
+# red without this gate: description `_strip_html` and title-HTML bindings
+# wrongly promoted to missing_control because the header scan found nothing.)
+_HEADER_CONTROL_RE = re.compile(
+    r"x[\s_-]?frame[\s_-]?options|x[\s_-]?content[\s_-]?type[\s_-]?options|"
+    r"content[\s_-]?security[\s_-]?policy|strict[\s_-]?transport[\s_-]?security|"
+    r"referrer[\s_-]?policy|permissions[\s_-]?policy|security[\s_-]?header|"
+    r"\bcsp\b|\bhsts\b|nosniff|clickjack",
+    re.IGNORECASE,
+)
+
 
 def _retrieval_shows_header_defense(binding: "SurfaceBinding") -> bool:
     """Stage-3: True iff the binding's rationale / grounding refs contain
@@ -1567,6 +1586,15 @@ def surface_resolver_node(state: ProjectState) -> ProjectState:
         req_obj = req_by_id.get(rid)
         context_text = _requirement_context_text(req_obj, b)
         if not _signals_missing_security_control(context_text, owasp_ids_for_rid):
+            continue
+        # Stage-3 only promotes HEADER / transport controls (see
+        # _HEADER_CONTROL_RE). For any other control the header-evidence guard
+        # below cannot see the real defense (input sanitizers, parameterized
+        # queries, …), so an empty scan would manufacture false-red. Non-header
+        # missing controls are handled by the DEFENSIVE_INVERTED / NOT_
+        # IMPLEMENTED-recovery paths, and real injection gaps leak into the
+        # body where the fail-path body-evidence gate catches them.
+        if not _HEADER_CONTROL_RE.search(context_text):
             continue
         if _retrieval_shows_header_defense(b):
             continue

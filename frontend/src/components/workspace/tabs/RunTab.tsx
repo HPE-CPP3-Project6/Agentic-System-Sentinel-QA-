@@ -17,6 +17,8 @@ import { PatchInbox } from "@/components/PatchInbox";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StatRow, type Stat } from "@/components/ui/StatRow";
+import { STATUS_LABELS, VERDICT_LABELS, labelText } from "@/lib/labels";
 import type { VerdictRecord } from "@/api/types";
 
 interface RunTabProps {
@@ -165,6 +167,27 @@ export function RunTab({ runId, onTabChange }: RunTabProps) {
         </Card>
       )}
 
+      {verdicts.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Execution results</CardTitle></CardHeader>
+          <CardContent>
+            <StatRow
+              stats={[
+                { label: "Tests", value: verdicts.length },
+                { label: "Passed", value: verdicts.filter((v) => v.status === "passed").length, tone: "text-success" },
+                { label: "Failed", value: verdicts.filter((v) => v.status === "failed").length, tone: "text-danger" },
+                { label: "Resilient", value: verdicts.filter((v) => v.verdict === "resilient").length, tone: "text-success" },
+                {
+                  label: "Vulnerable",
+                  value: verdicts.filter((v) => v.verdict === "vulnerable").length,
+                  tone: verdicts.some((v) => v.verdict === "vulnerable") ? "text-danger" : "text-muted",
+                },
+              ] satisfies Stat[]}
+            />
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader><CardTitle>Build phases</CardTitle></CardHeader>
         <CardContent>
@@ -236,8 +259,8 @@ export function RunTab({ runId, onTabChange }: RunTabProps) {
                   <tr key={v.test_id}>
                     <td><StatusIcon status={v.status} /></td>
                     <td className="font-mono text-xs">{v.test_id}</td>
-                    <td>{v.status}</td>
-                    <td>{v.verdict ?? "—"}</td>
+                    <td>{labelText(STATUS_LABELS, v.status)}</td>
+                    <td>{labelText(VERDICT_LABELS, v.verdict)}</td>
                     <td>{v.verdict_confidence ?? "—"}</td>
                     <td>{v.duration_ms ?? "—"}</td>
                   </tr>

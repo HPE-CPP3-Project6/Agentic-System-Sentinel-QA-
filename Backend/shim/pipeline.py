@@ -338,6 +338,7 @@ def execute_run(store: Store, hub: WsHub, run_id: str) -> None:
         store.update_run(
             run_id,
             status="failed",
+            finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             error_code=code,
             error_message=message,
         )

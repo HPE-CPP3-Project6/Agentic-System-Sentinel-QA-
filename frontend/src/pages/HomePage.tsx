@@ -5,7 +5,6 @@ import { formatDistanceToNow } from "date-fns";
 import {
   ChevronDown,
   ChevronRight,
-  Cloud,
   FileText,
   Filter,
   Loader2,
@@ -25,10 +24,13 @@ import {
 import type { RunHistoryItem, Story, PipelineMode } from "@/api/types";
 import { AppShell } from "@/components/AppShell";
 import { BulkUploadDropzone } from "@/components/BulkUploadDropzone";
+import { RunDuration } from "@/components/RunDuration";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select, Textarea } from "@/components/ui/input";
 import { cn } from "@/lib/cn";
+
+type SortKey = "updated" | "created" | "title";
 
 export function HomePage() {
   const { data: stories, isLoading } = useStories();
@@ -38,12 +40,29 @@ export function HomePage() {
   const [body, setBody] = useState("");
   const [acs, setAcs] = useState("");
   const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<SortKey>("updated");
   const [pipelineMode, setPipelineMode] = useState<PipelineMode>("post_code");
 
   const acList = useMemo(
     () => acs.split("\n").map((l) => l.trim()).filter(Boolean),
     [acs],
   );
+
+  // Search + sort operate on the story list itself; the validity filter is
+  // applied per-row inside StoryRow (validity comes from each story's latest
+  // run, fetched lazily there).
+  const visibleStories = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = (stories ?? []).filter(
+      (s) => !q || s.title.toLowerCase().includes(q) || s.id.toLowerCase().includes(q),
+    );
+    return [...list].sort((a, b) => {
+      if (sortBy === "title") return a.title.localeCompare(b.title);
+      if (sortBy === "created") return (b.created_at ?? "").localeCompare(a.created_at ?? "");
+      return (b.updated_at ?? b.created_at ?? "").localeCompare(a.updated_at ?? a.created_at ?? "");
+    });
+  }, [stories, search, sortBy]);
 
   async function handleCreate() {
     if (!title.trim() || acList.length === 0) return;
@@ -62,7 +81,13 @@ export function HomePage() {
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
           <h1 className="text-lg font-semibold text-foreground">Your Stories</h1>
           <div className="flex items-center gap-2">
-            <Input placeholder="Search stories…" className="w-48" />
+            <Input
+              placeholder="Search stories…"
+              className="w-48"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search stories"
+            />
             <Select
               className="w-44"
               value={pipelineMode}
@@ -113,12 +138,14 @@ export function HomePage() {
           <div className="panel overflow-hidden">
             <div className="panel-header flex items-center justify-between">
               <span>Story list</span>
-              <span className="font-normal normal-case text-muted">{stories?.length ?? 0} items</span>
+              <span className="font-normal normal-case text-muted">{visibleStories.length} items</span>
             </div>
             {isLoading ? (
               <p className="p-4 text-muted">Loading…</p>
             ) : !stories?.length ? (
               <p className="p-4 text-muted">No stories. Click New Story to begin.</p>
+            ) : !visibleStories.length ? (
+              <p className="p-4 text-muted">No stories match your search.</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="data-table">
@@ -134,8 +161,13 @@ export function HomePage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {stories.map((story) => (
-                      <StoryRow key={story.id} story={story} pipelineMode={pipelineMode} />
+                    {visibleStories.map((story) => (
+                      <StoryRow
+                        key={story.id}
+                        story={story}
+                        pipelineMode={pipelineMode}
+                        validityFilter={filter}
+                      />
                     ))}
                   </tbody>
                 </table>
@@ -152,29 +184,36 @@ export function HomePage() {
           <div className="space-y-3 p-3 text-xs">
             <div>
               <Label>Sort by</Label>
-              <button type="button" className="mt-1 flex w-full items-center justify-between border border-border bg-surface px-2 py-1.5">
-                Last updated
-                <ChevronDown className="h-3 w-3" strokeWidth={1.75} />
-              </button>
+              <Select
+                className="mt-1 w-full"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortKey)}
+                aria-label="Sort stories"
+              >
+                <option value="updated">Last updated</option>
+                <option value="created">Recently created</option>
+                <option value="title">Title (A–Z)</option>
+              </Select>
             </div>
             <div>
               <Label>Validity</Label>
               <div className="mt-1 space-y-1">
-                {["all", "OK", "DESIGN_ONLY"].map((v) => (
-                  <label key={v} className="flex cursor-pointer items-center gap-2 normal-case">
+                {[
+                  { value: "all", label: "All stories" },
+                  { value: "OK", label: "Attestable (OK)" },
+                  { value: "DESIGN_ONLY", label: "Design only" },
+                ].map((v) => (
+                  <label key={v.value} className="flex cursor-pointer items-center gap-2 normal-case">
                     <input
                       type="radio"
                       name="validity"
-                      checked={filter === v}
-                      onChange={() => setFilter(v)}
+                      checked={filter === v.value}
+                      onChange={() => setFilter(v.value)}
                     />
-                    {v === "all" ? "All stories" : v}
+                    {v.label}
                   </label>
                 ))}
               </div>
-            </div>
-            <div className="border-t border-border pt-2 text-muted">
-              <Cloud className="mb-1 inline h-3.5 w-3.5" strokeWidth={1.75} /> Jenkins-style job list layout
             </div>
           </div>
         </aside>
@@ -223,7 +262,15 @@ function isReportable(run: RunHistoryItem): boolean {
  * two distinct actions — Run (starts a fresh run) and View report (jumps to the
  * latest finished run's report) — plus an expandable history of earlier runs.
  */
-function StoryRow({ story, pipelineMode }: { story: Story; pipelineMode: PipelineMode }) {
+function StoryRow({
+  story,
+  pipelineMode,
+  validityFilter,
+}: {
+  story: Story;
+  pipelineMode: PipelineMode;
+  validityFilter: string;
+}) {
   const [expanded, setExpanded] = useState(false);
   const { data: runs, isLoading: runsLoading } = useStoryRuns(story.id);
   const startRun = useStartRun(story.id);
@@ -255,6 +302,12 @@ function StoryRow({ story, pipelineMode }: { story: Story; pipelineMode: Pipelin
   const badge = lastRunBadge(latest);
   const hasActiveRun =
     latest?.status === "running" || latest?.status === "queued";
+
+  // Validity filter (from the sidebar) is applied here because a story's
+  // validity comes from its latest run, which is fetched in this row.
+  if (validityFilter !== "all" && latest?.run_validity !== validityFilter) {
+    return null;
+  }
 
   async function handleRun() {
     try {
@@ -316,16 +369,21 @@ function StoryRow({ story, pipelineMode }: { story: Story; pipelineMode: Pipelin
           {runsLoading && !latest ? (
             <span className="text-xs text-muted">…</span>
           ) : (
-            <div className="flex items-center gap-2">
-              <Badge variant={badge.variant} className="normal-case">
-                {badge.spin && <Loader2 className="mr-1 inline h-3 w-3 animate-spin" aria-hidden />}
-                {badge.label}
-              </Badge>
+            <div className="flex flex-col gap-0.5">
+              <div className="flex items-center gap-2">
+                <Badge variant={badge.variant} className="normal-case">
+                  {badge.spin && <Loader2 className="mr-1 inline h-3 w-3 animate-spin" aria-hidden />}
+                  {badge.label}
+                </Badge>
+                {latest && (
+                  <span className="text-xs text-muted">{modeLabel(latest.pipeline_mode)}</span>
+                )}
+                {latest?.resilience_pct != null && (
+                  <span className="text-xs text-muted">{latest.resilience_pct}%</span>
+                )}
+              </div>
               {latest && (
-                <span className="text-xs text-muted">{modeLabel(latest.pipeline_mode)}</span>
-              )}
-              {latest?.resilience_pct != null && (
-                <span className="text-xs text-muted">{latest.resilience_pct}%</span>
+                <RunDuration run={latest} className="text-xs text-muted" />
               )}
             </div>
           )}
@@ -404,6 +462,7 @@ function StoryRow({ story, pipelineMode }: { story: Story; pipelineMode: Pipelin
                     {run.resilience_pct != null && (
                       <span className="text-muted">{run.resilience_pct}% resilient</span>
                     )}
+                    <RunDuration run={run} className="text-muted" />
                     <span className="text-muted">
                       {formatDistanceToNow(new Date(run.started_at), { addSuffix: true })}
                     </span>

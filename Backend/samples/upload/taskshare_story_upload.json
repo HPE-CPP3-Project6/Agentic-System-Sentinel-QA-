@@ -1,0 +1,13 @@
+{
+  "stories": [
+    {
+      "title": "Share Task via Public Link",
+      "body": "As a registered user, I want to share a task with others by generating a public link, so that external collaborators can view the task without needing an account.",
+      "acceptance_criteria": [
+        "Given a logged-in user owns a task, when they request a public share link, then a unique URL must be generated for that task.",
+        "Given a public share link exists, when anyone accesses it, then they can view the task details without authentication.",
+        "Given a public share link, when an unauthenticated user accesses it, then they must only see the specific task it was generated for and no other tasks."
+      ]
+    }
+  ]
+}

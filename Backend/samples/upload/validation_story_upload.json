@@ -1,0 +1,16 @@
+{
+  "stories": [
+    {
+      "title": "Task Input Validation & Sanitization",
+      "body": "As a project manager rolling the Smart Task Manager out across the organization, I want the task-creation API to validate and sanitize every field before it persists, so that no client — web, mobile, or integration — can write malformed, oversized, or unsafe data into the shared task store.",
+      "acceptance_criteria": [
+        "POST /tasks/ with a non-empty title (1-255 characters), a priority of Low, Medium, or High, and a due_date in the future must succeed with HTTP 201 and echo the created task id.",
+        "POST /tasks/ with a missing or empty title must be rejected with HTTP 422 — title is required (minimum length 1).",
+        "POST /tasks/ with a title longer than 255 characters must be rejected with HTTP 422.",
+        "POST /tasks/ with a priority value outside {Low, Medium, High} must be rejected with HTTP 422.",
+        "POST /tasks/ with a due_date in the past must be rejected with HTTP 422.",
+        "POST /tasks/ with HTML or script markup in the title or description must persist the sanitized (HTML-stripped) value and never store the raw markup, returning HTTP 201."
+      ]
+    }
+  ]
+}
