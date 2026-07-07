@@ -13,6 +13,7 @@ import {
 import type { FlowMode } from "@/api/pipelineSettings";
 import type { TestCase } from "@/api/types";
 import { CATEGORY_LABELS, TECHNIQUE_LABELS, labelText } from "@/lib/labels";
+import { CHIP } from "@/lib/chips";
 import { EnumBadge } from "@/components/EnumLabel";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { Badge } from "@/components/ui/badge";
@@ -339,13 +340,13 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
                             {/* Forbidden response content */}
                             {(tc.forbidden_response_content ?? []).length > 0 && (
                               <div>
-                                <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-red-400/80">
-                                  <span className="h-px w-3 bg-red-400/40" />
+                                <p className="section-label mb-2 flex items-center gap-1.5 text-danger">
+                                  <span className="h-px w-3 bg-danger/40" />
                                   Must NOT appear in response
                                 </p>
                                 <div className="flex flex-wrap gap-1.5">
                                   {(tc.forbidden_response_content ?? []).map((f, i) => (
-                                    <span key={i} className="rounded border border-red-500/30 bg-red-500/10 px-2 py-0.5 font-mono text-[10px] text-red-400">
+                                    <span key={i} className={cn(CHIP.danger, "font-mono text-[10px]")}>
                                       {f}
                                     </span>
                                   ))}
@@ -356,14 +357,14 @@ export function ScenariosTab({ runId, flowMode = "regular", onTabChange }: Scena
                             {/* Required response headers */}
                             {tc.required_response_headers && Object.keys(tc.required_response_headers).length > 0 && (
                               <div>
-                                <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-blue-400/80">
-                                  <span className="h-px w-3 bg-blue-400/40" />
+                                <p className="section-label mb-2 flex items-center gap-1.5 text-primary">
+                                  <span className="h-px w-3 bg-primary/40" />
                                   Required response headers
                                 </p>
                                 <div className="space-y-1">
                                   {Object.entries(tc.required_response_headers).map(([header, value]) => (
                                     <div key={header} className="flex gap-2">
-                                      <span className="shrink-0 font-mono text-blue-400">{header}</span>
+                                      <span className={cn("shrink-0 font-mono", CHIP.info, "text-[10px]")}>{header}</span>
                                       <span className="text-muted">{value ?? "(present)"}</span>
                                     </div>
                                   ))}

@@ -93,7 +93,7 @@ export function RunValidityHero({ artifact }: { artifact: ProjectState }) {
       <div>
         <InfoTip
           blurb={FIELD_LABELS.coverage_quality.blurb}
-          className="text-[11px] font-semibold uppercase tracking-wider text-muted"
+          className="section-label"
         >
           {FIELD_LABELS.coverage_quality.label}
         </InfoTip>
@@ -106,7 +106,7 @@ export function RunValidityHero({ artifact }: { artifact: ProjectState }) {
         <>
           <div className="h-10 w-px bg-border" />
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+            <p className="section-label">
               {metric.label}
             </p>
             <p className="text-lg font-semibold leading-tight">{metric.value}</p>

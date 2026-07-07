@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight, Download, FileCode2 } from "lucide-react";
 import type { SuggestedPatch } from "@/api/types";
 import { downloadSuggestedPatches } from "@/lib/exportPatches";
+import { owaspChip } from "@/lib/chips";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,22 +20,9 @@ function targetLabel(p: SuggestedPatch): string {
   return t.length > 48 ? `…${t.slice(-45)}` : t;
 }
 
-const OWASP_COLOR: Record<string, string> = {
-  "A01": "bg-red-500/15 text-red-400 border-red-500/20",
-  "A02": "bg-red-500/15 text-red-400 border-red-500/20",
-  "A03": "bg-red-500/15 text-red-400 border-red-500/20",
-  "A08": "bg-red-500/15 text-red-400 border-red-500/20",
-  "A10": "bg-red-500/15 text-red-400 border-red-500/20",
-  "A04": "bg-amber-500/15 text-amber-400 border-amber-500/20",
-  "A05": "bg-amber-500/15 text-amber-400 border-amber-500/20",
-  "A06": "bg-amber-500/15 text-amber-400 border-amber-500/20",
-  "A07": "bg-amber-500/15 text-amber-400 border-amber-500/20",
-};
-
 function owaspColor(cat?: string | null): string {
-  if (!cat) return "bg-surface-elevated text-muted border-border";
-  const key = cat.match(/A\d+/)?.[0] ?? "";
-  return OWASP_COLOR[key] ?? "bg-blue-500/15 text-blue-400 border-blue-500/20";
+  if (!cat) return "chip chip-neutral";
+  return owaspChip(cat);
 }
 
 export function SuggestedPatchesPanel({ runId, storyTitle, patches }: SuggestedPatchesPanelProps) {

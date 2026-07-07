@@ -84,8 +84,8 @@ export function SastSummaryPanel({ summary }: { summary: SastSummary | null | un
             {findings.length > 0 ? (
               <div className="overflow-auto rounded border border-border">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-surface-elevated text-muted">
-                    <tr>
+                  <thead className="bg-surface-elevated">
+                    <tr className="section-label">
                       <th className="px-3 py-2 font-medium">Severity</th>
                       <th className="px-3 py-2 font-medium">Rule</th>
                       <th className="px-3 py-2 font-medium">Location</th>
@@ -100,7 +100,7 @@ export function SastSummaryPanel({ summary }: { summary: SastSummary | null | un
                             {f.severity ?? "—"}
                           </Badge>
                           {f.confidence && (
-                            <p className="mt-1 text-[10px] text-muted">{f.confidence} confidence</p>
+                            <p className="mt-1 text-[10px] font-medium text-secondary">{f.confidence} confidence</p>
                           )}
                         </td>
                         <td className="px-3 py-2">

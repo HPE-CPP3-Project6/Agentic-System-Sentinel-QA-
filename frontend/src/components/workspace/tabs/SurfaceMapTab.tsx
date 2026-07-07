@@ -23,13 +23,14 @@ import {
   labelText,
   lookupLabel,
 } from "@/lib/labels";
+import { httpMethodChip, httpStatusCodeClass } from "@/lib/chips";
+import { cn } from "@/lib/cn";
 import { EnumBadge, InfoTip } from "@/components/EnumLabel";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { StatRow, type Stat } from "@/components/ui/StatRow";
-import { cn } from "@/lib/cn";
 
 interface SurfaceMapTabProps {
   runId?: string;
@@ -117,14 +118,6 @@ type DesignContract = {
   error_codes?: Record<string, string>;
   validation_rules?: string[];
   notes?: string;
-};
-
-const DC_METHOD_COLOR: Record<string, string> = {
-  GET: "bg-blue-500/15 text-blue-400",
-  POST: "bg-green-500/15 text-green-400",
-  PUT: "bg-amber-500/15 text-amber-400",
-  PATCH: "bg-amber-500/15 text-amber-400",
-  DELETE: "bg-red-500/15 text-red-400",
 };
 
 function dcMethod(c: DesignContract): string {
@@ -529,7 +522,7 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
                         <div key={idx} className="overflow-hidden rounded border border-border text-xs">
                           <div className="flex items-center gap-2 bg-surface-elevated px-3 py-2">
                             {method && (
-                              <span className={cn("shrink-0 rounded px-1.5 py-0.5 font-mono font-bold text-[10px]", DC_METHOD_COLOR[method] ?? "bg-surface-elevated text-muted")}>
+                              <span className={cn("shrink-0 font-mono font-bold text-[10px]", httpMethodChip(method))}>
                                 {method}
                               </span>
                             )}
@@ -568,7 +561,7 @@ export function SurfaceMapTab({ runId, flowMode = "regular", mode, onTabChange }
                                 <div className="space-y-1">
                                   {errorCodes.map(([code, desc]) => (
                                     <div key={code} className="flex gap-3">
-                                      <span className={cn("shrink-0 font-mono font-bold", code.startsWith("2") ? "text-green-400" : code.startsWith("4") ? "text-amber-400" : "text-red-400")}>
+                                      <span className={cn("shrink-0", httpStatusCodeClass(code))}>
                                         {code}
                                       </span>
                                       <span className="text-muted">{String(desc)}</span>

@@ -7,8 +7,10 @@
   --surface: #ffffff;
   --surface-elevated: #f5f6f8;
   --border: #c8cdd3;
-  --muted: #5c6670;
+  --muted: #4b5563;
+  --label: #374151;
   --foreground: #1a2332;
+  --foreground-secondary: #1f2937;
   --primary: #0066cc;
   --primary-hover: #0052a3;
   --nav-bg: #002b5c;
@@ -24,6 +26,34 @@
   --console-fg: #d4d4d4;
   /* Shiki github-light expects a light surface (not the dark console strip) */
   --code-panel-bg: #f6f8fa;
+  /* Semantic chips — high contrast in light mode */
+  --chip-neutral-fg: #1f2937;
+  --chip-neutral-bg: #f3f4f6;
+  --chip-neutral-border: #d1d5db;
+  --chip-info-fg: #1e40af;
+  --chip-info-bg: #dbeafe;
+  --chip-info-border: #93c5fd;
+  --chip-success-fg: #166534;
+  --chip-success-bg: #dcfce7;
+  --chip-success-border: #86efac;
+  --chip-warn-fg: #92400e;
+  --chip-warn-bg: #fef3c7;
+  --chip-warn-border: #fcd34d;
+  --chip-danger-fg: #991b1b;
+  --chip-danger-bg: #fee2e2;
+  --chip-danger-border: #fca5a5;
+  --chip-http-get-fg: #1e40af;
+  --chip-http-get-bg: #dbeafe;
+  --chip-http-get-border: #93c5fd;
+  --chip-http-post-fg: #166534;
+  --chip-http-post-bg: #dcfce7;
+  --chip-http-post-border: #86efac;
+  --chip-http-put-fg: #92400e;
+  --chip-http-put-bg: #fef3c7;
+  --chip-http-put-border: #fcd34d;
+  --chip-http-delete-fg: #991b1b;
+  --chip-http-delete-bg: #fee2e2;
+  --chip-http-delete-border: #fca5a5;
 }
 
 .dark {
@@ -33,6 +63,8 @@
   --surface-elevated: #2d3139;
   --border: #3d4450;
   --muted: #9aa3ad;
+  --label: #c5cdd5;
+  --foreground-secondary: #e8eaed;
   --foreground: #e8eaed;
   --primary: #4d9fff;
   --primary-hover: #3a8fef;
@@ -48,6 +80,33 @@
   --console-bg: #0d1117;
   --console-fg: #c9d1d9;
   --code-panel-bg: var(--console-bg);
+  --chip-neutral-fg: #e5e7eb;
+  --chip-neutral-bg: rgb(255 255 255 / 0.06);
+  --chip-neutral-border: rgb(255 255 255 / 0.12);
+  --chip-info-fg: #93c5fd;
+  --chip-info-bg: rgb(59 130 246 / 0.15);
+  --chip-info-border: rgb(59 130 246 / 0.35);
+  --chip-success-fg: #6ee7b7;
+  --chip-success-bg: rgb(16 185 129 / 0.15);
+  --chip-success-border: rgb(16 185 129 / 0.35);
+  --chip-warn-fg: #fcd34d;
+  --chip-warn-bg: rgb(245 158 11 / 0.15);
+  --chip-warn-border: rgb(245 158 11 / 0.35);
+  --chip-danger-fg: #fca5a5;
+  --chip-danger-bg: rgb(239 68 68 / 0.15);
+  --chip-danger-border: rgb(239 68 68 / 0.35);
+  --chip-http-get-fg: #93c5fd;
+  --chip-http-get-bg: rgb(59 130 246 / 0.15);
+  --chip-http-get-border: rgb(59 130 246 / 0.35);
+  --chip-http-post-fg: #6ee7b7;
+  --chip-http-post-bg: rgb(16 185 129 / 0.15);
+  --chip-http-post-border: rgb(16 185 129 / 0.35);
+  --chip-http-put-fg: #fcd34d;
+  --chip-http-put-bg: rgb(245 158 11 / 0.15);
+  --chip-http-put-border: rgb(245 158 11 / 0.35);
+  --chip-http-delete-fg: #fca5a5;
+  --chip-http-delete-bg: rgb(239 68 68 / 0.15);
+  --chip-http-delete-border: rgb(239 68 68 / 0.35);
 }
 
 @theme inline {
@@ -56,6 +115,8 @@
   --color-surface-elevated: var(--surface-elevated);
   --color-border: var(--border);
   --color-muted: var(--muted);
+  --color-label: var(--label);
+  --color-foreground-secondary: var(--foreground-secondary);
   --color-foreground: var(--foreground);
   --color-primary: var(--primary);
   --color-primary-hover: var(--primary-hover);
@@ -100,7 +161,8 @@
   }
 
   .panel-header {
-    @apply border-b border-border bg-surface-elevated px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted;
+    @apply border-b border-border bg-surface-elevated px-4 py-2.5 text-xs font-semibold uppercase tracking-wide;
+    color: var(--label);
   }
 
   .data-table {
@@ -108,7 +170,8 @@
   }
 
   .data-table th {
-    @apply border-b border-border bg-surface-elevated px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted;
+    @apply border-b border-border bg-surface-elevated px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide;
+    color: var(--label);
   }
 
   .data-table td {
@@ -164,5 +227,102 @@
     margin: 0;
     width: max-content;
     min-width: 100%;
+  }
+
+  /* Theme-aware chips and status banners (light + dark) */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded border px-2 py-1 text-xs;
+  }
+
+  .chip-neutral {
+    color: var(--chip-neutral-fg);
+    background: var(--chip-neutral-bg);
+    border-color: var(--chip-neutral-border);
+  }
+
+  .chip-info {
+    color: var(--chip-info-fg);
+    background: var(--chip-info-bg);
+    border-color: var(--chip-info-border);
+  }
+
+  .chip-success {
+    color: var(--chip-success-fg);
+    background: var(--chip-success-bg);
+    border-color: var(--chip-success-border);
+  }
+
+  .chip-warn {
+    color: var(--chip-warn-fg);
+    background: var(--chip-warn-bg);
+    border-color: var(--chip-warn-border);
+  }
+
+  .chip-danger {
+    color: var(--chip-danger-fg);
+    background: var(--chip-danger-bg);
+    border-color: var(--chip-danger-border);
+  }
+
+  .chip-http-get {
+    color: var(--chip-http-get-fg);
+    background: var(--chip-http-get-bg);
+    border-color: var(--chip-http-get-border);
+  }
+
+  .chip-http-post {
+    color: var(--chip-http-post-fg);
+    background: var(--chip-http-post-bg);
+    border-color: var(--chip-http-post-border);
+  }
+
+  .chip-http-put,
+  .chip-http-patch {
+    color: var(--chip-http-put-fg);
+    background: var(--chip-http-put-bg);
+    border-color: var(--chip-http-put-border);
+  }
+
+  .chip-http-delete {
+    color: var(--chip-http-delete-fg);
+    background: var(--chip-http-delete-bg);
+    border-color: var(--chip-http-delete-border);
+  }
+
+  .status-banner {
+    @apply rounded-lg border p-4;
+  }
+
+  .status-banner-success {
+    color: var(--chip-success-fg);
+    background: var(--chip-success-bg);
+    border-color: var(--chip-success-border);
+  }
+
+  .status-banner-warn {
+    color: var(--chip-warn-fg);
+    background: var(--chip-warn-bg);
+    border-color: var(--chip-warn-border);
+  }
+
+  .status-banner-danger {
+    color: var(--chip-danger-fg);
+    background: var(--chip-danger-bg);
+    border-color: var(--chip-danger-border);
+  }
+
+  .status-banner-neutral {
+    color: var(--foreground-secondary);
+    background: var(--surface-elevated);
+    border-color: var(--border);
+  }
+
+  .section-label {
+    @apply text-[10px] font-semibold uppercase tracking-wider;
+    color: var(--label);
+  }
+
+  .text-secondary {
+    color: var(--foreground-secondary);
   }
 }

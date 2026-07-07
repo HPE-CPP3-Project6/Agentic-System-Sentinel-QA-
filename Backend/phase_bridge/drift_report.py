@@ -78,6 +78,7 @@ def generate_drift_report(
     # didn't satisfy the definition_of_done before pushing.
     checklist = phase1_data.get("security_checklist", []) or []
     ignored_checklist_items: List[Dict[str, Any]] = []
+    confirmed_checklist_items: List[Dict[str, Any]] = []
     for item in checklist:
         owasp_short = _short_id(item.get("owasp_id", ""))
         if not owasp_short:
@@ -85,24 +86,94 @@ def generate_drift_report(
         if owasp_short in exploited_short:
             ignored_checklist_items.append({
                 "owasp_id": item.get("owasp_id"),
+                "requirement_id": item.get("requirement_id"),
                 "instruction": item.get("instruction"),
                 "definition_of_done": item.get("definition_of_done"),
                 "verdict": "IGNORED — vulnerability confirmed in Phase 2",
             })
+        elif owasp_short in confirmed_short:
+            confirmed_checklist_items.append({
+                "owasp_id": item.get("owasp_id"),
+                "requirement_id": item.get("requirement_id"),
+                "instruction": item.get("instruction"),
+                "definition_of_done": item.get("definition_of_done"),
+                "verdict": "ADDRESSED — risk confirmed and not exploited in Phase 2",
+            })
+
+    summary = {
+        "predicted": len(predicted_short),
+        "confirmed_in_phase2": len(confirmed_short),
+        "missed_in_phase2": len(missed_short),
+        "new_in_phase2_only": len(new_short),
+        "exploited": len(confirmed_and_exploited_short),
+        "checklist_items_ignored": len(ignored_checklist_items),
+        "checklist_total": len(checklist),
+        "checklist_addressed": len(confirmed_checklist_items),
+    }
 
     return {
         "story_id": phase1_data.get("story_id"),
-        "summary": {
-            "predicted": len(predicted_short),
-            "confirmed_in_phase2": len(confirmed_short),
-            "missed_in_phase2": len(missed_short),
-            "new_in_phase2_only": len(new_short),
-            "exploited": len(confirmed_and_exploited_short),
-            "checklist_items_ignored": len(ignored_checklist_items),
-        },
+        "summary": summary,
+        "headline": _build_headline(summary),
+        "predicted_risks_full": predicted_full,
+        "phase2_risks_full": phase2_full,
         "confirmed_risks": sorted(confirmed_short),
         "missed_risks": sorted(missed_short),
         "new_risks_phase2_only": sorted(new_short),
         "confirmed_and_exploited": sorted(confirmed_and_exploited_short),
+        "confirmed_checklist_items": confirmed_checklist_items,
         "ignored_checklist_items": ignored_checklist_items,
+    }
+
+
+def _build_headline(summary: Dict[str, int]) -> Dict[str, str]:
+    """Human-readable one-liner for UI / CLI."""
+    predicted = summary.get("predicted", 0)
+    confirmed = summary.get("confirmed_in_phase2", 0)
+    missed = summary.get("missed_in_phase2", 0)
+    new_only = summary.get("new_in_phase2_only", 0)
+    exploited = summary.get("exploited", 0)
+    ignored = summary.get("checklist_items_ignored", 0)
+
+    if exploited > 0 or ignored > 0:
+        parts = []
+        if exploited:
+            parts.append(f"{exploited} predicted risk(s) were exploited in POST_CODE")
+        if ignored:
+            parts.append(f"{ignored} shift-left checklist item(s) appear ignored")
+        return {
+            "status": "exploited",
+            "message": "; ".join(parts) + ".",
+        }
+
+    if predicted == 0:
+        return {
+            "status": "no_prediction",
+            "message": "PRE_CODE did not predict any OWASP risks for this story.",
+        }
+
+    if missed > 0:
+        return {
+            "status": "partial",
+            "message": (
+                f"{confirmed} of {predicted} predicted risk(s) confirmed in POST_CODE; "
+                f"{missed} predicted risk(s) not surfaced in execution."
+            ),
+        }
+
+    if new_only > 0:
+        return {
+            "status": "partial",
+            "message": (
+                f"All {predicted} predicted risk(s) confirmed; "
+                f"{new_only} additional risk(s) found only in POST_CODE."
+            ),
+        }
+
+    return {
+        "status": "aligned",
+        "message": (
+            f"All {predicted} PRE_CODE risk prediction(s) confirmed in POST_CODE "
+            "with no exploited vulnerabilities."
+        ),
     }

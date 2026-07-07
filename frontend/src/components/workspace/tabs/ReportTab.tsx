@@ -10,9 +10,12 @@ import { RunValidityHero } from "@/components/report/RunValidityHero";
 import { TechniquePanel } from "@/components/report/TechniquePanel";
 import { FindingsTable } from "@/components/report/FindingsTable";
 import { SastSummaryPanel } from "@/components/report/SastSummaryPanel";
+import { DriftReportPanel, type DriftReport } from "@/components/report/DriftReportPanel";
 import { SuggestedPatchesPanel } from "@/components/report/SuggestedPatchesPanel";
 import { SummaryTile } from "@/components/report/SummaryTile";
 import { exportPdf, exportXlsx } from "@/lib/exportReport";
+import { httpMethodChip, owaspChip } from "@/lib/chips";
+import { cn } from "@/lib/cn";
 import { ErrorBanner } from "@/components/ErrorBanner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -195,19 +198,14 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
                     <span className="text-sm text-muted"> items</span>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {Object.entries(artifact.design_summary.checklist_by_owasp ?? {}).map(([owasp, count]) => {
-                      const num = parseInt(owasp.match(/A(\d+)/)?.[1] ?? "0", 10);
-                      const color = [1, 2, 3, 8, 10].includes(num)
-                        ? "bg-red-500/15 text-red-400"
-                        : [4, 5, 6, 7].includes(num)
-                          ? "bg-amber-500/15 text-amber-400"
-                          : "bg-blue-500/15 text-blue-400";
-                      return (
-                        <span key={owasp} className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-bold ${color}`}>
-                          {owasp} · {String(count)}
-                        </span>
-                      );
-                    })}
+                    {Object.entries(artifact.design_summary.checklist_by_owasp ?? {}).map(([owasp, count]) => (
+                      <span
+                        key={owasp}
+                        className={cn("rounded px-1.5 py-0.5 font-mono text-[10px] font-bold", owaspChip(owasp))}
+                      >
+                        {owasp} · {String(count)}
+                      </span>
+                    ))}
                   </div>
                 </div>
               ) : (
@@ -311,19 +309,12 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
                         ? ruleList.slice(0, 3).join(" · ") +
                           (ruleList.length > 3 ? ` · +${ruleList.length - 3} more` : "")
                         : contract.notes ? String(contract.notes) : null;
-                      const methodColor: Record<string, string> = {
-                        GET: "bg-blue-500/15 text-blue-400",
-                        POST: "bg-green-500/15 text-green-400",
-                        PUT: "bg-amber-500/15 text-amber-400",
-                        PATCH: "bg-amber-500/15 text-amber-400",
-                        DELETE: "bg-red-500/15 text-red-400",
-                        ANY: "bg-surface-elevated text-muted",
-                      };
+                      const methodColor = httpMethodChip(method ?? "ANY");
                       return (
                         <div key={i} className="rounded border border-border p-2 text-xs">
                           <div className="flex items-center gap-2">
                             {method && (
-                              <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono font-bold text-[10px] ${methodColor[method] ?? "bg-surface-elevated text-muted"}`}>
+                              <span className={cn("shrink-0 font-mono font-bold text-[10px]", methodColor)}>
                                 {method}
                               </span>
                             )}
@@ -350,19 +341,11 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
                       const owaspId = String(entry.owasp_id ?? entry.owasp_category ?? entry.category ?? "");
                       const reqId = entry.requirement_id ? String(entry.requirement_id) : null;
                       const instruction = entry.instruction ?? entry.requirement ?? entry.control;
-                      // Color by OWASP category number — higher risk categories get warmer colors
-                      const owaspNum = parseInt(owaspId.match(/A(\d+)/)?.[1] ?? "0", 10);
-                      const owaspColor =
-                        [1, 2, 3, 8, 10].includes(owaspNum)
-                          ? "bg-red-500/15 text-red-400 border-red-500/20"
-                          : [4, 5, 6, 7].includes(owaspNum)
-                            ? "bg-amber-500/15 text-amber-400 border-amber-500/20"
-                            : "bg-blue-500/15 text-blue-400 border-blue-500/20";
                       return (
                         <div key={i} className="rounded border border-border p-2 text-xs">
                           <div className="flex items-center gap-2">
                             {owaspId ? (
-                              <span className={`shrink-0 rounded border px-1.5 py-0.5 font-mono font-bold text-[10px] ${owaspColor}`}>
+                              <span className={cn("shrink-0 font-mono font-bold text-[10px]", owaspChip(owaspId))}>
                                 {owaspId}
                               </span>
                             ) : null}
@@ -383,21 +366,7 @@ export function ReportTab({ runId, storyTitle }: ReportTabProps) {
       )}
 
       {artifact.drift_report && (
-        <Card>
-          <CardHeader><CardTitle>Drift report</CardTitle></CardHeader>
-          <CardContent className="flex flex-wrap gap-6 text-sm">
-            {Object.entries(
-              ((artifact.drift_report as { summary?: Record<string, number> }).summary ?? artifact.drift_report) as Record<string, unknown>,
-            ).map(([k, v]) =>
-              typeof v === "number" ? (
-                <div key={k}>
-                  <p className="text-xs uppercase tracking-wide text-muted">{k.replace(/_/g, " ")}</p>
-                  <p className="text-lg font-semibold">{v}</p>
-                </div>
-              ) : null,
-            )}
-          </CardContent>
-        </Card>
+        <DriftReportPanel drift={artifact.drift_report as DriftReport} />
       )}
     </div>
   );

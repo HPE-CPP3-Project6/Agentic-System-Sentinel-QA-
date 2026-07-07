@@ -169,13 +169,33 @@ export const mockArtifact: ProjectState = {
     },
   ],
   drift_report: {
+    headline: {
+      status: "aligned",
+      message: "All 3 PRE_CODE risk prediction(s) confirmed in POST_CODE with no exploited vulnerabilities.",
+    },
     summary: {
       predicted: 3,
       confirmed_in_phase2: 3,
       missed_in_phase2: 0,
       new_in_phase2_only: 0,
+      exploited: 0,
+      checklist_total: 2,
+      checklist_addressed: 2,
+      checklist_items_ignored: 0,
     },
+    predicted_risks_full: ["A01:2021", "A03:2021", "A04:2021"],
+    phase2_risks_full: ["A01:2021", "A03:2021", "A04:2021"],
     confirmed_risks: ["A01", "A03", "A04"],
+    confirmed_checklist_items: [
+      {
+        owasp_id: "A01:2021",
+        requirement_id: "REQ-001",
+        instruction: "Filter all task results by authenticated user ID.",
+        definition_of_done: "User A cannot retrieve User B's tasks.",
+        verdict: "ADDRESSED — risk confirmed and not exploited in Phase 2",
+      },
+    ],
+    ignored_checklist_items: [],
   },
   sast_summary: {
     tool: "bandit",

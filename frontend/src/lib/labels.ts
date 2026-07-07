@@ -277,3 +277,81 @@ export const FIELD_LABELS: Record<string, LabelMeta> = {
     blurb: "Was the test suite meaningful? Only trust it when the run is valid.",
   },
 };
+
+// ── OWASP Top 10 (2021) short ids ────────────────────────────────────────────
+
+const OWASP_TOP10: Record<string, LabelMeta> = {
+  A01: { label: "Broken Access Control", blurb: "Users acting outside their intended permissions." },
+  A02: { label: "Cryptographic Failures", blurb: "Weak or missing protection of sensitive data in transit or at rest." },
+  A03: { label: "Injection", blurb: "Untrusted data sent to an interpreter (SQL, OS, LDAP, etc.)." },
+  A04: { label: "Insecure Design", blurb: "Missing or ineffective control design — threats not mitigated by architecture." },
+  A05: { label: "Security Misconfiguration", blurb: "Unsafe defaults, open cloud storage, verbose errors, etc." },
+  A06: { label: "Vulnerable Components", blurb: "Outdated or vulnerable libraries and dependencies." },
+  A07: { label: "Identification & Auth Failures", blurb: "Broken authentication, session, or credential handling." },
+  A08: { label: "Software & Data Integrity", blurb: "CI/CD or update pipeline without integrity verification." },
+  A09: { label: "Security Logging Failures", blurb: "Insufficient logging, monitoring, and incident response." },
+  A10: { label: "Server-Side Request Forgery", blurb: "Server fetches a remote resource from a user-supplied URL." },
+};
+
+/** Resolve OWASP id (A01, A01:2021, …) to a display label + blurb. */
+export function owaspLabel(id?: string | null): LabelMeta {
+  if (!id) return { label: "Unknown", blurb: "" };
+  const short = id.split(":")[0].trim().toUpperCase();
+  return OWASP_TOP10[short] ?? { label: humanize(short), blurb: "" };
+}
+
+// ── Drift report (PRE_CODE vs POST_CODE) ─────────────────────────────────────
+
+export const DRIFT_HEADLINE_LABELS: Record<string, LabelMeta> = {
+  aligned: {
+    label: "Shift-left aligned",
+    blurb: "PRE_CODE predictions match what POST_CODE execution confirmed.",
+  },
+  partial: {
+    label: "Partial alignment",
+    blurb: "Some predicted risks were missed or new risks appeared in POST_CODE.",
+  },
+  exploited: {
+    label: "Predicted risks exploited",
+    blurb: "A PRE_CODE risk was confirmed vulnerable in POST_CODE, or checklist items were ignored.",
+  },
+  no_prediction: {
+    label: "No PRE_CODE risks",
+    blurb: "Phase 1 did not predict any OWASP categories for this story.",
+  },
+};
+
+export const DRIFT_METRIC_LABELS: Record<string, LabelMeta> = {
+  predicted: {
+    label: "Predicted risks",
+    blurb: "OWASP categories flagged during PRE_CODE design.",
+  },
+  confirmed_in_phase2: {
+    label: "Confirmed in POST_CODE",
+    blurb: "Predicted risks that POST_CODE tests also surfaced.",
+  },
+  missed_in_phase2: {
+    label: "Not seen in POST_CODE",
+    blurb: "Predicted in PRE_CODE but absent from POST_CODE risk list.",
+  },
+  new_in_phase2_only: {
+    label: "New in POST_CODE",
+    blurb: "Risks found in execution that PRE_CODE did not predict.",
+  },
+  exploited: {
+    label: "Exploited",
+    blurb: "Predicted risks where adversarial tests found a vulnerability.",
+  },
+  checklist_total: {
+    label: "Checklist items",
+    blurb: "Shift-left security checklist items from PRE_CODE.",
+  },
+  checklist_addressed: {
+    label: "Checklist addressed",
+    blurb: "Checklist items whose OWASP category was confirmed but not exploited.",
+  },
+  checklist_items_ignored: {
+    label: "Checklist ignored",
+    blurb: "Checklist items whose OWASP category was successfully exploited.",
+  },
+};

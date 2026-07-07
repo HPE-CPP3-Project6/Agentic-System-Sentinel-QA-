@@ -101,6 +101,8 @@ def test_confirmed_and_exploited_matches_across_id_shapes():
     assert drift["confirmed_and_exploited"] == ["A03"]
     assert drift["summary"]["exploited"] == 1
     assert drift["summary"]["confirmed_in_phase2"] == 2
+    assert drift["headline"]["status"] == "exploited"
+    assert drift["predicted_risks_full"] == ["A03:2021", "A04:2021"]
 
 
 def test_predicted_risk_not_in_phase2_lands_in_missed():
@@ -192,3 +194,6 @@ def test_no_exploits_clears_confirmed_and_exploited():
     assert drift["ignored_checklist_items"] == []
     assert drift["summary"]["exploited"] == 0
     assert drift["summary"]["checklist_items_ignored"] == 0
+    assert drift["summary"]["checklist_addressed"] == 1
+    assert len(drift["confirmed_checklist_items"]) == 1
+    assert drift["headline"]["status"] == "aligned"
