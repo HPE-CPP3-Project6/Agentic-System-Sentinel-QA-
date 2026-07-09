@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { createHighlighter, type Highlighter } from "shiki";
 import { useUiStore } from "@/stores/uiStore";
+import { cn } from "@/lib/cn";
 
 interface CodePanelProps {
   code: string;
   lang?: string;
+  /** Extra classes (e.g. a tighter `max-h-*`) merged over the defaults. */
+  className?: string;
 }
 
 let highlighterPromise: Promise<Highlighter> | null = null;
@@ -25,7 +28,7 @@ function panelSurfaceClasses(isDark: boolean) {
     : "bg-code-panel-bg text-foreground";
 }
 
-export function CodePanel({ code, lang = "python" }: CodePanelProps) {
+export function CodePanel({ code, lang = "python", className }: CodePanelProps) {
   const theme = useUiStore((s) => s.theme);
   const isDark = theme === "dark";
   const [html, setHtml] = useState<string>("");
@@ -58,7 +61,11 @@ export function CodePanel({ code, lang = "python" }: CodePanelProps) {
   if (loading) {
     return (
       <pre
-        className={`min-w-0 max-w-full overflow-x-auto p-4 font-mono text-xs ${surface}`}
+        className={cn(
+          "min-w-0 max-w-full overflow-x-auto border border-border p-4 font-mono text-xs",
+          surface,
+          className,
+        )}
       >
         {code}
       </pre>
@@ -67,7 +74,11 @@ export function CodePanel({ code, lang = "python" }: CodePanelProps) {
 
   return (
     <div
-      className={`code-panel max-h-[65vh] w-full min-w-0 max-w-full overflow-x-auto overflow-y-auto border border-border text-xs [&_pre]:!bg-transparent [&_pre]:p-4 [&_pre]:font-mono ${surface}`}
+      className={cn(
+        "code-panel max-h-[65vh] w-full min-w-0 max-w-full overflow-x-auto overflow-y-auto border border-border text-xs [&_pre]:!bg-transparent [&_pre]:p-4 [&_pre]:font-mono",
+        surface,
+        className,
+      )}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

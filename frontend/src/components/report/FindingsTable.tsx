@@ -49,11 +49,65 @@ const FINDINGS_SORT: Accessors<VerdictRecord> = {
 
 type Filter = "all" | "issues" | "adversarial" | "passed";
 
+/** Evidence is often a long pytest assertion excerpt. Wrap it (never clip to a
+ *  single line) and clamp to 3 lines with an inline expander so a reviewer can
+ *  read the whole thing without a horizontal scroll. */
+const EVIDENCE_CLAMP_CHARS = 150;
+
+function EvidenceCell({
+  id,
+  text,
+  mono,
+  open,
+  onToggle,
+}: {
+  id: string;
+  text: string;
+  mono: boolean;
+  open: boolean;
+  onToggle: (id: string) => void;
+}) {
+  if (!text) return <span>—</span>;
+  const isLong = text.length > EVIDENCE_CLAMP_CHARS;
+  return (
+    <div className="max-w-md">
+      <span
+        className={cn(
+          "block whitespace-pre-wrap wrap-break-word text-[10px] leading-relaxed",
+          mono && "font-mono",
+          !open && isLong && "line-clamp-3",
+        )}
+      >
+        {text}
+      </span>
+      {isLong && (
+        <button
+          type="button"
+          onClick={() => onToggle(id)}
+          className="mt-1 text-[10px] font-medium text-primary hover:underline"
+        >
+          {open ? "Show less" : "Show more"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [openEvidence, setOpenEvidence] = useState<Set<string>>(() => new Set());
   const rows = logs ?? [];
+
+  function toggleEvidence(id: string) {
+    setOpenEvidence((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const counts = useMemo(() => {
     return {
@@ -241,13 +295,13 @@ export function FindingsTable({ logs }: { logs?: VerdictRecord[] | null }) {
                     )}
                   </td>
                   <td className="px-3 py-2 text-muted">
-                    {r.stderr_excerpt ? (
-                      <code className="block max-w-md truncate font-mono text-[10px]">{r.stderr_excerpt}</code>
-                    ) : r.verdict_evidence && r.verdict_evidence.length > 0 ? (
-                      <span className="text-[10px]">{r.verdict_evidence.join("; ")}</span>
-                    ) : (
-                      <span>—</span>
-                    )}
+                    <EvidenceCell
+                      id={r.test_id}
+                      text={r.stderr_excerpt ?? (r.verdict_evidence ?? []).join("; ")}
+                      mono={Boolean(r.stderr_excerpt)}
+                      open={openEvidence.has(r.test_id)}
+                      onToggle={toggleEvidence}
+                    />
                   </td>
                 </tr>
               ))}
