@@ -20,7 +20,6 @@ from __future__ import annotations
 import copy
 import json
 import logging
-import os
 import py_compile
 import re
 from datetime import datetime, timezone
@@ -30,6 +29,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from jinja2 import Environment, FileSystemLoader
 from langchain_core.prompts import ChatPromptTemplate
 
+from config import get_settings
 from state import ProjectState, SecurityRisk, SecurityChecklistItem, SurfaceBinding, TestCase
 from utils import (
     LLMInvocationError,
@@ -153,14 +153,14 @@ def _call_llm_for_checklist_items(
 # ---------------------------------------------------------------------------
 
 def _workspace_root() -> Path:
-    raw = os.getenv("SENTINEL_WORKSPACE_ROOT", "").strip()
+    raw = (get_settings().sentinel_workspace_root or "").strip()
     if raw:
         return Path(raw).expanduser().resolve()
     return (_BACKEND_ROOT / "workspace").resolve()
 
 
 def _max_tests_per_file() -> int:
-    raw = os.getenv("SENTINEL_COMPILER_MAX_TESTS_PER_FILE", "80")
+    raw = get_settings().sentinel_compiler_max_tests_per_file
     try:
         return max(1, min(500, int(raw)))
     except ValueError:
@@ -170,7 +170,7 @@ def _max_tests_per_file() -> int:
 def _max_adversarial() -> int:
     """Cap adversarial rows before extend (matches .env.example SENTINEL_COMPILER_MAX_ADVERSARIAL)."""
 
-    raw = os.getenv("SENTINEL_COMPILER_MAX_ADVERSARIAL", "200")
+    raw = get_settings().sentinel_compiler_max_adversarial
     try:
         return max(1, min(10_000, int(raw)))
     except ValueError:
@@ -636,7 +636,7 @@ def _materialize_pytest_workspace(state: ProjectState) -> None:
                     repeat_count = 1
         # Hard cap so a Generator hallucinating _repeat=1000000 doesn't
         # take a Cloud Run Job's full timeout budget.
-        repeat_cap_env = os.getenv("SENTINEL_PYTEST_REPEAT_CAP", "200")
+        repeat_cap_env = get_settings().sentinel_pytest_repeat_cap
         try:
             repeat_cap = max(1, int(repeat_cap_env))
         except ValueError:

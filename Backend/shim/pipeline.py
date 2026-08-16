@@ -15,6 +15,7 @@ from agents import (
     surface_resolver_node,
 )
 from bootstrap import configure_caches
+from config import get_settings
 from database.vector_store import DEFAULT_PERSIST_DIR
 from phase_bridge import generate_drift_report, load_phase1, save_phase1
 from shim.artifact import state_to_artifact
@@ -58,7 +59,7 @@ def _initial_state(story: StoryRow, mode: str) -> ProjectState:
         module="api",
         pipeline_mode=mode.upper(),
     )
-    max_heal = os.getenv("SENTINEL_MAX_HEAL")
+    max_heal = get_settings().sentinel_max_heal
     if max_heal is not None:
         try:
             state.max_heal_attempts = max(0, int(max_heal))
@@ -209,7 +210,7 @@ def _finalize_post_code(state: ProjectState) -> ProjectState:
     except Exception as exc:
         state.metadata["phase_bridge_error"] = f"{type(exc).__name__}: {exc}"
 
-    if os.getenv("SENTINEL_SAST", "1").strip().lower() not in ("0", "false", "no"):
+    if get_settings().sentinel_sast:
         try:
             from tools.sast_scan import run_sast_scan
 
@@ -363,7 +364,7 @@ def check_chroma_ok() -> bool:
 def check_target_app_ok() -> bool:
     import httpx
 
-    base = os.getenv("SENTINEL_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+    base = get_settings().sentinel_base_url.rstrip("/")
     try:
         r = httpx.get(f"{base}/health", timeout=3.0)
         return r.status_code < 500

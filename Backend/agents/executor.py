@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import time
 import traceback
@@ -38,6 +37,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from langchain_core.prompts import ChatPromptTemplate
 
 from agents.suite_summary import build_test_suite_summary
+from config import get_settings
 from database import query_source_context
 from state import (
     ExecutionLog,
@@ -113,7 +113,7 @@ _DEFAULT_REPEAT_CAP = 2000
 
 
 def _repeat_cap() -> int:
-    raw = os.getenv("SENTINEL_REPEAT_CAP")
+    raw = get_settings().sentinel_repeat_cap
     if not raw:
         return _DEFAULT_REPEAT_CAP
     try:
@@ -1127,11 +1127,7 @@ def executor_node(
     paths = list(state.metadata.get("security_compiler_generated_files") or [])
     py_candidates = [Path(p) for p in reversed(paths) if str(p).endswith(".py")]
     py_file = next((p for p in py_candidates if p.is_file()), None)
-    run_pytest = os.getenv("SENTINEL_EXECUTOR_RUN_PYTEST", "1").strip().lower() not in (
-        "0",
-        "false",
-        "no",
-    )
+    run_pytest = get_settings().sentinel_executor_run_pytest
 
     if py_file and run_pytest and state.test_suite:
         from .pytest_runner import run_pytest_generated_file

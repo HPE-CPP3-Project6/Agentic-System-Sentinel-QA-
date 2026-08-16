@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, Iterator, List, Optional, Tuple
 
 from bootstrap import configure_caches
+from config import get_settings
 
 _CHROMA_HOME = configure_caches()
 
@@ -35,14 +36,9 @@ from sentence_transformers import SentenceTransformer  # noqa: E402
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_PERSIST_DIR = os.getenv(
-    "CHROMA_PERSIST_DIR",
-    os.getenv("SENTINEL_CHROMA_DIR", "./chroma_data"),
-)
-DEFAULT_COLLECTION = os.getenv("CHROMA_COLLECTION_NAME", "code_sources")
-EMBEDDING_MODEL = os.getenv(
-    "SENTINEL_EMBEDDING_MODEL", "jinaai/jina-embeddings-v2-base-code"
-)
+DEFAULT_PERSIST_DIR = get_settings().chroma_persist_dir or get_settings().sentinel_chroma_dir
+DEFAULT_COLLECTION = get_settings().chroma_collection_name
+EMBEDDING_MODEL = get_settings().sentinel_embedding_model
 
 
 class RagMode(str, enum.Enum):
@@ -81,7 +77,7 @@ def resolve_rag_mode() -> RagMode:
     fall back to STANDARD as well — we'd rather a new dev get a slow
     but correct first run than a fast but lying one.
     """
-    raw = os.getenv("SENTINEL_RAG_MODE", "").strip().lower()
+    raw = get_settings().sentinel_rag_mode.strip().lower()
     if not raw:
         return RagMode.STANDARD
     try:
@@ -434,8 +430,8 @@ class JinaCodeEmbeddingFunction(EmbeddingFunction):
     # the sequence length so the peak attention tensor stays in the
     # low-GB range. 2048 tokens is ~400 lines of code — enough for an
     # entire React component or Python class in practice.
-    MAX_SEQ_LENGTH = int(os.getenv("SENTINEL_EMBED_MAX_SEQ", "2048"))
-    ENCODE_BATCH_SIZE = int(os.getenv("SENTINEL_EMBED_BATCH_SIZE", "8"))
+    MAX_SEQ_LENGTH = get_settings().sentinel_embed_max_seq
+    ENCODE_BATCH_SIZE = get_settings().sentinel_embed_batch_size
 
     def __init__(self) -> None:
         os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", _CHROMA_HOME)

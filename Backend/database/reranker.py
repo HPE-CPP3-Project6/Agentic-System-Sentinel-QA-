@@ -28,27 +28,23 @@ issues.
 from __future__ import annotations
 
 import logging
-import os
 from typing import List, Optional, Sequence
 
 from bootstrap import configure_caches
+from config import get_settings
 
 _CACHE_DIR = configure_caches()
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_RERANKER_MODEL = os.getenv(
-    "SENTINEL_RERANKER_MODEL",
-    "jinaai/jina-reranker-v2-base-multilingual",
-)
+DEFAULT_RERANKER_MODEL = get_settings().sentinel_reranker_model
 
-DEFAULT_OVERFETCH_RATIO = int(os.getenv("SENTINEL_RERANKER_OVERFETCH", "3"))
+DEFAULT_OVERFETCH_RATIO = get_settings().sentinel_reranker_overfetch
 
 
 def is_reranker_enabled() -> bool:
     """Check the feature flag. Default OFF so cold starts do not auto-download."""
-    raw = os.getenv("SENTINEL_RERANKER_ENABLED", "").strip().lower()
-    return raw in ("1", "true", "yes", "on")
+    return get_settings().sentinel_reranker_enabled
 
 
 class CrossEncoderReranker:

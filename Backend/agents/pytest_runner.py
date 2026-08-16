@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from config import get_settings
 from state import ExecutionLog, SurfaceBinding, TestCase, _legacy_fields_from_verdict
 
 from ._paths import _paths_match_any
@@ -575,7 +576,7 @@ def run_pytest_generated_file(
 
     work_cwd = cwd or BACKEND_ROOT
     if timeout_sec is None:
-        timeout_sec = int(os.getenv("SENTINEL_PYTEST_TIMEOUT_SEC", "900"))
+        timeout_sec = get_settings().sentinel_pytest_timeout_sec
 
     tmp_dir = Path(tempfile.mkdtemp(prefix="sentinel_junit_"))
     junit_path = tmp_dir / "junit.xml"

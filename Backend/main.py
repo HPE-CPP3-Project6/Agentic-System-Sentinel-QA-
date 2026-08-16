@@ -22,7 +22,6 @@ import argparse
 import datetime as _dt
 import json
 import logging
-import os
 import sys
 from pathlib import Path
 
@@ -56,6 +55,7 @@ from agents import (  # noqa: E402
     executor_node,
     needs_healing,
 )
+from config import get_settings  # noqa: E402
 from phase_bridge import generate_drift_report, load_phase1, save_phase1  # noqa: E402
 from samples import SAMPLE_STORIES  # noqa: E402
 from state import ProjectState  # noqa: E402
@@ -104,7 +104,7 @@ def main(story_key: str = "taskshare", mode: str = "post_code") -> ProjectState:
     # Demo/CI knob — cap heal cycles. The heal loop re-embeds RAG context on
     # CPU per failing test, so a large suite can take 15-40 min. Set
     # SENTINEL_MAX_HEAL=1 (or 0) for fast demo/smoke runs. Default unchanged (2).
-    _max_heal = os.getenv("SENTINEL_MAX_HEAL")
+    _max_heal = get_settings().sentinel_max_heal
     if _max_heal is not None:
         try:
             initial.max_heal_attempts = max(0, int(_max_heal))
@@ -174,7 +174,7 @@ def main(story_key: str = "taskshare", mode: str = "post_code") -> ProjectState:
     # into security_posture, never healed. Disable with SENTINEL_SAST=0.
     if (
         final_state.pipeline_mode == "POST_CODE"
-        and os.getenv("SENTINEL_SAST", "1").strip().lower() not in ("0", "false", "no")
+        and get_settings().sentinel_sast
     ):
         try:
             from tools.sast_scan import run_sast_scan

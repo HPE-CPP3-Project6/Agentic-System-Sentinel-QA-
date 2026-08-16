@@ -26,13 +26,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from langchain_core.prompts import ChatPromptTemplate
 
+from config import get_settings
 from database import (
     RouteIntent,
     SourceSnippet,
@@ -1267,7 +1267,7 @@ def _resolve_repo_roots() -> List[Path]:
     """
     here = Path(__file__).resolve().parent.parent
     candidates: List[Path] = []
-    env_root = os.getenv("SENTINEL_REPO_ROOT", "").strip()
+    env_root = (get_settings().sentinel_repo_root or "").strip()
     if env_root:
         candidates.append(Path(env_root))
     candidates.extend([

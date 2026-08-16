@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any, Dict, List
 
 from langchain_core.prompts import ChatPromptTemplate
 
+from config import get_settings
 from state import ProjectState, SecurityRisk, ValidatedRequirement
 from utils import (
     LLMInvocationError,
@@ -206,8 +206,8 @@ def critic_node(state: ProjectState) -> ProjectState:
     llm = get_local_llm(
         temperature=0.0,
         json_mode=True,
-        model=os.getenv("SENTINEL_LLM_MODEL"),  # Allow override
-        location=os.getenv("VERTEX_AI_LOCATION"),  # Allow override
+        model=get_settings().sentinel_llm_model,  # centralized config
+        location=get_settings().vertex_ai_location,  # centralized config
         seed=42,
     )
     prompt = ChatPromptTemplate.from_messages(

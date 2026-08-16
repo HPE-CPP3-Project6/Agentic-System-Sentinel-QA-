@@ -3,7 +3,6 @@ from __future__ import annotations
 import csv
 import io
 import json
-import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -13,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
+from config import get_settings
 from shim.errors import api_error
 from shim.pipeline import (
     _artifact_path,
@@ -37,7 +37,7 @@ _lock = threading.Lock()
 _running_jobs: set[str] = set()
 # Each run is a full LLM pipeline (Vertex AI billing + CPU embedding work).
 # Without a cap, N stories started together = N concurrent pipelines.
-_MAX_CONCURRENT_RUNS = max(1, int(os.getenv("SENTINEL_SHIM_MAX_CONCURRENT_RUNS", "2")))
+_MAX_CONCURRENT_RUNS = max(1, get_settings().sentinel_shim_max_concurrent_runs)
 _run_slots = threading.Semaphore(_MAX_CONCURRENT_RUNS)
 _MAX_BULK_UPLOAD_BYTES = 10 * 1024 * 1024
 

@@ -10,7 +10,6 @@ Authentication:
 from __future__ import annotations
 
 import logging
-import os
 import random
 import time
 from typing import Any, Callable, Tuple, Type
@@ -18,6 +17,8 @@ from typing import Any, Callable, Tuple, Type
 from dotenv import load_dotenv
 from langchain_google_vertexai import ChatVertexAI
 import vertexai
+
+from config import get_settings
 
 try:
     from google.api_core import exceptions as google_exceptions
@@ -100,8 +101,9 @@ def get_local_llm(
         location: Vertex AI only — overrides VERTEX_AI_LOCATION.
         seed: fixed decoding seed for reproducibility. Pass None to disable.
     """
-    provider = os.getenv("LLM_PROVIDER", "").strip().lower()
-    model_name = model or os.getenv("SENTINEL_LLM_MODEL", "gemini-2.0-flash")
+    settings = get_settings()
+    provider = settings.llm_provider.strip().lower()
+    model_name = model or settings.sentinel_llm_model
 
     if provider == "gemini":
         # ── Google AI Studio path ──────────────────────────────────────────
@@ -113,7 +115,7 @@ def get_local_llm(
                 "Run: pip install langchain-google-genai"
             ) from e
 
-        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        api_key = settings.gemini_api_key.strip()
         if not api_key:
             raise RuntimeError(
                 "GEMINI_API_KEY is not set. Add it to your .env file."
@@ -134,7 +136,7 @@ def get_local_llm(
 
     else:
         # ── Vertex AI path (unchanged) ─────────────────────────────────────
-        project_id = os.getenv("VERTEX_AI_PROJECT_ID", "").strip()
+        project_id = settings.vertex_ai_project_id.strip()
         if not project_id:
             raise RuntimeError(
                 "VERTEX_AI_PROJECT_ID is not set. Configure it in the environment "
@@ -142,7 +144,7 @@ def get_local_llm(
                 "check exists so a misconfigured run cannot bill an unrelated GCP "
                 "project."
             )
-        location = location or os.getenv("VERTEX_AI_LOCATION", "us-central1")
+        location = location or settings.vertex_ai_location
         vertexai.init(project=project_id, location=location)
 
         kwargs = {
