@@ -17,6 +17,15 @@ from agents import (
 from bootstrap import configure_caches
 from config import get_settings
 from database.vector_store import DEFAULT_PERSIST_DIR
+from metrics import (
+    NODE_DURATION,
+    RESILIENCE_PCT,
+    RUN_DURATION,
+    RUN_FAILURES_TOTAL,
+    RUNS_IN_PROGRESS,
+    RUNS_TOTAL,
+    VERDICTS_TOTAL,
+)
 from obs import set_run_id
 from phase_bridge import generate_drift_report, load_phase1, save_phase1
 from shim.artifact import state_to_artifact
@@ -152,6 +161,7 @@ def _run_executor_with_heal(state: ProjectState, hub: WsHub, run_id: str) -> Pro
         hub.emit(run_id, "phase_started", phase="executor", index=5, total=5)
         t0 = time.time()
         state = _coerce_state(executor_node(state))
+        NODE_DURATION.labels(node="executor").observe(time.time() - t0)
         hub.emit(
             run_id,
             "phase_completed",
@@ -184,6 +194,7 @@ def _run_executor_with_heal(state: ProjectState, hub: WsHub, run_id: str) -> Pro
                 hub.emit(run_id, "phase_started", phase=phase, index=NODE_ORDER.index(phase) + 1, total=5)
                 t1 = time.time()
                 state = _coerce_state(NODE_FUNCS[phase](state))
+                NODE_DURATION.labels(node=phase).observe(time.time() - t1)
                 hub.emit(
                     run_id,
                     "phase_completed",
@@ -267,6 +278,8 @@ def execute_run(store: Store, hub: WsHub, run_id: str) -> None:
         return
 
     store.update_run(run_id, status="running")
+    RUNS_IN_PROGRESS.inc()
+    run_t0 = time.time()
     try:
         state = load_state(run) or _initial_state(story, run.mode)
         stop = _resolve_stop(run.stop_after)
@@ -288,6 +301,7 @@ def execute_run(store: Store, hub: WsHub, run_id: str) -> None:
                 for binding in state.surface_map.values():
                     key = binding.state
                     summary[key] = summary.get(key, 0) + 1
+            NODE_DURATION.labels(node=phase).observe(time.time() - t0)
             hub.emit(
                 run_id,
                 "phase_completed",
@@ -335,6 +349,12 @@ def execute_run(store: Store, hub: WsHub, run_id: str) -> None:
             suite_quality=art.get("coverage_quality") or art.get("suite_quality"),
             resilience_pct=posture.get("resilience_pct"),
         )
+        RUNS_TOTAL.labels(mode=run.mode, status="completed").inc()
+        RUN_DURATION.labels(mode=run.mode).observe(time.time() - run_t0)
+        if posture.get("resilience_pct") is not None:
+            RESILIENCE_PCT.set(posture["resilience_pct"])
+        for log in state.logs:
+            VERDICTS_TOTAL.labels(verdict=getattr(log, "verdict", "n/a") or "n/a").inc()
     except Exception as exc:
         code = _classify_run_error(exc)
         message = f"{type(exc).__name__}: {exc}"
@@ -352,6 +372,10 @@ def execute_run(store: Store, hub: WsHub, run_id: str) -> None:
             phase=run.current_phase or "critic",
             message=message,
         )
+        RUNS_TOTAL.labels(mode=run.mode, status="failed").inc()
+        RUN_FAILURES_TOTAL.labels(error_code=code).inc()
+    finally:
+        RUNS_IN_PROGRESS.dec()
 
 
 def check_chroma_ok() -> bool:

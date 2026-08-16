@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
+from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel, Field
 
 from config import get_settings
@@ -60,6 +61,10 @@ app.add_middleware(
 
 logger = logging.getLogger("sentinel.shim")
 configure_logging()
+
+# Prometheus: auto /metrics endpoint + HTTP RED metrics (request count/latency),
+# and re-exposes the custom sentinel_* collectors declared in metrics.py.
+Instrumentator().instrument(app).expose(app, endpoint="/metrics", include_in_schema=False)
 
 
 @app.middleware("http")

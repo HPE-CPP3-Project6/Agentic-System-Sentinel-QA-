@@ -44,7 +44,7 @@ ignore = [
 "agents/executor.py"  = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["agents", "bootstrap", "config", "database", "obs", "samples", "state", "utils"]
+known-first-party = ["agents", "bootstrap", "config", "database", "metrics", "obs", "samples", "state", "utils"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

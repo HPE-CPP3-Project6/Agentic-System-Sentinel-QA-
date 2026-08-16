@@ -19,6 +19,7 @@ from langchain_google_vertexai import ChatVertexAI
 import vertexai
 
 from config import get_settings
+from metrics import LLM_LATENCY, LLM_REQUESTS_TOTAL, LLM_TOKENS_TOTAL
 
 try:
     from google.api_core import exceptions as google_exceptions
@@ -45,6 +46,39 @@ class LLMInvocationError(RuntimeError):
         self.cause = cause
 
 
+def _record_usage(result: Any, model: str) -> None:
+    """Feed prompt/completion token counts to Prometheus if the response carries
+    ``usage_metadata`` (Vertex/Gemini responses do; the local-LLM test double
+    does not, so this is a silent no-op under test)."""
+    usage = getattr(result, "usage_metadata", None)
+    if not usage:
+        return
+    try:
+        prompt = usage.get("input_tokens") or usage.get("prompt_token_count")
+        completion = usage.get("output_tokens") or usage.get("candidates_token_count")
+        if prompt:
+            LLM_TOKENS_TOTAL.labels(model=model, kind="prompt").inc(prompt)
+        if completion:
+            LLM_TOKENS_TOTAL.labels(model=model, kind="completion").inc(completion)
+    except (AttributeError, TypeError):
+        pass
+
+
+def _timed_invoke(fn: Callable[..., Any], args: tuple, kwargs: dict) -> Any:
+    """Invoke fn once, recording latency, outcome, and token usage. Re-raises."""
+    model = get_settings().sentinel_llm_model
+    t0 = time.time()
+    try:
+        result = fn(*args, **kwargs)
+    except BaseException:
+        LLM_REQUESTS_TOTAL.labels(model=model, outcome="error").inc()
+        raise
+    LLM_LATENCY.labels(model=model).observe(time.time() - t0)
+    LLM_REQUESTS_TOTAL.labels(model=model, outcome="ok").inc()
+    _record_usage(result, model)
+    return result
+
+
 def invoke_with_retry(
     fn: Callable[..., Any],
     *args: Any,
@@ -55,12 +89,12 @@ def invoke_with_retry(
 ) -> Any:
     """Invoke fn(*args, **kwargs) with exponential backoff on transient errors."""
     if not _TRANSIENT_ERRORS:
-        return fn(*args, **kwargs)
+        return _timed_invoke(fn, args, kwargs)
 
     last_exc: BaseException | None = None
     for attempt in range(1, max_attempts + 1):
         try:
-            return fn(*args, **kwargs)
+            return _timed_invoke(fn, args, kwargs)
         except _TRANSIENT_ERRORS as exc:
             last_exc = exc
             if attempt >= max_attempts:

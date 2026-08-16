@@ -45,3 +45,5 @@ uvicorn[standard]>=0.30.0
 python-multipart>=0.0.9
 # Structured JSON logging for the shim (obs.py). Ready for Splunk/ELK/Datadog.
 python-json-logger>=2.0
+# Prometheus metrics endpoint (/metrics) + HTTP RED metrics for the shim.
+prometheus-fastapi-instrumentator>=7.0
