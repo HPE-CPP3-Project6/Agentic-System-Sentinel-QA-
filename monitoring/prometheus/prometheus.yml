@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - alerts.yml
+
+scrape_configs:
+  # The Sentinel-QA FastAPI shim runs on the host at :8080. Its /metrics
+  # endpoint is provided by prometheus-fastapi-instrumentator.
+  - job_name: sentinel-shim
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+
+  # Prometheus scraping itself (useful for sanity-checking the stack).
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
