@@ -3,16 +3,19 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 
 from config import get_settings
+from obs import configure_logging, new_request_id, set_request_id
 from shim.errors import api_error
 from shim.pipeline import (
     _artifact_path,
@@ -54,6 +57,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+logger = logging.getLogger("sentinel.shim")
+configure_logging()
+
+
+@app.middleware("http")
+async def _correlation_middleware(request: Request, call_next):
+    """Bind a per-request correlation id, emit a structured access log, and echo
+    the id back as ``X-Request-ID`` so a client can trace a call end-to-end."""
+    rid = request.headers.get("X-Request-ID") or new_request_id()
+    set_request_id(rid)
+    start = time.perf_counter()
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
+    logger.info(
+        "http_request",
+        extra={
+            "method": request.method,
+            "path": request.url.path,
+            "status": response.status_code,
+            "duration_ms": round((time.perf_counter() - start) * 1000, 1),
+        },
+    )
+    return response
 
 
 class StoryCreate(BaseModel):

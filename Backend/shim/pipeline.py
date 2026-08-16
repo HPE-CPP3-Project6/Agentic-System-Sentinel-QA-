@@ -17,6 +17,7 @@ from agents import (
 from bootstrap import configure_caches
 from config import get_settings
 from database.vector_store import DEFAULT_PERSIST_DIR
+from obs import set_run_id
 from phase_bridge import generate_drift_report, load_phase1, save_phase1
 from shim.artifact import state_to_artifact
 from shim.store import RunRow, Store, StoryRow
@@ -256,6 +257,7 @@ def _classify_run_error(exc: Exception) -> str:
 
 
 def execute_run(store: Store, hub: WsHub, run_id: str) -> None:
+    set_run_id(run_id)  # correlation id for every log line from this worker thread
     run = store.get_run(run_id)
     if not run:
         return
